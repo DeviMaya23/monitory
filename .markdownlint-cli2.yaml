@@ -1,0 +1,22 @@
+# markdownlint, run by `make lint-md`.
+config:
+  # Line length: prose and tables are not wrapped.
+  MD013: false
+  # Table column alignment: tables are written compact.
+  MD060: false
+  # The same heading may repeat under different parents (Frontend and Backend).
+  MD024:
+    siblings_only: true
+  # Placeholders such as <slug> are written in angle brackets.
+  MD033: false
+  # Bold lines are used as labels inside sections.
+  MD036: false
+globs:
+  - "**/*.md"
+ignores:
+  - "**/node_modules/**"
+  - "backend/internal/web/dist/**"
+  # Owned by the user; linted when the user says so.
+  - "docs/requirements.md"
+  # GitHub's pull request form starts at a second-level heading.
+  - ".github/pull_request_template.md"

@@ -1,0 +1,237 @@
+name: PR CI
+
+# Runs the same Makefile targets as `make check`, split by the paths a pull request touches,
+# plus the stale-generated-code check, the integration tests and the end-to-end smoke subset.
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      contract: ${{ steps.filter.outputs.contract }}
+      docs: ${{ steps.filter.outputs.docs }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+      e2e-suite: ${{ steps.suite.outputs.exists }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'docs/openapi.yaml'
+              - 'docker-compose.yml'
+              - 'Makefile'
+              - '.github/workflows/pr-ci.yml'
+            frontend:
+              - 'frontend/**'
+              - 'docs/openapi.yaml'
+              - 'Makefile'
+              - '.github/workflows/pr-ci.yml'
+            contract:
+              - 'docs/openapi.yaml'
+              - 'backend/internal/api/**'
+              - 'frontend/src/lib/api/**'
+              - 'redocly.yaml'
+              - '.redocly.lint-ignore.yaml'
+              - 'Makefile'
+              - '.github/workflows/pr-ci.yml'
+            docs:
+              - '**/*.md'
+              - 'scripts/**'
+              - '.markdownlint-cli2.yaml'
+              - 'Makefile'
+              - '.github/workflows/pr-ci.yml'
+            e2e:
+              - 'e2e/**'
+              - 'backend/**'
+              - 'frontend/**'
+              - 'docs/openapi.yaml'
+              - 'docker-compose.yml'
+              - 'Makefile'
+              - '.github/workflows/pr-ci.yml'
+
+      # The end-to-end suite arrives with the first milestone's last task.
+      - name: Detect the end-to-end suite
+        id: suite
+        run: |
+          if [ -f e2e/package.json ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+
+  backend-ci:
+    name: Backend CI
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          install-only: true
+
+      # gofmt check and golangci-lint, including the integration-tagged files.
+      - name: Lint
+        run: make lint-backend
+
+      # Builds against the committed placeholder page; the frontend is not needed.
+      - name: Build
+        run: make build-backend
+
+      - name: Unit and repository tests
+        run: make test-backend
+
+      # Email delivery against Mailpit, started by docker compose (TESTING.md).
+      - name: Integration tests
+        run: make test-integration
+
+  frontend-ci:
+    name: Frontend CI
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Lint
+        run: make lint-frontend
+
+      - name: Lint CSS
+        run: make lint-css
+
+      - name: Unit tests
+        run: make test-frontend
+
+      - name: Typecheck and build
+        run: make build-frontend
+
+  contract-ci:
+    name: OpenAPI contract
+    needs: detect-changes
+    if: needs.detect-changes.outputs.contract == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+
+      - name: Lint docs/openapi.yaml
+        run: make openapi-lint
+
+      # Fails if the committed generated Go and TypeScript code is stale.
+      - name: Generated code is up to date
+        run: make generate-check
+
+  docs-ci:
+    name: Markdown and scripts
+    needs: detect-changes
+    if: needs.detect-changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      # shellcheck is preinstalled on the runner.
+      - name: Lint shell scripts
+        run: make lint-shell
+
+      - name: Lint markdown
+        run: make lint-md
+
+  e2e-smoke:
+    name: End-to-end smoke
+    needs: detect-changes
+    # Skipped until the first milestone's last task adds the suite.
+    if: needs.detect-changes.outputs.e2e == 'true' && needs.detect-changes.outputs.e2e-suite == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Install end-to-end dependencies and Chromium
+        run: npm ci && npx playwright install --with-deps chromium
+        working-directory: e2e
+
+      # Builds the frontend into the binary, starts Mailpit, runs the @smoke journeys.
+      - name: Smoke journeys
+        run: make test-e2e-smoke

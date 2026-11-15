@@ -9,8 +9,8 @@ Kit: local clone at `~/Documents/GitHub/kickoff-kit` (`templates/`, `packs/go-re
 | Intake | requirements.md and openapi.yaml pass the strict checks | Done 2026-11-15 | Passed against requirements v0.44 and openapi 0.1.0 |
 | A | Stack and production map; concerns table answered; env contract; pack check (full, partial or no match, and which pack) | Done 2026-11-15 | `STACK.md`, `deploy/README.md`, `.env.example` confirmed. Pack check: partial match with go-react |
 | B | Design brief written, design produced, error table reconciled with the contract | Done 2026-11-15 | Design in `docs/design/` (read-only, rules in `docs/design/README.md`). Every mismatch row decided. Contract is 0.2.0 |
-| C | Reference docs written (STACK, ARCHITECTURE, CONVENTIONS, TESTING, ROLES, AGENTS) | Written 2026-11-15, waiting for the user to confirm | `ARCHITECTURE.md`, `CONVENTIONS.md`, `TESTING.md`, `ROLES.md`, `AGENTS.md` (`CLAUDE.md` links to it), `docs/tasks/` templates and prompts, `scripts/` |
-| D | Scaffold files: Makefile, CI, scripts, backlog coverage map | | |
+| C | Reference docs written (STACK, ARCHITECTURE, CONVENTIONS, TESTING, ROLES, AGENTS) | Done 2026-11-15 | `ARCHITECTURE.md`, `CONVENTIONS.md`, `TESTING.md`, `ROLES.md`, `AGENTS.md` (`CLAUDE.md` links to it), `docs/tasks/` templates and prompts, `scripts/`. The choices made without a question were confirmed with the files |
+| D | Scaffold files: Makefile, CI, scripts, backlog coverage map | Written 2026-11-15, waiting for the user to confirm the checklist | `Makefile`, `.github/workflows/pr-ci.yml`, `docker-compose.yml` (Mailpit), `.markdownlint-cli2.yaml`, `.gitignore`, `docs/tasks/backlog.md` (coverage map), `docs/manual-checks.md` |
 | E | Data model approved; foundation done (app runs locally, `make check` and CI green); walking-skeleton deploy live; first feature task drafted | | |
 
 ## Intake result
@@ -66,6 +66,14 @@ Advisory:
 - 2026-11-15, step C: end-to-end tests are written by the last task of each milestone; agents and CI run the Chromium smoke subset; the user runs the full suite.
 - 2026-11-15, step C: chosen by the skill without a question, for the user to confirm: frontend feature names and routes (`/services/new`, `/services/:serviceId`, `/services/:serviceId/alerts`); `memstore/` for in-memory state; the frontend builds into `backend/internal/web/dist/`; fixed limits (500, 50, 30 days, 5 failures, 15 minutes) are named constants; no lint-suppression comments; three extra decision boundaries in `AGENTS.md` (config keys, admin-facing text, undrawn screen states).
 - 2026-11-15, foundation risk: `docs/openapi.yaml` is OpenAPI 3.1 (type arrays with `'null'`, `const`). Check first thing in step E that oapi-codegen and the conformance validator accept it; if not, the user decides between another generator and rewriting those constructs.
+- 2026-11-15, step C: the user confirmed the step C files as written.
+- 2026-11-15, step D: `make check` is lint (gofmt, golangci-lint, ESLint, stylelint, shellcheck, markdownlint), contract lint, tests with the race detector, and both builds. Tools run through npx are pinned: Redocly 2.78.0, openapi-typescript 7.13.0, markdownlint-cli2 0.24.1. CI installs golangci-lint v2.15.0.
+- 2026-11-15, step D: CI keeps the pack's path-filtered jobs, each calling the Makefile targets, and adds a markdown-and-scripts job and an end-to-end smoke job that is skipped until `e2e/package.json` exists. Integration tests run in the backend job against Mailpit from `docker-compose.yml`.
+- 2026-11-15, step D: markdownlint has line length, table alignment, inline HTML and bold-as-heading turned off; `docs/requirements.md` (two blank-line findings, the user's file) and the pull request template are not linted.
+- 2026-11-15, step D: deployment pieces. Exists now: `docker-compose.yml` for Mailpit, `.env` loading through the Makefile. Built in step E: Dockerfile, `/health`, startup migrations, the config-key test, `frontend/.nvmrc` (CI reads the Node version from it), `backend/.golangci.yml`. Scheduled in the backlog: `fly.toml`, the release workflow, the first deploy.
+- 2026-11-15, step D: the kickoff session works on `main`, and the user commits there. Nothing is on GitHub yet: `scripts/status.sh` and CI need `main` pushed to `origin`. The first `triage.sh` run needs `--since <commit>`.
+- 2026-11-15, step D: contract 0.2.1: the `alertDelivery` webhook declares `security: []` (user decided). `redocly.yaml` turns off `info-license` and `tag-description`; `.redocly.lint-ignore.yaml` exempts `/health` from the 4xx rule. The contract lint is clean.
+- 2026-11-15, step D: GitHub repository set to squash merges only, with branches deleted on merge (user decided).
 
 ## Pack check
 
@@ -80,3 +88,9 @@ Partial match with `packs/go-react`.
 
 - Deployment pieces to build in the scaffold or foundation: Dockerfile (frontend stage, Go stage, embedded files), `fly.toml`, health endpoint at `/health`, env-file loading for local development, startup migrations, a check that every key the config code reads is in `.env.example`, docker compose for Mailpit.
 - The first production deploy has no deadline: the user is preparing Fly.io separately, using `deploy/README.md`. Step E.4 runs the skeleton locally (Docker image, volume, production-style values) until the user says the host is ready.
+
+## Open at step D
+
+- `shellcheck` is not installed on the user's machine (`brew install shellcheck`); `make lint-shell` says so until it is.
+- `deploy/README.md` names the real hostname and the repository is public.
+- Nothing is pushed to GitHub yet.

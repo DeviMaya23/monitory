@@ -1,6 +1,6 @@
 # Roles
 
-How the work divides between agent roles. Every agent also follows `AGENTS.md`, `CONVENTIONS.md` and the reference files that match its task. 
+How the work divides between agent roles. Every agent also follows `AGENTS.md`, `CONVENTIONS.md` and the reference files that match its task.
 
 ## The contract comes first
 

@@ -62,6 +62,7 @@ Decide the wording yourself. The agent's invented wording becomes a "judgment ca
 <!-- guidance: every criterion has a test, and the test must fail if the behavior is removed. Group by unit (screen, hook, operation). Include boundary cases and every failure above. State which tests are integration tests (written, not necessarily run by the agent). -->
 
 **Repo-wide**
+
 - `make check` passes.
 - Nothing outside the allowed paths changed.
 

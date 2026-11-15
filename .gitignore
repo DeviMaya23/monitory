@@ -1,2 +1,22 @@
 # macOS
 .DS_Store
+
+# Local configuration and data
+.env
+data/
+
+# Frontend
+node_modules/
+frontend/dist/
+# Built frontend, embedded by the Go binary. Only the placeholder is committed.
+backend/internal/web/dist/*
+!backend/internal/web/dist/index.html
+
+# Go
+backend/bin/
+*.test
+coverage.out
+
+# End-to-end
+e2e/test-results/
+e2e/playwright-report/

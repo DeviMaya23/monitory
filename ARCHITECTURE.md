@@ -6,7 +6,7 @@
 
 ### Directory structure
 
-```
+```text
 frontend/src/
   features/          ← feature-scoped code, one folder per UI area
     <feature>/
@@ -65,7 +65,7 @@ Request and response types are generated from `docs/openapi.yaml` into `src/lib/
 
 ### Directory structure
 
-```
+```text
 backend/
   cmd/
     server/          ← entry point: configuration and wiring only

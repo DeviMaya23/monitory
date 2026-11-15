@@ -1,0 +1,12 @@
+# Local development and tests only. Production runs the app's own image (deploy/README.md).
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # web UI and API
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 15

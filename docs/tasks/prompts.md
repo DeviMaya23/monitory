@@ -4,7 +4,7 @@ The prompt for each stage is a file in `docs/tasks/prompts/`. They are written f
 
 Start a stage with the launcher script, which fills in the placeholders and starts a session. Run it from the default branch, always: a session starts from the default branch as it is on GitHub, and the prompt tells the agent to move its own branch onto the one it continues from. You never check a builder or verifier branch out.
 
-```
+```sh
 bash scripts/stage.sh <stage> TASK=<slug> [NAME=value ...] [--dry-run]
 ```
 

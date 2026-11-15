@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Self-hosted uptime/status monitor API
-  version: 0.2.0
+  version: 0.2.1
   summary: HTTP contract for the admin interface, the public status view and the health endpoint.
   description: |
     Draft contract written against `requirements.md` v0.44.
@@ -602,6 +602,7 @@ webhooks:
         when the monitor cannot connect, when the receiver's certificate is rejected, on a timeout, or on any other
         status, including a redirect, which is not followed (FR-85, FR-115). A failed delivery is retried up to 3
         times, 30 seconds apart; after all attempts fail the target shows the "last delivery failed" notice (FR-86).
+      security: []
       requestBody:
         required: true
         content:

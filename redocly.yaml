@@ -1,0 +1,8 @@
+# Redocly lint configuration for docs/openapi.yaml (`make openapi-lint`).
+extends:
+  - recommended
+rules:
+  # No licence is declared for this API.
+  info-license: off
+  # Tags are names only.
+  tag-description: off
