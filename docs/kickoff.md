@@ -8,8 +8,8 @@ Kit: local clone at `~/Documents/GitHub/kickoff-kit` (`templates/`, `packs/go-re
 |---|---|---|---|
 | Intake | requirements.md and openapi.yaml pass the strict checks | Done 2026-11-15 | Passed against requirements v0.44 and openapi 0.1.0 |
 | A | Stack and production map; concerns table answered; env contract; pack check (full, partial or no match, and which pack) | Done 2026-11-15 | `STACK.md`, `deploy/README.md`, `.env.example` confirmed. Pack check: partial match with go-react |
-| B | Design brief written, design produced, error table reconciled with the contract | Decided 2026-11-15, waiting for the user to confirm | Design in `docs/design/` (read-only, rules in `docs/design/README.md`). Every mismatch row decided. Contract is 0.2.0 |
-| C | Reference docs written (STACK, ARCHITECTURE, CONVENTIONS, TESTING, ROLES, AGENTS) | | |
+| B | Design brief written, design produced, error table reconciled with the contract | Done 2026-11-15 | Design in `docs/design/` (read-only, rules in `docs/design/README.md`). Every mismatch row decided. Contract is 0.2.0 |
+| C | Reference docs written (STACK, ARCHITECTURE, CONVENTIONS, TESTING, ROLES, AGENTS) | Written 2026-11-15, waiting for the user to confirm | `ARCHITECTURE.md`, `CONVENTIONS.md`, `TESTING.md`, `ROLES.md`, `AGENTS.md` (`CLAUDE.md` links to it), `docs/tasks/` templates and prompts, `scripts/` |
 | D | Scaffold files: Makefile, CI, scripts, backlog coverage map | | |
 | E | Data model approved; foundation done (app runs locally, `make check` and CI green); walking-skeleton deploy live; first feature task drafted | | |
 
@@ -59,7 +59,13 @@ Advisory:
 - 2026-11-15, deploy preparation: Fly.io account and app created, admin credentials staged as secrets. Public address is a custom domain with DNS at Cloudflare. Region `syd`; hostname `monitory.evimay.me`; Cloudflare in DNS-only mode, so Fly.io's proxy is the only proxy. Open: SMTP provider, outside watcher.
 - 2026-11-15, step B: contract changed to 0.2.0: `Service` gains read-only `target_count` and `alert_delivery_failed`; `FieldError.message` is required and display-ready, stating the install's limit; field paths use dots with zero-based bracket indexes.
 - 2026-11-15, step B: built from the designer's additions: dark theme, inline confirm for removing a target, discard-unsaved-changes dialog. Not built: return to the previous screen after re-sign-in, restoring typed values after a session expires.
-- 2026-11-15, step B: counters and hints for configurable limits are not shown; the UI shows the server's field message. Pages: `/` dashboard, `/sign-in`, `/status` public with the fixed heading "Service status" (proposed by the skill, not yet confirmed by the user).
+- 2026-11-15, step B: counters and hints for configurable limits are not shown; the UI shows the server's field message. Pages: `/` dashboard, `/sign-in`, `/status` public with the fixed heading "Service status" (confirmed).
+- 2026-11-15, step B: open for step D: Redocly reports one error (`security-defined` on the `alertDelivery` webhook) and seven style warnings in `docs/openapi.yaml`; decide the fix or a lint config before `make check` exists.
+- 2026-11-15, step C: the background half lives in the pack's layers: thin `worker/` (scheduler, delivery loop), rules in `usecase/`, probes, mailer and webhook sender in `adaptor/`. The usecase tells the scheduler after the write commits; startup rebuilds all schedules.
+- 2026-11-15, step C: ids are UUIDv7. Logging is `log/slog`, JSON to stdout, with no request data, addresses or secrets.
+- 2026-11-15, step C: end-to-end tests are written by the last task of each milestone; agents and CI run the Chromium smoke subset; the user runs the full suite.
+- 2026-11-15, step C: chosen by the skill without a question, for the user to confirm: frontend feature names and routes (`/services/new`, `/services/:serviceId`, `/services/:serviceId/alerts`); `memstore/` for in-memory state; the frontend builds into `backend/internal/web/dist/`; fixed limits (500, 50, 30 days, 5 failures, 15 minutes) are named constants; no lint-suppression comments; three extra decision boundaries in `AGENTS.md` (config keys, admin-facing text, undrawn screen states).
+- 2026-11-15, foundation risk: `docs/openapi.yaml` is OpenAPI 3.1 (type arrays with `'null'`, `const`). Check first thing in step E that oapi-codegen and the conformance validator accept it; if not, the user decides between another generator and rewriting those constructs.
 
 ## Pack check
 
