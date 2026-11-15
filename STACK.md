@@ -1,0 +1,83 @@
+# Stack
+
+> Choices only: names and the version policy. No plans, wiring, procedures or status. How production is wired is in `deploy/README.md`; what a task adopts is recorded in that task, and the user adds the adopted version here after it merges. Bracketed references are the requirements a choice serves.
+
+## Version policy
+
+The drafter resolves the current stable version when a task adds a dependency, records it in the task, and the user approves it with the task. Only that task changes the manifest and lockfile. The `go` directive in `go.mod` changes only when the user asks.
+
+## Backend
+
+| Concern | Choice |
+|---|---|
+| Language | Go |
+| HTTP | Echo |
+| Database | SQLite, one file on the persistent volume [NFR-1]. The only data store |
+| Data access | GORM with a pure-Go SQLite driver (no cgo); raw SQL where the ORM hides a database feature |
+| Migrations | golang-migrate; numbered SQL pairs, embedded in the binary, applied at startup; no auto-migrate |
+| In-memory state | Sessions, failed sign-in counts, lockouts and rate-limit counters. Never stored [FR-114] |
+| API layer | oapi-codegen generates types and a strict server interface from `docs/openapi.yaml` |
+| Access model | Single account. Username and password from the deployment configuration [FR-101]. Session cookie `session` (`HttpOnly`, `SameSite=Strict`, `Secure` while "require HTTPS" is on) [FR-98]; CSRF token in the `X-CSRF-Token` header [NFR-8]. No identity provider |
+| Background scheduler | None, hand-rolled: in process, one goroutine and timer per service, behind an interface, with an injected clock [FR-10, NFR-6] |
+| Alert delivery worker | None, hand-rolled: in process and in memory, behind an interface, with an injected clock [FR-85, NFR-5]. No job queue |
+| Email | `wneessen/go-mail` over SMTP, behind an interface [FR-81, FR-85] |
+| Outbound HTTP and TCP to admin-supplied addresses | One check client and one webhook client in `pkg/`, the only way to make such requests. Private addresses are allowed (requirements section 6) |
+| Rate limiting | None, hand-rolled: fixed window per client address for the public view [FR-32], in memory, injected clock |
+| Sign-in lockout | None, hand-rolled: per account, in memory, injected clock [FR-2] |
+| Client address and scheme | `TRUST_PROXY` (off by default). When on: scheme from `X-Forwarded-Proto`; client address from the header named by `CLIENT_IP_HEADER` (default `X-Forwarded-For`, last entry) [FR-99] |
+| Configuration | Environment variables. Every limit the requirements mark "do not hardcode" is a key with the requirements' value as its default |
+| Tests | testify. Repository tests run against a real SQLite file in a temp directory. In-process stub servers for checked services and webhooks |
+
+## Frontend
+
+| Concern | Choice |
+|---|---|
+| UI | React, TypeScript, Vite |
+| Serving | The built files are embedded in the Go binary and served by it, same origin as the API |
+| Lint | ESLint with typescript-eslint |
+| CSS lint | stylelint with stylelint-config-recommended |
+| Tests | Vitest with Testing Library (jsdom) |
+| Data fetching | TanStack Query |
+| Routing | react-router, browser history |
+| Forms | react-hook-form. The server validates; its `422` field errors are mapped onto the fields. No client-side schema library |
+| Icons | Lucide, the only icon library |
+| Component primitives | Base UI, wrapped in `frontend/src/components/ui/`; only the wrappers import it. No other UI library and no hand-written replacement for anything it provides |
+| Styling | Plain CSS with design tokens |
+| API types | Generated from `docs/openapi.yaml` with openapi-typescript, types only, into `src/lib/api/schema.d.ts` |
+| Refresh interval | A named constant in one frontend config module [FR-95] |
+
+## Contract and tooling
+
+| Concern | Choice |
+|---|---|
+| Contract | `docs/openapi.yaml` (OpenAPI 3.1) is the source of truth |
+| Generated code | Committed. `make generate` regenerates; `make generate-check` fails if stale (CI) |
+| Task runner | Root `Makefile`; `make check` is what an agent runs before pushing |
+| OpenAPI lint | Redocly CLI |
+| Go lint | gofmt and golangci-lint |
+| Shell lint | shellcheck |
+| Markdown lint | markdownlint |
+| Not linted | Dockerfile, workflow YAML, SQL migrations, `fly.toml` |
+| Contract conformance | Handler responses and frontend mocks are validated against `docs/openapi.yaml` in tests |
+| Integration tests | Build tag `integration`: email delivery against Mailpit (Docker). `make test-integration` |
+| End-to-end tests | Playwright (Chromium, Firefox, WebKit) against the real binary with a temp SQLite file, Mailpit and a stub target server. A smoke subset runs in CI; the user runs the full suite at milestones |
+| CI | GitHub Actions: `make check`, `make generate-check`, integration tests, end-to-end smoke subset |
+| Release | GitHub Actions deploys to Fly.io on merge to `main`, after CI passes |
+
+## Local development
+
+| Concern | Choice |
+|---|---|
+| Ports | Go server `:8080`, Vite `:5173` |
+| One origin | Vite proxies `/api` and `/health` to the Go server |
+| Database | A SQLite file at `DATABASE_PATH`, under a gitignored `data/` directory |
+| Email | Mailpit by docker compose |
+| Config | `.env` (gitignored); `.env.example` lists every key |
+| Dev auth bypass | None. Development signs in with the credentials in `.env` |
+
+## Hosting
+
+- App (Go binary with the embedded frontend): one always-on Fly.io machine, built from the repo's Dockerfile.
+- Database: the SQLite file on a Fly.io volume attached to that machine.
+- Proxy and HTTPS: Fly.io's proxy.
+- Secrets: Fly.io secrets in production; `.env` locally.
