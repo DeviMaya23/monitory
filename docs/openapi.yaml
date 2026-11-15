@@ -1,0 +1,1168 @@
+openapi: 3.1.0
+
+info:
+  title: Self-hosted uptime/status monitor API
+  version: 0.1.0
+  summary: HTTP contract for the admin interface, the public status view and the health endpoint.
+  description: |
+    Draft contract written against `requirements.md` v0.44.
+
+    Requirements with no API of their own (background behaviour, deployment configuration, or what the
+    screens do): FR-10, FR-24, FR-25, FR-42, FR-48, FR-49, FR-52, FR-54, FR-55, FR-58, FR-73, FR-83, FR-84,
+    FR-94, FR-101, FR-102, FR-103, FR-111, and NFR-1 to NFR-4 and NFR-6. They are served by the checking and
+    alerting that run in the background, by the deployment configuration, or by the interface.
+    FR-11, FR-13, FR-43 and FR-109 are removed requirements.
+
+    The requirements say what the product does; this file says the HTTP shape. Each operation cites the requirement IDs it serves.
+
+    Conventions that apply to every operation:
+    - Bodies are JSON (`application/json`). Errors are `application/problem+json` with a stable `code`
+      (see `Problem`). Every code is listed in one place: `components/schemas/ProblemCode`.
+    - Gated operations need the session cookie (FR-4). Gated operations that send data, including the two test
+      operations, also need the `X-CSRF-Token` header (NFR-8).
+    - Times are RFC 3339 in UTC. The screens show local time (FR-94); the API does not.
+    - No operation redirects.
+    - Pages (the sign-in page, the dashboards) are served by the app and are not described here.
+    - Limits shown as schema constraints are the initial values. Where the requirements put a limit in the
+      deployment configuration (FR-57, FR-59, FR-60), the running app may use other values, and the
+      constraint here is the default.
+
+tags:
+  - name: Access
+  - name: Services
+  - name: Notification targets
+  - name: Public view
+  - name: Health
+
+servers:
+  - url: /
+    description: Same origin as the app.
+
+paths:
+  /api/session:
+    post:
+      tags: [Access]
+      operationId: signIn
+      summary: Sign in as the admin
+      description: |
+        Covers FR-1, FR-2, FR-5, FR-97, FR-98.
+        Wrong credentials are rejected with `401 invalid_credentials`, without saying which part was wrong (FR-1).
+        After 5 failed attempts in a row, further attempts are rejected for 15 minutes even with correct credentials
+        (`429 sign_in_locked`, with `Retry-After`). A correct sign-in resets the count (FR-2).
+        While "require HTTPS" is on, a request that did not arrive over HTTPS is rejected with
+        `403 https_required` (FR-97).
+        On success the response sets the session cookie, which lasts 30 days from sign-in or until the app
+        restarts (FR-5, FR-114). The cookie is `HttpOnly` and `SameSite=Strict`, and is `Secure` while
+        "require HTTPS" is on (FR-98).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignInRequest' }
+      responses:
+        '200':
+          description: Signed in. The session cookie is set.
+          headers:
+            Set-Cookie:
+              description: The session cookie (name `session`).
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionInfo' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401':
+          description: The credentials are wrong (`invalid_credentials`). The response does not say which part.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { title: Invalid credentials, status: 401, code: invalid_credentials }
+        '403':
+          description: '"Require HTTPS" is on and the request did not arrive over HTTPS (`https_required`). The error says how to turn the setting off.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { title: HTTPS required, status: 403, code: https_required, detail: Set the "require HTTPS" deployment setting off to sign in over plain HTTP. }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429':
+          description: Too many failed attempts (`sign_in_locked`). `Retry-After` says how long until sign-in is allowed again.
+          headers:
+            Retry-After: { $ref: '#/components/headers/RetryAfter' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { title: Sign-in locked, status: 429, code: sign_in_locked }
+    get:
+      tags: [Access]
+      operationId: getSession
+      summary: Read the current session
+      description: |
+        Covers FR-4, FR-5, NFR-8.
+        Returns the CSRF token the interface must send on later requests and when the session ends.
+        Used after a page reload. A missing or expired session answers `401 unauthenticated` (FR-4, FR-5).
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The current session.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionInfo' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+    delete:
+      tags: [Access]
+      operationId: signOut
+      summary: Sign out
+      description: |
+        Covers FR-3, NFR-8. Ends the session. The admin pages and their API then need signing in again.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204': { description: Signed out. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+
+  /api/services:
+    get:
+      tags: [Services]
+      operationId: listServices
+      summary: List all services with their current state
+      description: |
+        Covers FR-9, FR-62, FR-77, FR-95, FR-112, FR-61.
+        Not paginated: there are at most 50 services (FR-60). Ordered by name, ignoring case, ascending.
+        Each service carries its current state (status, last check time, last status change time, last failure
+        reason when unhealthy), whether alerts are on, whether it is shown on the public view, and whether it is
+        paused. The interface shows a paused service as paused (FR-77, FR-112).
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: All services.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceList' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+    post:
+      tags: [Services]
+      operationId: createService
+      summary: Add a service to monitor
+      description: |
+        Covers FR-6, FR-12, FR-20, FR-27, FR-33 to FR-41, FR-44 to FR-47, FR-50, FR-51, FR-53, FR-56, FR-57,
+        FR-59, FR-60, FR-64, FR-65, FR-67, FR-68, FR-69, FR-74, NFR-8.
+        Invalid settings are rejected and nothing is saved (FR-12, FR-74): `422 validation_failed` names each
+        field and gives a code. This includes a name that is missing or too long (FR-59), a check interval, timeout,
+        retry count or retry interval outside its limits (FR-57), a worst-case check time longer than the check
+        interval (FR-56, field `settings`, code `check_budget_exceeded`), and a limit in FR-38 or FR-69.
+        A name already used, ignoring case, is `409 service_name_taken` (FR-59). The 51st service is
+        `409 service_limit_reached` (FR-60).
+        A new service is hidden from the public view unless `shown_on_public_view` is true (FR-68), has alerts
+        on unless `alerts_enabled` is false (FR-20), and its first check runs straight after saving (FR-67).
+        A request larger than 1 MB in total is `413 payload_too_large` before anything else is checked (FR-38).
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceInput' }
+      responses:
+        '201':
+          description: The service was added.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+        '409': { $ref: '#/components/responses/ServiceCreateConflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/services/{serviceId}:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Services]
+      operationId: getService
+      summary: Read one service with all its settings
+      description: |
+        Covers FR-7, FR-39, FR-61.
+        Returns every setting, so the edit form can be filled. Saved header values are returned in full (FR-39).
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The service.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Services]
+      operationId: updateService
+      summary: Edit a service
+      description: |
+        Covers FR-7, FR-12, FR-20, FR-27, FR-33 to FR-41, FR-44 to FR-47, FR-50, FR-51, FR-53, FR-56, FR-57,
+        FR-59, FR-64, FR-65, FR-66, FR-69, FR-74, NFR-8.
+        Replaces all editable settings, so the body is the same as for `createService`. The service keeps its current
+        state, including when its type changes. The next check uses the new settings, and no check runs at the
+        moment of saving (FR-66). Invalid settings are rejected and nothing is saved, with the same errors as
+        `createService`. Renaming to a name used by another service, ignoring case, is `409 service_name_taken`.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceInput' }
+      responses:
+        '200':
+          description: The updated service.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ServiceNameTaken' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [Services]
+      operationId: deleteService
+      summary: Delete a service permanently
+      description: |
+        Covers FR-8, FR-70, FR-71, NFR-8.
+        Removes the service with its alert list and state. Its checks and retries stop, and no alert is sent for
+        it afterwards. There is no undo. The confirmation (FR-72) is in the interface.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204': { description: The service was deleted. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/services/{serviceId}/pause:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    post:
+      tags: [Services]
+      operationId: pauseService
+      summary: Pause a service
+      description: |
+        Covers FR-75, FR-76, FR-77, FR-78, NFR-8.
+        A paused service is not checked and sends no alerts. A check or retry in progress is cancelled. It keeps
+        its state, and it is not shown on the public view whatever its toggle says. Pausing a paused service
+        succeeds and changes nothing.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: The paused service.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/services/{serviceId}/resume:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    post:
+      tags: [Services]
+      operationId: resumeService
+      summary: Resume a paused service
+      description: |
+        Covers FR-75, FR-79, NFR-8.
+        A check runs straight away. Resuming a service that is not paused succeeds and changes nothing.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: The resumed service.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/service-tests:
+    post:
+      tags: [Services]
+      operationId: testServiceCheck
+      summary: Test a check with the settings in the form, before saving
+      description: |
+        Covers FR-104, FR-105, FR-106, FR-74, FR-61, NFR-7, NFR-8.
+        Runs one attempt with no retries, using the given check and timeout. Saves nothing and changes no saved
+        service's state, last check time, last status change or failure reason, and sends no alerts (FR-105).
+        A completed test is `200` even when the check failed: the result says healthy or failed, with the
+        failure reason, the duration, and, for an HTTP(S) check that got a response, the status code and the
+        response body (read up to 64 KB, cut off with a notice beyond that). The body is plain text for the
+        interface to show as plain text (NFR-7) and is never saved.
+        Invalid settings are `422 validation_failed` and no test runs (FR-106).
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceTestInput' }
+      responses:
+        '200':
+          description: The result of the test.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceTestResult' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/services/{serviceId}/targets:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Notification targets]
+      operationId: listTargets
+      summary: List a service's alert list
+      description: |
+        Covers FR-17, FR-18, FR-86.
+        Not paginated: an alert list holds at most 5 targets (FR-19). Ordered by when each target was added.
+        Each target says whether its last delivery failed, which the dashboard shows as a notice (FR-86).
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The alert list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TargetList' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Notification targets]
+      operationId: createTarget
+      summary: Add a notification target to a service's alert list
+      description: |
+        Covers FR-14, FR-18, FR-19, FR-80, FR-81, FR-82, FR-87, FR-88, FR-89, FR-92, FR-100, FR-110, NFR-8.
+        An invalid email address, a webhook URL that does not start with http or https, a name over 50
+        characters, an email over 254 characters or a webhook URL over 2,048 characters is
+        `422 validation_failed`, naming the field (FR-82, FR-87, FR-89, FR-110). Custom headers have the limits
+        of FR-38 (FR-92). A sixth target is `409 alert_list_full` (FR-19). The same contact (same type and value)
+        twice in one list is `409 target_duplicate` (FR-88). Nothing is saved on any rejection.
+        The warning about an http webhook URL (FR-100) is shown by the interface; the request is accepted.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TargetInput' }
+      responses:
+        '201':
+          description: The target was added.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Target' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/TargetCreateConflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/services/{serviceId}/targets/{targetId}:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+      - $ref: '#/components/parameters/TargetId'
+    put:
+      tags: [Notification targets]
+      operationId: updateTarget
+      summary: Edit a notification target
+      description: |
+        Covers FR-15, FR-80, FR-81, FR-82, FR-87, FR-88, FR-89, FR-92, FR-100, FR-110, NFR-8.
+        Replaces the editable fields, so the body is the same as for `createTarget`. Validation is the same.
+        Changing the contact to one already in the list is `409 target_duplicate` (FR-88).
+        An edit does not clear the "last delivery failed" notice (FR-86).
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TargetInput' }
+      responses:
+        '200':
+          description: The updated target.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Target' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/TargetDuplicate' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [Notification targets]
+      operationId: deleteTarget
+      summary: Remove a notification target from a service's alert list
+      description: |
+        Covers FR-16, NFR-8.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204': { description: The target was removed. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/services/{serviceId}/target-tests:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    post:
+      tags: [Notification targets]
+      operationId: testTarget
+      summary: Send a test alert to the target in the form, before saving
+      description: |
+        Covers FR-107, FR-108, FR-82, FR-89, FR-110, NFR-7, NFR-8.
+        Sends one test alert, with no retries, to this target only, through the same delivery as a real alert.
+        The content says it is a test (webhook `status` is `test`) and carries the time in UTC. A webhook test uses
+        the body in `WebhookAlertPayload`. Saves nothing, changes no service's status, sends nothing to other
+        targets and does not change the "last delivery failed" notice (FR-108).
+        A completed test is `200` even when delivery failed: the result says delivered or failed, with the reason.
+        Invalid settings are `422 validation_failed` and nothing is sent (FR-108).
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TargetInput' }
+      responses:
+        '200':
+          description: The result of the test.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TargetTestResult' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/settings/public-view:
+    get:
+      tags: [Public view]
+      operationId: getPublicViewSettings
+      summary: Read whether the public view is on
+      description: |
+        Covers FR-26.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The public view setting.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicViewSettings' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+    put:
+      tags: [Public view]
+      operationId: updatePublicViewSettings
+      summary: Turn the public view on or off
+      description: |
+        Covers FR-26, NFR-8. It is off by default. Which services appear is set on each service
+        (`shown_on_public_view`, FR-27).
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PublicViewSettings' }
+      responses:
+        '200':
+          description: The public view setting.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicViewSettings' }
+        '400': { $ref: '#/components/responses/MalformedRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/CsrfFailed' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/public/dashboard:
+    get:
+      tags: [Public view]
+      operationId: getPublicDashboard
+      summary: Read the public status view
+      description: |
+        Covers FR-26, FR-28, FR-29, FR-30, FR-31, FR-32, FR-40, FR-63, FR-113.
+        Public: no sign-in. While the public view is on, returns the chosen services whose status is healthy or
+        unhealthy: name, status and time of the last check, and nothing else. A paused service and a service not
+        yet checked are not returned (FR-77, FR-113). Never returns a URL, headers, query parameters or a body
+        (FR-40). Not paginated (at most 50 services). Ordered by name, ignoring case, ascending.
+        While the public view is off, answers `404 public_view_unavailable` (FR-29), which the page shows as an
+        "unavailable" message.
+        At most 60 requests a minute are accepted from one client address; more are `429 rate_limited` with
+        `Retry-After` (FR-32). The client address follows the proxy setting (FR-99).
+        The refresh button and the 5-minute update call this operation (FR-30, FR-31).
+      security: []
+      responses:
+        '200':
+          description: The chosen services that are healthy or unhealthy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicDashboard' }
+        '404':
+          description: The public view is off (`public_view_unavailable`).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { title: Public view unavailable, status: 404, code: public_view_unavailable }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Say whether the app is running
+      description: |
+        Covers FR-96, FR-4. Public: no sign-in. Says only that the app is running and returns no service data.
+        When the app is not running there is no answer, so this operation has no error status.
+      security: []
+      responses:
+        '200':
+          description: The app is running.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+webhooks:
+  alertDelivery:
+    post:
+      tags: [Notification targets]
+      operationId: receiveAlert
+      summary: The alert the monitor sends to a webhook target
+      description: |
+        Not an operation of this app: this is the request the monitor sends, and the webhook receiver implements.
+        Covers FR-21, FR-22, FR-23, FR-85, FR-86, FR-90, FR-91, FR-92, FR-93, FR-107, FR-115, NFR-5, NFR-7.
+        An HTTP POST with a JSON body (FR-90) carrying the same content as the email alert (FR-23): service name,
+        new status, time of the change in UTC (FR-93), and the message the admin defined, or a default. It never
+        includes the response body, headers or request settings (FR-23). The target's custom headers are added
+        (FR-92). The first attempt starts within 10 seconds of the status change (NFR-5).
+        The monitor waits up to 10 seconds for a response (FR-91). Delivery succeeds on a 2xx response. It fails
+        when the monitor cannot connect, when the receiver's certificate is rejected, on a timeout, or on any other
+        status, including a redirect, which is not followed (FR-85, FR-115). A failed delivery is retried up to 3
+        times, 30 seconds apart; after all attempts fail the target shows the "last delivery failed" notice (FR-86).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookAlertPayload' }
+      responses:
+        '2XX': { description: Delivered. }
+        default: { description: Not delivered; counts as a failed attempt. }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: |
+        The admin session (FR-4, FR-5). Set by `signIn`, ended by `signOut`, a restart of the app (FR-114) or
+        30 days after sign-in. Without a valid session a gated operation answers `401 unauthenticated`.
+
+  parameters:
+    ServiceId:
+      name: serviceId
+      in: path
+      required: true
+      description: The id of a service. An id that does not exist is `404 not_found`.
+      schema: { type: string }
+    TargetId:
+      name: targetId
+      in: path
+      required: true
+      description: The id of a notification target on this service's alert list. An id that does not exist is `404 not_found`.
+      schema: { type: string }
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: |
+        The token from `signIn` or `getSession` (NFR-8). A request without it, or with a wrong one, is
+        `403 csrf_failed`.
+      schema: { type: string }
+
+  headers:
+    RetryAfter:
+      description: Seconds to wait before trying again.
+      schema: { type: integer, minimum: 1 }
+
+  responses:
+    Unauthenticated:
+      description: No valid session (`unauthenticated`, FR-4).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { title: Not signed in, status: 401, code: unauthenticated }
+    CsrfFailed:
+      description: The request did not come from the app's own pages (`csrf_failed`, NFR-8). Nothing was changed.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { title: Request not accepted, status: 403, code: csrf_failed }
+    NotFound:
+      description: The service or target does not exist (`not_found`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { title: Not found, status: 404, code: not_found }
+    MalformedRequest:
+      description: The body is not valid JSON (`malformed_request`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { title: Malformed request, status: 400, code: malformed_request }
+    PayloadTooLarge:
+      description: The request is larger than 1 MB in total (`payload_too_large`, FR-38). A single value over its own limit is `422 validation_failed`, not this.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { title: Payload too large, status: 413, code: payload_too_large }
+    UnsupportedMediaType:
+      description: The body is not `application/json` (`unsupported_media_type`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { title: Unsupported media type, status: 415, code: unsupported_media_type }
+    ValidationFailed:
+      description: |
+        One or more values are missing, invalid or over a limit (`validation_failed`). `errors` names each field and
+        gives a code. Nothing was saved, tested or sent.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            title: Validation failed
+            status: 422
+            code: validation_failed
+            errors:
+              - { field: name, code: too_long, message: The name is up to 100 characters. }
+    RateLimited:
+      description: |
+        More than 60 requests a minute from one client address (`rate_limited`, FR-32). `Retry-After` says how long to wait.
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { title: Too many requests, status: 429, code: rate_limited }
+    ServiceNameTaken:
+      description: Another service already has this name, ignoring case (`service_name_taken`, FR-59).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { title: Name already used, status: 409, code: service_name_taken }
+    ServiceCreateConflict:
+      description: |
+        Either another service already has this name, ignoring case (`service_name_taken`, FR-59), or the monitor
+        already holds 50 services (`service_limit_reached`, FR-60).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            nameTaken:
+              value: { title: Name already used, status: 409, code: service_name_taken }
+            limitReached:
+              value: { title: Service limit reached, status: 409, code: service_limit_reached }
+    TargetDuplicate:
+      description: The same contact (same type and value) is already in this alert list (`target_duplicate`, FR-88).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { title: Contact already in the list, status: 409, code: target_duplicate }
+    TargetCreateConflict:
+      description: |
+        Either the alert list already holds 5 targets (`alert_list_full`, FR-19), or the same contact is already in it
+        (`target_duplicate`, FR-88).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            listFull:
+              value: { title: Alert list full, status: 409, code: alert_list_full }
+            duplicate:
+              value: { title: Contact already in the list, status: 409, code: target_duplicate }
+
+  schemas:
+    ProblemCode:
+      type: string
+      description: Every error code, in one place. Stable and machine-readable.
+      enum:
+        - unauthenticated
+        - invalid_credentials
+        - sign_in_locked
+        - https_required
+        - csrf_failed
+        - not_found
+        - public_view_unavailable
+        - malformed_request
+        - service_name_taken
+        - service_limit_reached
+        - alert_list_full
+        - target_duplicate
+        - payload_too_large
+        - unsupported_media_type
+        - validation_failed
+        - rate_limited
+
+    FieldErrorCode:
+      type: string
+      description: The code of one field error inside `validation_failed`.
+      enum:
+        - required
+        - too_long
+        - out_of_range
+        - too_many
+        - invalid_format
+        - invalid_value
+        - requires_https_url
+        - check_budget_exceeded
+
+    FieldError:
+      type: object
+      required: [field, code]
+      properties:
+        field:
+          type: string
+          description: Path of the field in the request body, for example `check.url` or `settings.timeout_seconds`.
+        code: { $ref: '#/components/schemas/FieldErrorCode' }
+        message: { type: string }
+
+    Problem:
+      type: object
+      description: The shared error format (`application/problem+json`).
+      required: [title, status, code]
+      properties:
+        type: { type: string, format: uri-reference, default: 'about:blank' }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { $ref: '#/components/schemas/ProblemCode' }
+        errors:
+          type: array
+          description: Present for `validation_failed`.
+          items: { $ref: '#/components/schemas/FieldError' }
+
+    SignInRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 1 }
+        password: { type: string, minLength: 1 }
+
+    SessionInfo:
+      type: object
+      required: [csrf_token, expires_at]
+      properties:
+        csrf_token:
+          type: string
+          description: Sent as `X-CSRF-Token` on later requests that send data (NFR-8).
+        expires_at:
+          type: string
+          format: date-time
+          description: 30 days after sign-in (FR-5). The session ends earlier if the app restarts (FR-114).
+
+    HttpHeader:
+      type: object
+      required: [name, value]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 128 }
+        value: { type: string, maxLength: 4096 }
+
+    QueryParam:
+      type: object
+      required: [name, value]
+      properties:
+        name: { type: string, minLength: 1 }
+        value: { type: string }
+
+    HttpBody:
+      type: object
+      description: |
+        The saved request body (FR-37). `content` is the text sent as is: for `json` and `text` the body text, for
+        `form` the URL-encoded form text. Up to 64 KB (FR-38); `maxLength` counts characters and the limit is in bytes.
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [none, json, text, form]
+          default: none
+        content: { type: string, maxLength: 65536 }
+
+    JsonRule:
+      type: object
+      description: A field and a value that means failure (FR-44). A JSON number is compared as text; matching is case-sensitive (FR-45).
+      required: [field, failing_value]
+      properties:
+        field:
+          type: string
+          minLength: 1
+          description: A field inside nested JSON is named with dots, for example `checks.db.status` (FR-46).
+        failing_value:
+          oneOf:
+            - { type: string }
+            - { type: boolean }
+
+    CertificateCheck:
+      type: object
+      description: The certificate expiry check of an HTTPS service (FR-34, FR-50). It fails the check when fewer days remain.
+      required: [enabled]
+      properties:
+        enabled: { type: boolean, default: false }
+        min_days_left:
+          type: integer
+          minimum: 1
+          description: Required when `enabled` is true.
+
+    HttpCheck:
+      type: object
+      required: [type, method, url]
+      properties:
+        type: { type: string, const: http }
+        method:
+          type: string
+          enum: [GET, HEAD, POST, PUT, DELETE, CONNECT, OPTIONS, TRACE, PATCH]
+          description: Any HTTP method (FR-36).
+        url:
+          type: string
+          maxLength: 2048
+          description: Must start with http or https (FR-74). Up to 2,048 characters including the query parameters (FR-38).
+        query_params:
+          type: array
+          maxItems: 20
+          items: { $ref: '#/components/schemas/QueryParam' }
+        headers:
+          type: array
+          maxItems: 20
+          items: { $ref: '#/components/schemas/HttpHeader' }
+        body: { $ref: '#/components/schemas/HttpBody' }
+        json_rules:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/JsonRule' }
+        json_rule_mode:
+          type: string
+          enum: [any, all]
+          default: any
+          description: Whether the check fails when any rule matches or only when all rules match (FR-47).
+        certificate_check: { $ref: '#/components/schemas/CertificateCheck' }
+        ignore_certificate_errors:
+          type: boolean
+          default: false
+          description: Ignore certificate errors on this service's connection, redirects included (FR-64). Only for an https URL (FR-74).
+
+    TcpCheck:
+      type: object
+      required: [type, host, port]
+      properties:
+        type: { type: string, const: tcp }
+        host: { type: string, minLength: 1 }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+
+    CheckConfig:
+      description: What to check (FR-33).
+      oneOf:
+        - $ref: '#/components/schemas/HttpCheck'
+        - $ref: '#/components/schemas/TcpCheck'
+      discriminator:
+        propertyName: type
+        mapping:
+          http: '#/components/schemas/HttpCheck'
+          tcp: '#/components/schemas/TcpCheck'
+
+    CheckSettings:
+      type: object
+      description: |
+        The timing settings of a check (FR-41, FR-51, FR-53, FR-57). The limits are the initial values and come from the
+        deployment configuration. Saving is rejected when timeout × (1 + retry count) + retry interval × retry count is
+        longer than the check interval (FR-56).
+      properties:
+        check_interval_seconds: { type: integer, minimum: 30, maximum: 86400, default: 60 }
+        timeout_seconds: { type: integer, minimum: 1, maximum: 60, default: 10 }
+        retry_count: { type: integer, minimum: 0, maximum: 5, default: 2 }
+        retry_interval_seconds: { type: integer, minimum: 1, maximum: 300, default: 10 }
+
+    ServiceInput:
+      type: object
+      required: [name, check]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Unique among services, ignoring case (FR-59).
+        check: { $ref: '#/components/schemas/CheckConfig' }
+        settings: { $ref: '#/components/schemas/CheckSettings' }
+        alerts_enabled: { type: boolean, default: true }
+        unhealthy_message: { type: string, maxLength: 500 }
+        recovery_message: { type: string, maxLength: 500 }
+        shown_on_public_view: { type: boolean, default: false }
+
+    ServiceTestInput:
+      type: object
+      description: The check and timeout in the form. The name, messages and the other settings are not needed to run a test.
+      required: [check]
+      properties:
+        check: { $ref: '#/components/schemas/CheckConfig' }
+        settings: { $ref: '#/components/schemas/CheckSettings' }
+
+    FailureReason:
+      type: object
+      description: Why a check failed (FR-61). When a JSON rule matches and the status is also non-2xx, the code is `json_rule_matched`.
+      required: [code]
+      properties:
+        code:
+          type: string
+          enum:
+            - timed_out
+            - could_not_connect
+            - non_2xx_status
+            - json_rule_matched
+            - invalid_or_missing_json
+            - too_many_redirects
+            - certificate_problem
+        http_status:
+          type: [integer, 'null']
+          description: For `non_2xx_status`, the status code.
+        json_rule_field:
+          type: [string, 'null']
+          description: For `json_rule_matched`, the field of the rule that matched.
+
+    ServiceState:
+      type: object
+      required: [status, last_checked_at, last_status_change_at, last_failure_reason]
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy, not_yet_checked]
+          description: FR-112. The interface shows a paused service as paused instead.
+        last_checked_at: { type: [string, 'null'], format: date-time }
+        last_status_change_at: { type: [string, 'null'], format: date-time }
+        last_failure_reason:
+          description: Present when the service is unhealthy, otherwise null (FR-61, FR-62).
+          oneOf:
+            - $ref: '#/components/schemas/FailureReason'
+            - { type: 'null' }
+
+    Service:
+      allOf:
+        - $ref: '#/components/schemas/ServiceInput'
+        - type: object
+          required: [id, paused, state]
+          properties:
+            id: { type: string, readOnly: true }
+            paused: { type: boolean, readOnly: true }
+            state:
+              readOnly: true
+              allOf:
+                - $ref: '#/components/schemas/ServiceState'
+
+    ServiceList:
+      type: array
+      maxItems: 50
+      items: { $ref: '#/components/schemas/Service' }
+
+    ServiceTestResult:
+      type: object
+      required: [healthy, duration_ms]
+      properties:
+        healthy: { type: boolean }
+        failure_reason:
+          description: Present when the check failed (FR-61).
+          oneOf:
+            - $ref: '#/components/schemas/FailureReason'
+            - { type: 'null' }
+        duration_ms: { type: integer, minimum: 0, description: How long the attempt took (FR-104). }
+        http_status:
+          type: [integer, 'null']
+          description: For an HTTP(S) check that got a response, the status code of the final response.
+        response_body:
+          type: [string, 'null']
+          description: |
+            For an HTTP(S) check that got a response, its body, read up to 64 KB. Plain text, to be shown as plain text
+            (NFR-7). Never saved.
+        response_body_truncated:
+          type: boolean
+          default: false
+          description: True when the body was larger than 64 KB and was cut off.
+
+    EmailTargetInput:
+      type: object
+      required: [type, address]
+      properties:
+        type: { type: string, const: email }
+        name: { type: string, maxLength: 50 }
+        address:
+          type: string
+          maxLength: 254
+          description: Must be a validly formatted email address (FR-82).
+
+    WebhookTargetInput:
+      type: object
+      required: [type, url]
+      properties:
+        type: { type: string, const: webhook }
+        name: { type: string, maxLength: 50 }
+        url:
+          type: string
+          maxLength: 2048
+          description: Must start with http or https (FR-89).
+        headers:
+          type: array
+          maxItems: 20
+          description: Custom headers sent with each delivery. The limits are those of a service request's headers (FR-92, FR-38).
+          items: { $ref: '#/components/schemas/HttpHeader' }
+
+    TargetInput:
+      description: A notification target (FR-81).
+      oneOf:
+        - $ref: '#/components/schemas/EmailTargetInput'
+        - $ref: '#/components/schemas/WebhookTargetInput'
+      discriminator:
+        propertyName: type
+        mapping:
+          email: '#/components/schemas/EmailTargetInput'
+          webhook: '#/components/schemas/WebhookTargetInput'
+
+    Target:
+      allOf:
+        - $ref: '#/components/schemas/TargetInput'
+        - type: object
+          required: [id, last_delivery_failed]
+          properties:
+            id: { type: string, readOnly: true }
+            last_delivery_failed:
+              type: boolean
+              readOnly: true
+              description: True after all delivery attempts failed, until a later real delivery succeeds (FR-86).
+
+    TargetList:
+      type: array
+      maxItems: 5
+      items: { $ref: '#/components/schemas/Target' }
+
+    TargetTestResult:
+      type: object
+      required: [delivered]
+      properties:
+        delivered: { type: boolean }
+        failure_reason:
+          type: [string, 'null']
+          description: Why the delivery failed, when it did (FR-85, FR-107). Plain text.
+
+    PublicViewSettings:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean, default: false }
+
+    PublicService:
+      type: object
+      description: What the public view shows of a service, and nothing else (FR-63).
+      required: [name, status, last_checked_at]
+      properties:
+        name: { type: string, maxLength: 100 }
+        status: { type: string, enum: [healthy, unhealthy] }
+        last_checked_at: { type: string, format: date-time }
+
+    PublicDashboard:
+      type: object
+      required: [services]
+      properties:
+        services:
+          type: array
+          maxItems: 50
+          items: { $ref: '#/components/schemas/PublicService' }
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: ok }
+
+    WebhookAlertPayload:
+      type: object
+      description: |
+        The JSON body of a webhook delivery (FR-90): the same content as the email alert (FR-23).
+        It never includes the response body, headers or request settings.
+      required: [service_name, status, changed_at, message]
+      properties:
+        service_name: { type: string, maxLength: 100 }
+        status:
+          type: string
+          enum: [unhealthy, healthy, test]
+          description: The new status, `unhealthy` (FR-21) or `healthy` for a recovery (FR-22). `test` for a test alert (FR-107).
+        changed_at:
+          type: string
+          format: date-time
+          description: Time of the change in UTC (FR-93). For a test alert, the time it was sent.
+        message:
+          type: string
+          maxLength: 500
+          description: The message the admin defined (FR-65), or the default message.
+
+# Open questions
+#
+# Parked items for this contract. None blocks the requirements.
+# - Exact paths and field names here are contract choices, not requirements. Change them freely before
+#   code is written, then bump `info.version`.
+# - The default messages for unhealthy and recovery alerts (requirements section 6) are decided when building;
+#   `unhealthy_message` and `recovery_message` are optional, and an empty value means the default.
