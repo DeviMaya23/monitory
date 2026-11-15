@@ -86,7 +86,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 Each needs a decision, or to be dropped, by the next milestone.
 
 - Default unhealthy and recovery messages, and the email subject and body. Decide by: the first milestone 2 task is drafted.
-- The contract has no error code for an unexpected `500`; the code sends `internal_error`, which is not in `docs/openapi.yaml`. Add it to `ProblemCode`, or choose another shape. Decide by: the first milestone 1 task is drafted.
 - `updatePublicViewSettings` with `{}` counts as off, because `enabled` then reads as false. Reject it as `validation_failed`, or keep. Decide by: the milestone 4 settings task is drafted.
 - SMTP provider for production. Decide by: before the first alert task is deployed.
 - What watches the app from outside (the Fly.io health check alone, or an external monitor on `/health`). Decide by: before first real use.

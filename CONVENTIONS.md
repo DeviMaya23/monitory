@@ -101,7 +101,7 @@ Server data lives in TanStack Query, never copied into component state. Local st
 
 ### Errors
 
-Usecases return domain sentinel errors. Handlers map each to its `code` and status in `docs/openapi.yaml`. Anything unmapped becomes a generic 500 with no internal detail.
+Usecases return domain sentinel errors. Handlers map each to its `code` and status in `docs/openapi.yaml`. Anything unmapped becomes the contract's `500 internal_error` with no internal detail.
 
 ### Time and concurrency
 

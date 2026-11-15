@@ -22,12 +22,9 @@ var ErrNotImplemented = errors.New("not implemented")
 // contract's shape.
 var errMalformedRequest = echo.NewHTTPError(http.StatusBadRequest)
 
-// Codes that are not in docs/openapi.yaml. codeNotImplemented is the temporary one for
-// stubs (CONVENTIONS.md, rule 2). codeInternalError is the code of the generic 500.
-const (
-	codeNotImplemented api.ProblemCode = "not_implemented"
-	codeInternalError  api.ProblemCode = "internal_error"
-)
+// codeNotImplemented is the one code that is not in docs/openapi.yaml: the temporary
+// one for stubs (CONVENTIONS.md, rule 2).
+const codeNotImplemented api.ProblemCode = "not_implemented"
 
 // domainProblems maps domain errors to the error codes in docs/openapi.yaml. Add a row
 // whenever a usecase gains a sentinel error; the code must exist in the contract.
@@ -92,7 +89,7 @@ func problemFor(err error) api.Problem {
 		}
 	}
 
-	return newProblem(http.StatusInternalServerError, codeInternalError, "Internal server error")
+	return newProblem(http.StatusInternalServerError, api.ProblemCodeInternalError, "Internal server error")
 }
 
 func newProblem(status int, code api.ProblemCode, title string) api.Problem {

@@ -408,7 +408,7 @@ export interface components {
          * @description Every error code, in one place. Stable and machine-readable.
          * @enum {string}
          */
-        ProblemCode: "unauthenticated" | "invalid_credentials" | "sign_in_locked" | "https_required" | "csrf_failed" | "not_found" | "public_view_unavailable" | "malformed_request" | "service_name_taken" | "service_limit_reached" | "alert_list_full" | "target_duplicate" | "payload_too_large" | "unsupported_media_type" | "validation_failed" | "rate_limited";
+        ProblemCode: "unauthenticated" | "invalid_credentials" | "sign_in_locked" | "https_required" | "csrf_failed" | "not_found" | "public_view_unavailable" | "malformed_request" | "service_name_taken" | "service_limit_reached" | "alert_list_full" | "target_duplicate" | "payload_too_large" | "unsupported_media_type" | "validation_failed" | "rate_limited" | "internal_error";
         /**
          * @description The code of one field error inside `validation_failed`.
          * @enum {string}
@@ -830,6 +830,25 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /**
+         * @description Something unexpected failed in the app (`internal_error`). The response carries no detail about the cause;
+         *     the app's log does.
+         */
+        InternalError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "title": "Internal server error",
+                 *       "status": 500,
+                 *       "code": "internal_error"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description Another service already has this name, ignoring case (`service_name_taken`, FR-59). */
         ServiceNameTaken: {
             headers: {
@@ -926,6 +945,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthenticated"];
+            500: components["responses"]["InternalError"];
         };
     };
     signIn: {
@@ -1006,6 +1026,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            500: components["responses"]["InternalError"];
         };
     };
     signOut: {
@@ -1032,6 +1053,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfFailed"];
+            500: components["responses"]["InternalError"];
         };
     };
     listServices: {
@@ -1053,6 +1075,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthenticated"];
+            500: components["responses"]["InternalError"];
         };
     };
     createService: {
@@ -1090,6 +1113,7 @@ export interface operations {
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             422: components["responses"]["ValidationFailed"];
+            500: components["responses"]["InternalError"];
         };
     };
     getService: {
@@ -1115,6 +1139,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
         };
     };
     updateService: {
@@ -1156,6 +1181,7 @@ export interface operations {
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             422: components["responses"]["ValidationFailed"];
+            500: components["responses"]["InternalError"];
         };
     };
     deleteService: {
@@ -1186,6 +1212,7 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfFailed"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
         };
     };
     pauseService: {
@@ -1218,6 +1245,7 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfFailed"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
         };
     };
     resumeService: {
@@ -1250,6 +1278,7 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfFailed"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
         };
     };
     testServiceCheck: {
@@ -1286,6 +1315,7 @@ export interface operations {
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             422: components["responses"]["ValidationFailed"];
+            500: components["responses"]["InternalError"];
         };
     };
     listTargets: {
@@ -1311,6 +1341,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
         };
     };
     createTarget: {
@@ -1352,6 +1383,7 @@ export interface operations {
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             422: components["responses"]["ValidationFailed"];
+            500: components["responses"]["InternalError"];
         };
     };
     updateTarget: {
@@ -1395,6 +1427,7 @@ export interface operations {
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             422: components["responses"]["ValidationFailed"];
+            500: components["responses"]["InternalError"];
         };
     };
     deleteTarget: {
@@ -1427,6 +1460,7 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfFailed"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
         };
     };
     testTarget: {
@@ -1467,6 +1501,7 @@ export interface operations {
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             422: components["responses"]["ValidationFailed"];
+            500: components["responses"]["InternalError"];
         };
     };
     getPublicViewSettings: {
@@ -1488,6 +1523,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthenticated"];
+            500: components["responses"]["InternalError"];
         };
     };
     updatePublicViewSettings: {
@@ -1524,6 +1560,7 @@ export interface operations {
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             422: components["responses"]["ValidationFailed"];
+            500: components["responses"]["InternalError"];
         };
     };
     getPublicDashboard: {
@@ -1561,6 +1598,7 @@ export interface operations {
                 };
             };
             429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
         };
     };
     getHealth: {

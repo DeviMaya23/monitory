@@ -80,6 +80,7 @@ Advisory:
 - 2026-11-15, step E: the user approved `docs/data-model.md`. Messages are trimmed before saving; left out, null and empty all mean the default message.
 - 2026-11-15, step E: both development ports are set in `.env`: `LISTEN_ADDR` for the Go server (the Vite proxy follows its port) and `FRONTEND_DEV_PORT` for Vite. `FRONTEND_DEV_PORT` is development only, read by `frontend/vite.config.ts`, and commented out in `.env.example` because the Go config does not read it. Defaults stay `:8080` and `5173`.
 - 2026-11-16, step E: the walking skeleton is proven on Fly.io at the `fly.dev` address; the user ran the commands. Deferred by the user to before first real use: a payment method (machines stop after 5 minutes without one), the custom domain, the release workflow. Feature tasks may start.
+- 2026-11-16, step E: the user decided the contract gains `500 internal_error`: a shared `InternalError` response on every `/api` operation and the code in `ProblemCode`. `/health` keeps no error status. Contract is 0.2.2.
 
 ## Pack check
 

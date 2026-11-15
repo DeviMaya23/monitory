@@ -55,15 +55,17 @@ func TestUpdatePublicViewSettings_EmptyBodyIsMalformed(t *testing.T) {
 	assert.Empty(t, spy.set, "nothing is saved")
 }
 
-// An unexpected error becomes a generic 500 with no internal detail.
+// An unexpected error becomes the contract's 500 internal_error with no internal detail.
 func TestSettings_UnexpectedErrorHidesItsText(t *testing.T) {
 	e := newRouter(t, routerOptions{settings: &settingsSpy{err: errors.New("disk I/O error at /data/monitory.db")}})
 
 	res := do(e, http.MethodGet, "/api/settings/public-view", "", withSession)
 
 	require.Equal(t, http.StatusInternalServerError, res.StatusCode)
+	testutil.AssertConforms(t, "getPublicViewSettings", res)
 	body, err := io.ReadAll(res.Body)
 	require.NoError(t, err)
+	assert.Contains(t, string(body), `"code":"internal_error"`)
 	assert.NotContains(t, string(body), "disk")
 	assert.NotContains(t, string(body), "/data")
 }
