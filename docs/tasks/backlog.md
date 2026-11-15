@@ -74,7 +74,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 ## Cross-cutting and later
 
-- `fly.toml`, the release workflow and the first production deploy. Needs: the user says the Fly.io app is ready (`deploy/RUNBOOK.md`). No deadline.
+- Production, after the first deploy (`deploy/RUNBOOK.md`): a payment method on the Fly.io account so the machine stays up; the certificate and DNS record for the custom domain; the release workflow with its deploy token; a redeploy that shows data survives; `Fly-Client-IP` checked once sign-in exists. Needs: the user. Deadline: before first real use.
 - Browser checkpoint: after the dashboard slice merges, the user opens the app and runs "After the first front-end slice" in `docs/manual-checks.md` before the next front-end task is drafted.
 
 ## Loose ends from verifier reports
@@ -88,8 +88,8 @@ Each needs a decision, or to be dropped, by the next milestone.
 - Default unhealthy and recovery messages, and the email subject and body. Decide by: the first milestone 2 task is drafted.
 - The contract has no error code for an unexpected `500`; the code sends `internal_error`, which is not in `docs/openapi.yaml`. Add it to `ProblemCode`, or choose another shape. Decide by: the first milestone 1 task is drafted.
 - `updatePublicViewSettings` with `{}` counts as off, because `enabled` then reads as false. Reject it as `validation_failed`, or keep. Decide by: the milestone 4 settings task is drafted.
-- SMTP provider for production. Decide by: before the first deploy.
-- What watches the app from outside (the Fly.io health check alone, or an external monitor on `/health`). Decide by: before the first deploy.
+- SMTP provider for production. Decide by: before the first alert task is deployed.
+- What watches the app from outside (the Fly.io health check alone, or an external monitor on `/health`). Decide by: before first real use.
 
 ## Process and tooling
 

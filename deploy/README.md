@@ -44,6 +44,7 @@ New parts, in the order they will be tried, with what could fail:
 
 Run before the first deploy and before any deploy that changes wiring. Add a line whenever a deploy error teaches you one.
 
+- [ ] The Fly.io account has a payment method: without one, machines are stopped after 5 minutes.
 - [ ] Every key in `.env.example` that has no default is set: non-secrets in `fly.toml` `[env]`, secrets with `fly secrets set`.
 - [ ] `REQUIRE_HTTPS=true`, `TRUST_PROXY=true` and `CLIENT_IP_HEADER=Fly-Client-IP` are set.
 - [ ] The volume exists, is mounted at `/data`, and `DATABASE_PATH` points inside it.

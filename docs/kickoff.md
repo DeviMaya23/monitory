@@ -11,7 +11,7 @@ Kit: local clone at `~/Documents/GitHub/kickoff-kit` (`templates/`, `packs/go-re
 | B | Design brief written, design produced, error table reconciled with the contract | Done 2026-11-15 | Design in `docs/design/` (read-only, rules in `docs/design/README.md`). Every mismatch row decided. Contract is 0.2.0 |
 | C | Reference docs written (STACK, ARCHITECTURE, CONVENTIONS, TESTING, ROLES, AGENTS) | Done 2026-11-15 | `ARCHITECTURE.md`, `CONVENTIONS.md`, `TESTING.md`, `ROLES.md`, `AGENTS.md` (`CLAUDE.md` links to it), `docs/tasks/` templates and prompts, `scripts/`. The choices made without a question were confirmed with the files |
 | D | Scaffold files: Makefile, CI, scripts, backlog coverage map | Done 2026-11-15 | `Makefile`, `.github/workflows/pr-ci.yml`, `docker-compose.yml` (Mailpit), `.markdownlint-cli2.yaml`, `.gitignore`, `docs/tasks/backlog.md` (coverage map), `docs/manual-checks.md` |
-| E | Data model approved; foundation done (app runs locally, `make check` and CI green); walking-skeleton deploy live; first feature task drafted | Foundation built 2026-11-15, waiting for the user to confirm the done-when list; production deploy deferred | |
+| E | Data model approved; foundation done (app runs locally, `make check` and CI green); walking-skeleton deploy live; first feature task drafted | Foundation done: the user confirmed the done-when list 2026-11-16. Walking skeleton live on Fly.io 2026-11-16. Still open: first feature task | Data model approved; CI green on `8d37378` |
 
 ## Intake result
 
@@ -79,6 +79,7 @@ Advisory:
 - 2026-11-15, step E: foundation risk checked outside the repo: oapi-codegen v2.8.2 generates the strict Echo server from the 3.1 contract; nullable fields become pointers. It also generates a handler for the `alertDelivery` webhook, which the app does not serve. Still to check in the foundation: that the generated code compiles, and a conformance validator that accepts OpenAPI 3.1.
 - 2026-11-15, step E: the user approved `docs/data-model.md`. Messages are trimmed before saving; left out, null and empty all mean the default message.
 - 2026-11-15, step E: both development ports are set in `.env`: `LISTEN_ADDR` for the Go server (the Vite proxy follows its port) and `FRONTEND_DEV_PORT` for Vite. `FRONTEND_DEV_PORT` is development only, read by `frontend/vite.config.ts`, and commented out in `.env.example` because the Go config does not read it. Defaults stay `:8080` and `5173`.
+- 2026-11-16, step E: the walking skeleton is proven on Fly.io at the `fly.dev` address; the user ran the commands. Deferred by the user to before first real use: a payment method (machines stop after 5 minutes without one), the custom domain, the release workflow. Feature tasks may start.
 
 ## Pack check
 
@@ -118,8 +119,8 @@ Done-when list, checked 2026-11-15:
 | The app runs locally end to end | Run, passed: Go on `:8080`, Vite on `:5173`, `/health` reached through the dev proxy |
 | Generated code is current | Run, passed: regenerating changes nothing |
 | `make test-integration` | Run, passed with Mailpit; no test carries the `integration` tag yet |
-| CI green on the foundation commit | Not run: nothing is pushed to GitHub yet |
+| CI green on the foundation commit | Run 2026-11-16 on commit `8d37378`, passed: backend, frontend, contract, markdown and scripts. End-to-end smoke skipped: the suite does not exist yet |
 | `docs/data-model.md` and the migrations agree | Checked by reading: the four tables, their columns, checks, indexes and cascades match |
-| Walking skeleton | Run locally, passed (`deploy/RUNBOOK.md`). The production deploy is deferred by the user |
+| Walking skeleton | Run locally, passed. Deployed to Fly.io 2026-11-16 by the user: `/health` answers 200 and `/api/services` 401 at `https://monitory.fly.dev` (`deploy/RUNBOOK.md`) |
 
 Open, also in `docs/tasks/backlog.md`: the `internal_error` code is not in the contract; `updatePublicViewSettings` with `{}` counts as off.
