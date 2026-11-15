@@ -1,0 +1,137 @@
+package handler_test
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/labstack/echo/v4"
+	"github.com/stretchr/testify/require"
+
+	"monitory/internal/api"
+	"monitory/internal/domain"
+	"monitory/internal/handler"
+	"monitory/internal/handler/middleware"
+)
+
+const (
+	validToken = "valid-session-token"
+	csrfToken  = "the-csrf-token"
+)
+
+// oneSession is a middleware.SessionReader that knows exactly one session.
+type oneSession struct{}
+
+func (oneSession) Session(token string) (domain.Session, bool) {
+	if token != validToken {
+		return domain.Session{}, false
+	}
+	return domain.Session{CSRFToken: csrfToken}, true
+}
+
+// settingsSpy is a handler.SettingsService that returns canned values and records
+// what it was asked to set.
+type settingsSpy struct {
+	enabled bool
+	err     error
+	set     []bool
+}
+
+func (s *settingsSpy) PublicViewEnabled(context.Context) (bool, error) { return s.enabled, s.err }
+
+func (s *settingsSpy) SetPublicViewEnabled(_ context.Context, enabled bool) error {
+	s.set = append(s.set, enabled)
+	return s.err
+}
+
+type routerOptions struct {
+	settings        handler.SettingsService
+	maxRequestBytes int
+	trustProxy      bool
+	clientIPHeader  string
+	web             echo.HandlerFunc
+}
+
+func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
+	t.Helper()
+	if opts.settings == nil {
+		opts.settings = &settingsSpy{}
+	}
+	if opts.maxRequestBytes == 0 {
+		opts.maxRequestBytes = 1 << 20
+	}
+	if opts.clientIPHeader == "" {
+		opts.clientIPHeader = "X-Forwarded-For"
+	}
+	e, err := handler.NewRouter(handler.Deps{
+		Server:          handler.NewServer(opts.settings),
+		Sessions:        oneSession{},
+		Log:             slog.New(slog.NewTextHandler(io.Discard, nil)),
+		MaxRequestBytes: opts.maxRequestBytes,
+		TrustProxy:      opts.trustProxy,
+		ClientIPHeader:  opts.clientIPHeader,
+		Web:             opts.web,
+	})
+	require.NoError(t, err)
+	return e
+}
+
+type requestOption func(*http.Request)
+
+func withSession(r *http.Request) {
+	r.AddCookie(&http.Cookie{Name: middleware.SessionCookie, Value: validToken})
+}
+
+func withCSRF(r *http.Request) { r.Header.Set(middleware.CSRFHeader, csrfToken) }
+
+func withJSON(r *http.Request) { r.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON) }
+
+func do(e *echo.Echo, method, target, body string, opts ...requestOption) *http.Response {
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, target, reader)
+	for _, opt := range opts {
+		opt(req)
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	return rec.Result()
+}
+
+// operation is one operation of docs/openapi.yaml, with a path a request can use.
+type operation struct {
+	id     string
+	method string
+	path   string
+	public bool
+}
+
+func operations(t *testing.T) []operation {
+	t.Helper()
+	spec, err := api.GetSwagger()
+	require.NoError(t, err)
+	var ops []operation
+	for path, item := range spec.Paths.Map() {
+		for method, op := range item.Operations() {
+			ops = append(ops, operation{
+				// The generator capitalises operation ids in the embedded contract.
+				id:     strings.ToLower(op.OperationID[:1]) + op.OperationID[1:],
+				method: method,
+				path:   strings.NewReplacer("{serviceId}", "a-service", "{targetId}", "a-target").Replace(path),
+				public: op.Security != nil && len(*op.Security) == 0,
+			})
+		}
+	}
+	require.NotEmpty(t, ops)
+	return ops
+}
+
+func sendsData(method string) bool {
+	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
+}

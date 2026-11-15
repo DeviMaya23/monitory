@@ -16,7 +16,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-101, FR-102, FR-103 | none | none | Credentials from the configuration; the app refuses to start without them. Foundation builds the config loader; this row is the startup error and its tests |
+| FR-101, FR-102, FR-103 | none | none | Built in the foundation: the config loader refuses to start without the credentials and names the missing key, with tests. Left: the sign-in task reads the credentials from it |
 | FR-1, FR-3, FR-4, FR-5, FR-114, NFR-8 | `signIn`, `getSession`, `signOut` | Sign-in | Session store, the gate and CSRF in the policy router. Lockout and the HTTPS setting are milestone 5 |
 | FR-6, FR-12, FR-35, FR-36, FR-56, FR-57, FR-59, FR-60, FR-67 | `createService` | Add a service | HTTP type with method and URL only; the other request fields are milestone 3. The whole request shape is validated from the start |
 | FR-9, FR-62, FR-94, FR-95, FR-112 | `listServices` | Admin dashboard | List, states, refresh, local times. First front-end slice: the browser checkpoint follows it |
@@ -56,7 +56,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-26, FR-27, FR-68 | `getPublicViewSettings`, `updatePublicViewSettings`, `updateService` | Dashboard switch, service toggle | |
+| FR-26, FR-27, FR-68 | `getPublicViewSettings`, `updatePublicViewSettings`, `updateService` | Dashboard switch, service toggle | The two settings operations exist (built in the foundation as the example for each layer). Left: the switch on the dashboard and the service toggle |
 | FR-28 to FR-31, FR-40, FR-63, FR-113 | `getPublicDashboard` | Public dashboard | Response type holds name, status and last check time only |
 | FR-32 | `getPublicDashboard` | "Too many requests" state | Fixed window per client address from the policy router |
 | FR-96 | `getHealth` | none | Built in the foundation; this row is its end-to-end journey |
@@ -74,8 +74,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 ## Cross-cutting and later
 
-- Dockerfile (frontend stage, then Go stage that embeds it). Needs: the foundation. Built in kickoff step E.
-- A test that every key `platform/config` reads is in `.env.example`. Needs: the config loader. Built in kickoff step E.
 - `fly.toml`, the release workflow and the first production deploy. Needs: the user says the Fly.io app is ready (`deploy/RUNBOOK.md`). No deadline.
 - Browser checkpoint: after the dashboard slice merges, the user opens the app and runs "After the first front-end slice" in `docs/manual-checks.md` before the next front-end task is drafted.
 
@@ -88,6 +86,8 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 Each needs a decision, or to be dropped, by the next milestone.
 
 - Default unhealthy and recovery messages, and the email subject and body. Decide by: the first milestone 2 task is drafted.
+- The contract has no error code for an unexpected `500`; the code sends `internal_error`, which is not in `docs/openapi.yaml`. Add it to `ProblemCode`, or choose another shape. Decide by: the first milestone 1 task is drafted.
+- `updatePublicViewSettings` with `{}` counts as off, because `enabled` then reads as false. Reject it as `validation_failed`, or keep. Decide by: the milestone 4 settings task is drafted.
 - SMTP provider for production. Decide by: before the first deploy.
 - What watches the app from outside (the Fly.io health check alone, or an external monitor on `/health`). Decide by: before the first deploy.
 

@@ -1,0 +1,32 @@
+# golangci-lint, run by `make lint-backend`.
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gocritic
+    - misspell
+    - nilerr
+    - noctx
+    - revive
+    - unconvert
+  exclusions:
+    paths:
+      # Generated from docs/openapi.yaml.
+      - internal/api/api.gen.go
+    rules:
+      # Tests drive recorders and local stub servers: a request without a context and
+      # an unread recorder body are not leaks there.
+      - path: _test\.go
+        linters:
+          - bodyclose
+          - noctx
+
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    paths:
+      - internal/api/api.gen.go

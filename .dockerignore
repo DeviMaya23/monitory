@@ -1,0 +1,15 @@
+# Only backend/ and frontend/ sources go into the build.
+.git
+.github
+.env
+data
+deploy
+docs
+e2e
+scripts
+**/node_modules
+frontend/dist
+backend/internal/web/dist/*
+!backend/internal/web/dist/.gitkeep
+backend/bin
+*.md

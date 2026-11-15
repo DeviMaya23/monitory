@@ -57,7 +57,7 @@ Request and response types are generated from `docs/openapi.yaml` into `src/lib/
 
 ### Build output
 
-`npm run build` writes to `backend/internal/web/dist/`. That directory is gitignored except for a committed placeholder page, so the backend builds without the frontend.
+`npm run build` writes to `backend/internal/web/dist/`. That directory is gitignored except for a committed `.gitkeep`, so the backend builds without the frontend; a binary built that way serves a placeholder page. `frontend/public/.gitkeep` is copied there by every build, so a build leaves the tree clean.
 
 ---
 

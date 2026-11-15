@@ -1,0 +1,201 @@
+/*
+ * Monitory design tokens
+ * Direction: "Instrument panel" - graphite on near-white, one blue accent for
+ * actions and focus, hairline rules instead of cards, monospace for machine
+ * values (times, URLs, codes). Dense by default (30 px controls, 13 px text);
+ * controls grow to 44 px and inputs to 16 px text in compact layouts (< 640 px).
+ *
+ * Every colour pair used for text meets WCAG AA 4.5:1 on its intended
+ * background in both themes. Status colours also differ in lightness and are
+ * always paired with an icon and a text label.
+ *
+ * Copy these into the project's tokens. Names are the contract; values may be tuned.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ---------- Colour: surfaces and text (light) ---------- */
+  --color-bg: #f6f7f9;              /* page background */
+  --color-surface: #ffffff;         /* lists, panels, inputs */
+  --color-surface-sunken: #eef0f3;  /* table head, disabled input, code */
+  --color-surface-hover: #f1f3f6;   /* row and ghost-button hover */
+  --color-border: #d9dce2;          /* hairlines */
+  --color-border-strong: #a3a9b4;   /* control borders (3:1 on surface) */
+  --color-text: #15171c;            /* 17.5:1 on surface */
+  --color-text-muted: #4f5562;      /* 7.6:1 on surface */
+  --color-text-subtle: #626977;     /* 5.6:1 on surface, 5.2:1 on bg */
+
+  /* ---------- Colour: accent and focus ---------- */
+  --color-accent: #1d5bd6;          /* primary button, links, selected; 5.9:1 on white */
+  --color-accent-hover: #174bb3;
+  --color-accent-soft: #e8effc;     /* selected segment background */
+  --color-on-accent: #ffffff;
+  --color-focus: #1d5bd6;           /* focus outline, 3:1+ against every surface */
+
+  /* ---------- Colour: status ---------- */
+  --color-ok: #0b6b3a;              /* healthy text/icon, 6.6:1 */
+  --color-ok-bg: #e6f4ec;
+  --color-ok-border: #8fcaa6;
+  --color-bad: #b42318;             /* unhealthy text/icon, error text, 6.3:1 */
+  --color-bad-bg: #fdeceb;
+  --color-bad-border: #eda8a1;
+  --color-warn: #8a5300;            /* delivery failed, unencrypted warning, 5.9:1 */
+  --color-warn-bg: #fdf2dc;
+  --color-warn-border: #e2be72;
+  --color-paused: #3d4350;          /* paused: neutral, solid */
+  --color-paused-bg: #e4e7ec;
+  --color-paused-border: #a3a9b4;
+  --color-unchecked: #4f5562;       /* not yet checked: neutral, dashed outline */
+  --color-unchecked-border: #8a909c;
+  --color-info-bg: #e8effc;
+  --color-info-border: #a9c1ef;
+
+  /* ---------- Colour: actions ---------- */
+  --color-danger: #b42318;
+  --color-danger-hover: #93190f;
+  --color-on-danger: #ffffff;
+
+  /* ---------- Colour: overlays ---------- */
+  --color-overlay: rgb(12 14 18 / 0.45);
+  --color-inverse-bg: #1e2128;      /* tooltip, toast */
+  --color-inverse-text: #f2f3f5;
+  --shadow-popup: 0 10px 28px rgb(16 18 24 / 0.18), 0 1px 3px rgb(16 18 24 / 0.12);
+
+  /* ---------- Type ---------- */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --text-xs: 11px;    /* column heads, counters */
+  --text-sm: 12px;    /* hints, errors, times, chips */
+  --text-md: 13px;    /* body, controls */
+  --text-lg: 15px;    /* dialog titles, empty-state titles */
+  --text-xl: 18px;    /* page titles */
+  --text-2xl: 22px;   /* sign-in, public page title */
+  --text-input-compact: 16px; /* stops iOS zoom on focus */
+  --leading-tight: 1.25;
+  --leading: 1.45;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* ---------- Spacing (4 px grid) ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* ---------- Radii ---------- */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --radius-pill: 999px;
+
+  /* ---------- Sizes ---------- */
+  --control-h: 30px;          /* dense controls (fine pointer, wide layout) */
+  --control-h-touch: 44px;    /* compact layout: touch target */
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --topbar-h: 48px;
+  --content-max: 1200px;
+  --form-max: 760px;
+  --compact-max: 640px;       /* documentation only: container queries cannot read custom properties */
+
+  /* ---------- Focus ---------- */
+  --focus-width: 2px;
+  --focus-offset: 2px;
+
+  /* ---------- Motion ---------- */
+  --duration-fast: 120ms;
+  --easing: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* ---------- Dark theme: follows the OS; [data-theme] forces either ---------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: #0f1115;
+    --color-surface: #161920;
+    --color-surface-sunken: #1d2129;
+    --color-surface-hover: #1c2028;
+    --color-border: #2b303a;
+    --color-border-strong: #5a6170;
+    --color-text: #e7e9ed;
+    --color-text-muted: #b0b6c2;
+    --color-text-subtle: #9299a6;
+    --color-accent: #6f9fff;
+    --color-accent-hover: #8fb3ff;
+    --color-accent-soft: #1c2a47;
+    --color-on-accent: #0b1020;
+    --color-focus: #8fb3ff;
+    --color-ok: #57c98f;
+    --color-ok-bg: #10291c;
+    --color-ok-border: #23603f;
+    --color-bad: #ff8a7e;
+    --color-bad-bg: #3a1714;
+    --color-bad-border: #7a2c25;
+    --color-warn: #ecb84c;
+    --color-warn-bg: #33270c;
+    --color-warn-border: #6e5317;
+    --color-paused: #c9ced8;
+    --color-paused-bg: #2a2f39;
+    --color-paused-border: #5a6170;
+    --color-unchecked: #b0b6c2;
+    --color-unchecked-border: #7a8190;
+    --color-info-bg: #1c2a47;
+    --color-info-border: #34508a;
+    --color-danger: #e5484d;
+    --color-danger-hover: #f2555a;
+    --color-on-danger: #ffffff;
+    --color-overlay: rgb(0 0 0 / 0.6);
+    --color-inverse-bg: #e7e9ed;
+    --color-inverse-text: #15171c;
+    --shadow-popup: 0 10px 28px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.4);
+  }
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #0f1115;
+  --color-surface: #161920;
+  --color-surface-sunken: #1d2129;
+  --color-surface-hover: #1c2028;
+  --color-border: #2b303a;
+  --color-border-strong: #5a6170;
+  --color-text: #e7e9ed;
+  --color-text-muted: #b0b6c2;
+  --color-text-subtle: #9299a6;
+  --color-accent: #6f9fff;
+  --color-accent-hover: #8fb3ff;
+  --color-accent-soft: #1c2a47;
+  --color-on-accent: #0b1020;
+  --color-focus: #8fb3ff;
+  --color-ok: #57c98f;
+  --color-ok-bg: #10291c;
+  --color-ok-border: #23603f;
+  --color-bad: #ff8a7e;
+  --color-bad-bg: #3a1714;
+  --color-bad-border: #7a2c25;
+  --color-warn: #ecb84c;
+  --color-warn-bg: #33270c;
+  --color-warn-border: #6e5317;
+  --color-paused: #c9ced8;
+  --color-paused-bg: #2a2f39;
+  --color-paused-border: #5a6170;
+  --color-unchecked: #b0b6c2;
+  --color-unchecked-border: #7a8190;
+  --color-info-bg: #1c2a47;
+  --color-info-border: #34508a;
+  --color-danger: #e5484d;
+  --color-danger-hover: #f2555a;
+  --color-on-danger: #ffffff;
+  --color-overlay: rgb(0 0 0 / 0.6);
+  --color-inverse-bg: #e7e9ed;
+  --color-inverse-text: #15171c;
+  --shadow-popup: 0 10px 28px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.4);
+}
+
+[data-theme="light"] { color-scheme: light; }

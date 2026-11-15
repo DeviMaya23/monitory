@@ -1,0 +1,14 @@
+/* Page-level rules that the design's boards get from their frames. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-bg);
+}
+
+#root {
+  min-height: 100%;
+}

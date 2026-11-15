@@ -13,8 +13,8 @@ The drafter resolves the current stable version when a task adds a dependency, r
 | Language | Go |
 | HTTP | Echo |
 | Database | SQLite, one file on the persistent volume [NFR-1]. The only data store |
-| Data access | GORM with a pure-Go SQLite driver (no cgo); raw SQL where the ORM hides a database feature |
-| Migrations | golang-migrate; numbered SQL pairs, embedded in the binary, applied at startup; no auto-migrate |
+| Data access | GORM with `glebarez/sqlite`, a pure-Go SQLite driver (no cgo); raw SQL where the ORM hides a database feature |
+| Migrations | golang-migrate; numbered SQL pairs, embedded in the binary, applied at startup; no auto-migrate. It runs on the app's connection through the app's own driver in `platform/migrate`; golang-migrate's SQLite driver is not used (it cannot share a binary with the GORM driver) |
 | In-memory state | Sessions, failed sign-in counts, lockouts and rate-limit counters. Never stored [FR-114] |
 | API layer | oapi-codegen generates types and a strict server interface from `docs/openapi.yaml` |
 | Access model | Single account. Username and password from the deployment configuration [FR-101]. Session cookie `session` (`HttpOnly`, `SameSite=Strict`, `Secure` while "require HTTPS" is on) [FR-98]; CSRF token in the `X-CSRF-Token` header [NFR-8]. No identity provider |
@@ -34,7 +34,7 @@ The drafter resolves the current stable version when a task adds a dependency, r
 
 | Concern | Choice |
 |---|---|
-| UI | React, TypeScript, Vite |
+| UI | React, TypeScript, Vite. TypeScript stays on the newest line typescript-eslint supports |
 | Serving | The built files are embedded in the Go binary and served by it, same origin as the API |
 | Lint | ESLint with typescript-eslint |
 | CSS lint | stylelint with stylelint-config-recommended |
@@ -60,7 +60,7 @@ The drafter resolves the current stable version when a task adds a dependency, r
 | Shell lint | shellcheck |
 | Markdown lint | markdownlint |
 | Not linted | Dockerfile, workflow YAML, SQL migrations, `fly.toml` |
-| Contract conformance | Handler responses and frontend mocks are validated against `docs/openapi.yaml` in tests |
+| Contract conformance | Handler responses are validated against `docs/openapi.yaml` in tests with kin-openapi; frontend mocks are typed with the generated types |
 | Integration tests | Build tag `integration`: email delivery against Mailpit (Docker). `make test-integration` |
 | End-to-end tests | Playwright (Chromium, Firefox, WebKit) against the real binary with a temp SQLite file, Mailpit and a stub target server. A smoke subset runs in CI; the user runs the full suite at milestones |
 | CI | GitHub Actions: `make check`, `make generate-check`, integration tests, end-to-end smoke subset |
@@ -70,7 +70,7 @@ The drafter resolves the current stable version when a task adds a dependency, r
 
 | Concern | Choice |
 |---|---|
-| Ports | Go server `:8080`, Vite `:5173` |
+| Ports | Go server `:8080`, Vite `:5173` by default; in development both are set in `.env` (`LISTEN_ADDR`, `FRONTEND_DEV_PORT`) |
 | One origin | Vite proxies `/api` and `/health` to the Go server |
 | Database | A SQLite file at `DATABASE_PATH`, under a gitignored `data/` directory |
 | Email | Mailpit by docker compose |

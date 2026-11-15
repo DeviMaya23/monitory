@@ -10,8 +10,8 @@ Kit: local clone at `~/Documents/GitHub/kickoff-kit` (`templates/`, `packs/go-re
 | A | Stack and production map; concerns table answered; env contract; pack check (full, partial or no match, and which pack) | Done 2026-11-15 | `STACK.md`, `deploy/README.md`, `.env.example` confirmed. Pack check: partial match with go-react |
 | B | Design brief written, design produced, error table reconciled with the contract | Done 2026-11-15 | Design in `docs/design/` (read-only, rules in `docs/design/README.md`). Every mismatch row decided. Contract is 0.2.0 |
 | C | Reference docs written (STACK, ARCHITECTURE, CONVENTIONS, TESTING, ROLES, AGENTS) | Done 2026-11-15 | `ARCHITECTURE.md`, `CONVENTIONS.md`, `TESTING.md`, `ROLES.md`, `AGENTS.md` (`CLAUDE.md` links to it), `docs/tasks/` templates and prompts, `scripts/`. The choices made without a question were confirmed with the files |
-| D | Scaffold files: Makefile, CI, scripts, backlog coverage map | Written 2026-11-15, waiting for the user to confirm the checklist | `Makefile`, `.github/workflows/pr-ci.yml`, `docker-compose.yml` (Mailpit), `.markdownlint-cli2.yaml`, `.gitignore`, `docs/tasks/backlog.md` (coverage map), `docs/manual-checks.md` |
-| E | Data model approved; foundation done (app runs locally, `make check` and CI green); walking-skeleton deploy live; first feature task drafted | | |
+| D | Scaffold files: Makefile, CI, scripts, backlog coverage map | Done 2026-11-15 | `Makefile`, `.github/workflows/pr-ci.yml`, `docker-compose.yml` (Mailpit), `.markdownlint-cli2.yaml`, `.gitignore`, `docs/tasks/backlog.md` (coverage map), `docs/manual-checks.md` |
+| E | Data model approved; foundation done (app runs locally, `make check` and CI green); walking-skeleton deploy live; first feature task drafted | Foundation built 2026-11-15, waiting for the user to confirm the done-when list; production deploy deferred | |
 
 ## Intake result
 
@@ -74,6 +74,11 @@ Advisory:
 - 2026-11-15, step D: the kickoff session works on `main`, and the user commits there. Nothing is on GitHub yet: `scripts/status.sh` and CI need `main` pushed to `origin`. The first `triage.sh` run needs `--since <commit>`.
 - 2026-11-15, step D: contract 0.2.1: the `alertDelivery` webhook declares `security: []` (user decided). `redocly.yaml` turns off `info-license` and `tag-description`; `.redocly.lint-ignore.yaml` exempts `/health` from the 4xx rule. The contract lint is clean.
 - 2026-11-15, step D: GitHub repository set to squash merges only, with branches deleted on merge (user decided).
+- 2026-11-15, step D: the user confirmed the scaffold checklist.
+- 2026-11-15, step E: data model decisions: single values of the check are typed columns on `services`, the three lists are JSON text columns; state lives in its own table `service_states`; a duplicate contact is an email ignoring case or a URL compared exactly; service names are unique by a Unicode lower-case copy kept by the app. `docs/data-model.md` is written and waits for the user's approval.
+- 2026-11-15, step E: foundation risk checked outside the repo: oapi-codegen v2.8.2 generates the strict Echo server from the 3.1 contract; nullable fields become pointers. It also generates a handler for the `alertDelivery` webhook, which the app does not serve. Still to check in the foundation: that the generated code compiles, and a conformance validator that accepts OpenAPI 3.1.
+- 2026-11-15, step E: the user approved `docs/data-model.md`. Messages are trimmed before saving; left out, null and empty all mean the default message.
+- 2026-11-15, step E: both development ports are set in `.env`: `LISTEN_ADDR` for the Go server (the Vite proxy follows its port) and `FRONTEND_DEV_PORT` for Vite. `FRONTEND_DEV_PORT` is development only, read by `frontend/vite.config.ts`, and commented out in `.env.example` because the Go config does not read it. Defaults stay `:8080` and `5173`.
 
 ## Pack check
 
@@ -89,8 +94,32 @@ Partial match with `packs/go-react`.
 - Deployment pieces to build in the scaffold or foundation: Dockerfile (frontend stage, Go stage, embedded files), `fly.toml`, health endpoint at `/health`, env-file loading for local development, startup migrations, a check that every key the config code reads is in `.env.example`, docker compose for Mailpit.
 - The first production deploy has no deadline: the user is preparing Fly.io separately, using `deploy/README.md`. Step E.4 runs the skeleton locally (Docker image, volume, production-style values) until the user says the host is ready.
 
-## Open at step D
+## Open after step D
 
 - `shellcheck` is not installed on the user's machine (`brew install shellcheck`); `make lint-shell` says so until it is.
 - `deploy/README.md` names the real hostname and the repository is public.
 - Nothing is pushed to GitHub yet.
+
+## Foundation state
+
+Built on 2026-11-15. Not committed yet; the user commits.
+
+- Decided: golang-migrate runs through the app's own driver (`platform/migrate/driver.go`), because its SQLite driver and GORM's pure-Go driver (`glebarez/sqlite`) cannot share a binary. Reusable pieces were adapted from the user's earlier project. TypeScript is 6.0 (the newest typescript-eslint supports). The `go` directive is 1.27.4. The TypeScript types are generated with `--default-non-nullable=false`, so a field with a default stays optional.
+- Backend: module, generated API code (oapi-codegen 2.8.2; the webhook is excluded from the server), config with the `.env.example` key test, clock and fake, database opener, migration 000001, domain types, policy router (gate, CSRF, size limit, JSON and required body, scheme and client address), error mapping, 501 stubs, `/health`, embedded frontend server, `testutil.NewDB` and `AssertConforms`, and the public view setting as the example through repository, usecase and handler. Sessions are a stand-in that knows none, so gated operations answer 401 until the sign-in task.
+- Frontend: project, ESLint (Base UI imports only in `components/ui`), stylelint, Vitest, generated types, API request wrapper, `Switch` and `Dialog` wrappers, tokens and component styles copied from the design, route table with placeholders.
+- Dockerfile, `.dockerignore`, `make dev-backend`, `make dev-frontend`, `make docker-build`.
+
+Done-when list, checked 2026-11-15:
+
+| Item | Result |
+|---|---|
+| `make check` is green | Run, passed |
+| Migrations apply to an empty database and reverse | Run, passed (`platform/migrate` tests) |
+| The app runs locally end to end | Run, passed: Go on `:8080`, Vite on `:5173`, `/health` reached through the dev proxy |
+| Generated code is current | Run, passed: regenerating changes nothing |
+| `make test-integration` | Run, passed with Mailpit; no test carries the `integration` tag yet |
+| CI green on the foundation commit | Not run: nothing is pushed to GitHub yet |
+| `docs/data-model.md` and the migrations agree | Checked by reading: the four tables, their columns, checks, indexes and cascades match |
+| Walking skeleton | Run locally, passed (`deploy/RUNBOOK.md`). The production deploy is deferred by the user |
+
+Open, also in `docs/tasks/backlog.md`: the `internal_error` code is not in the contract; `updatePublicViewSettings` with `{}` counts as off.

@@ -8,9 +8,9 @@ data/
 # Frontend
 node_modules/
 frontend/dist/
-# Built frontend, embedded by the Go binary. Only the placeholder is committed.
+# Built frontend, embedded by the Go binary. Only the keeper file is committed.
 backend/internal/web/dist/*
-!backend/internal/web/dist/index.html
+!backend/internal/web/dist/.gitkeep
 
 # Go
 backend/bin/
