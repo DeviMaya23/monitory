@@ -1,0 +1,119 @@
+/* Screen 2: Admin dashboard. Depends on tokens.css + components.css. */
+.dash-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.dash-toolbar__spacer { flex: 1; }
+.refresh-meta { font-size: var(--text-sm); color: var(--color-text-subtle); font-variant-numeric: tabular-nums; }
+.refresh-meta strong { color: var(--color-text-muted); font-weight: var(--weight-medium); }
+
+.public-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control-h);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.public-toggle__label { font-weight: var(--weight-medium); }
+.public-toggle__sep { width: 1px; align-self: stretch; margin: 5px 0; background: var(--color-border); }
+
+/* Service list: a <ul> of grid rows, not a table, so it can re-flow at 360 px. */
+.svc-list { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; }
+.svc-head, .svc {
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr) 128px 128px 60px 80px 132px;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2) var(--space-4);
+}
+.svc-head {
+  padding-block: 6px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.svc { min-height: 48px; }
+.svc + .svc { border-top: 1px solid var(--color-border); }
+.svc:hover { background: var(--color-surface-hover); }
+.svc--paused { background: var(--color-surface-sunken); }
+.svc__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.svc__title { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.svc__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-semibold);
+  color: var(--color-text) !important;
+  text-decoration: none;
+}
+.svc__name:hover { text-decoration: underline; }
+.svc__reason { display: flex; align-items: flex-start; gap: var(--space-1); font-size: var(--text-sm); color: var(--color-bad); }
+.svc__reason .icon { margin-top: 1px; }
+.svc__delivery { font-size: var(--text-sm); color: var(--color-warn) !important; font-weight: var(--weight-medium); text-decoration: none; display: inline-flex; align-items: flex-start; gap: var(--space-1); align-self: flex-start; }
+.svc__delivery:hover { text-decoration: underline; }
+.svc__delivery .icon { margin-top: 1px; }
+.svc__cell { display: flex; flex-direction: column; min-width: 0; }
+.svc__label { display: none; font-size: var(--text-xs); color: var(--color-text-subtle); }
+.svc__time { font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.svc__never { font-size: var(--text-sm); color: var(--color-text-subtle); }
+.flag { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); white-space: nowrap; }
+.flag--on { color: var(--color-text); }
+.flag--off { color: var(--color-text-subtle); }
+.svc__flags { display: contents; }
+.svc__actions { display: flex; justify-content: flex-end; gap: 2px; }
+.svc__actions .btn__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Name tooltip demo position (board only uses this to place the popup) */
+.svc__title--tip { position: relative; overflow: visible; }
+.svc__title--tip .tooltip { position: absolute; left: 0; top: calc(100% + 6px); z-index: 5; width: max-content; }
+
+.loading-row .skeleton { height: 10px; }
+
+@container app (max-width: 640px) {
+  .dash-toolbar { gap: var(--space-2); }
+  .dash-toolbar__spacer { display: none; }
+  .dash-toolbar > .btn--primary { flex: 1 1 auto; }
+  .public-toggle { width: 100%; height: var(--control-h-touch); }
+  .public-toggle .btn { height: 36px; }
+  .public-toggle__link { margin-left: auto; }
+  .refresh-meta { width: 100%; order: 5; }
+
+  .svc-list { border: 0; background: transparent; overflow: visible; display: flex; flex-direction: column; gap: var(--space-2); }
+  .svc-head { display: none; }
+  .svc {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "status flags"
+      "main main"
+      "check change"
+      "actions actions";
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+  }
+  .svc + .svc { border-top: 1px solid var(--color-border); }
+  .svc--paused { background: var(--color-surface-sunken); }
+  .svc__status { grid-area: status; }
+  .svc__flags { grid-area: flags; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+  .svc__main { grid-area: main; }
+  .svc__check { grid-area: check; }
+  .svc__change { grid-area: change; }
+  .svc__actions { grid-area: actions; justify-content: stretch; gap: var(--space-1); padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+  .svc__actions .btn { flex: 1 1 0; width: auto; padding: 0 var(--space-1); gap: 6px; }
+  .svc__actions .btn__label { position: static; width: auto; height: auto; clip: auto; overflow: visible; }
+  .svc__name { white-space: normal; overflow-wrap: anywhere; }
+  .svc__label { display: block; }
+}

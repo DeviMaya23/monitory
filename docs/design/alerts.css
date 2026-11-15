@@ -1,0 +1,43 @@
+/* Screen 4: A service's alert list. Depends on tokens.css + components.css. */
+.alerts-banners { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3); }
+.target-list { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.target {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+}
+.target + .target { border-top: 1px solid var(--color-border); }
+.target__type {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+}
+.target__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.target__title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.target__name { font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.target__name--fallback { font-weight: var(--weight-regular); color: var(--color-text-subtle); font-style: italic; }
+.target__addr { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-text-muted); overflow-wrap: anywhere; }
+.target__actions { display: flex; gap: var(--space-1); align-items: center; }
+.target__confirm { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+
+.list-foot { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-3); flex-wrap: wrap; }
+
+/* Target dialog: test row */
+.test-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-sunken); }
+.test-row__result { flex: 1 1 200px; min-width: 0; }
+
+@container app (max-width: 640px) {
+  .target-list { border: 0; background: transparent; display: flex; flex-direction: column; gap: var(--space-2); }
+  .target { grid-template-columns: 28px minmax(0, 1fr); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+  .target + .target { border-top: 1px solid var(--color-border); }
+  .target__actions, .target__confirm { grid-column: 1 / -1; padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+  .target__actions .btn, .target__confirm .btn { flex: 1 1 0; }
+  .target__confirm { flex-wrap: wrap; }
+  .target__confirm > span { width: 100%; }
+  .list-foot > .btn { flex: 1 1 auto; }
+  .test-row .btn { width: 100%; }
+}

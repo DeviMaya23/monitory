@@ -8,7 +8,7 @@ Kit: local clone at `~/Documents/GitHub/kickoff-kit` (`templates/`, `packs/go-re
 |---|---|---|---|
 | Intake | requirements.md and openapi.yaml pass the strict checks | Done 2026-11-15 | Passed against requirements v0.44 and openapi 0.1.0 |
 | A | Stack and production map; concerns table answered; env contract; pack check (full, partial or no match, and which pack) | Done 2026-11-15 | `STACK.md`, `deploy/README.md`, `.env.example` confirmed. Pack check: partial match with go-react |
-| B | Design brief written, design produced, error table reconciled with the contract | In progress | Brief written at `docs/design/ui-design-brief.md`; waiting for the design |
+| B | Design brief written, design produced, error table reconciled with the contract | Decided 2026-11-15, waiting for the user to confirm | Design in `docs/design/` (read-only, rules in `docs/design/README.md`). Every mismatch row decided. Contract is 0.2.0 |
 | C | Reference docs written (STACK, ARCHITECTURE, CONVENTIONS, TESTING, ROLES, AGENTS) | | |
 | D | Scaffold files: Makefile, CI, scripts, backlog coverage map | | |
 | E | Data model approved; foundation done (app runs locally, `make check` and CI green); walking-skeleton deploy live; first feature task drafted | | |
@@ -57,6 +57,9 @@ Advisory:
 - 2026-11-15, step A: the user confirmed the three step A files. The deferred deploy has no deadline; the user works on Fly.io separately.
 - 2026-11-15, step A: every "do not hardcode" limit is an environment key with the requirements' value as default; the dashboards' refresh interval (FR-95) is a named frontend constant. No dev auth bypass. Ports: Go `:8080`, Vite `:5173`.
 - 2026-11-15, deploy preparation: Fly.io account and app created, admin credentials staged as secrets. Public address is a custom domain with DNS at Cloudflare. Region `syd`; hostname `monitory.evimay.me`; Cloudflare in DNS-only mode, so Fly.io's proxy is the only proxy. Open: SMTP provider, outside watcher.
+- 2026-11-15, step B: contract changed to 0.2.0: `Service` gains read-only `target_count` and `alert_delivery_failed`; `FieldError.message` is required and display-ready, stating the install's limit; field paths use dots with zero-based bracket indexes.
+- 2026-11-15, step B: built from the designer's additions: dark theme, inline confirm for removing a target, discard-unsaved-changes dialog. Not built: return to the previous screen after re-sign-in, restoring typed values after a session expires.
+- 2026-11-15, step B: counters and hints for configurable limits are not shown; the UI shows the server's field message. Pages: `/` dashboard, `/sign-in`, `/status` public with the fixed heading "Service status" (proposed by the skill, not yet confirmed by the user).
 
 ## Pack check
 

@@ -1,0 +1,29 @@
+/* Screen 1: Sign-in. Depends on tokens.css + components.css. */
+.signin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 620px;
+  padding: var(--space-8) var(--space-4);
+}
+.signin__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 360px;
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.signin__title { font-size: var(--text-2xl); font-weight: var(--weight-semibold); line-height: var(--leading-tight); }
+.signin__form { display: flex; flex-direction: column; gap: var(--space-3); }
+.signin__form .btn--primary { width: 100%; margin-top: var(--space-1); }
+.signin__detail { font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.signin__wait { font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); }
+
+@container app (max-width: 640px) {
+  .signin { align-items: flex-start; min-height: 0; padding: var(--space-8) var(--space-3) var(--space-6); }
+  .signin__card { padding: 0; border: 0; background: transparent; }
+}

@@ -108,7 +108,7 @@ Every error the API can return to a screen. Reconciled against the design when i
 | HTTPS required | `signIn` 403 `https_required`, `detail` | Show `detail` |
 | Session expired or signed out | any gated operation 401 `unauthenticated` | Go to sign-in |
 | Request not accepted | gated writes 403 `csrf_failed` | Reload and retry |
-| Field errors | 422 `validation_failed`, `errors[].field`, `errors[].code` | Codes: `required`, `too_long`, `out_of_range`, `too_many`, `invalid_format`, `invalid_value`, `requires_https_url`, `check_budget_exceeded` (field `settings`) |
+| Field errors | 422 `validation_failed`, `errors[].field`, `errors[].code`, `errors[].message` (shown as it is) | Codes: `required`, `too_long`, `out_of_range`, `too_many`, `invalid_format`, `invalid_value`, `requires_https_url`, `check_budget_exceeded` (field `settings`) |
 | Name already used | `createService`, `updateService` 409 `service_name_taken` | On the name field |
 | Service limit reached | `createService` 409 `service_limit_reached` | |
 | Alert list full | `createTarget` 409 `alert_list_full` | |
@@ -119,7 +119,8 @@ Every error the API can return to a screen. Reconciled against the design when i
 | Check test: healthy or failed | `testServiceCheck` 200, `healthy`, `failure_reason`, `duration_ms`, `http_status`, `response_body`, `response_body_truncated` | A failed test is not an HTTP error |
 | Target test: delivered or failed | `testTarget` 200, `delivered`, `failure_reason` | A failed test is not an HTTP error |
 | Service status and failure reason | `Service.state.status`, `Service.paused`, `state.last_failure_reason` | Paused replaces status |
-| Last delivery failed | `Target.last_delivery_failed` from `listTargets` | Per service; not part of `listServices` |
+| Last delivery failed on a target | `Target.last_delivery_failed` from `listTargets` | Alert list screen |
+| Alert delivery failed on a service row; target count in the delete dialog | `Service.alert_delivery_failed`, `Service.target_count` from `listServices` | Added to the contract at reconciliation (0.2.0) |
 | Public view unavailable | `getPublicDashboard` 404 `public_view_unavailable` | |
 | Too many requests, wait N | `getPublicDashboard` 429 `rate_limited`, `Retry-After` | Seconds |
 | Server unreachable or unexpected error | no contract source (network failure, 5xx) | One generic message with retry |

@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Self-hosted uptime/status monitor API
-  version: 0.1.0
+  version: 0.2.0
   summary: HTTP contract for the admin interface, the public status view and the health endpoint.
   description: |
     Draft contract written against `requirements.md` v0.44.
@@ -132,11 +132,14 @@ paths:
       operationId: listServices
       summary: List all services with their current state
       description: |
-        Covers FR-9, FR-62, FR-77, FR-95, FR-112, FR-61.
+        Covers FR-9, FR-62, FR-77, FR-86, FR-95, FR-112, FR-61.
         Not paginated: there are at most 50 services (FR-60). Ordered by name, ignoring case, ascending.
         Each service carries its current state (status, last check time, last status change time, last failure
         reason when unhealthy), whether alerts are on, whether it is shown on the public view, and whether it is
         paused. The interface shows a paused service as paused (FR-77, FR-112).
+        Each service also carries how many notification targets it has (`target_count`) and whether any of them
+        has the "last delivery failed" notice (`alert_delivery_failed`), which the dashboard shows on the
+        service (FR-86).
       security:
         - sessionCookie: []
       responses:
@@ -778,13 +781,22 @@ components:
 
     FieldError:
       type: object
-      required: [field, code]
+      required: [field, code, message]
       properties:
         field:
           type: string
-          description: Path of the field in the request body, for example `check.url` or `settings.timeout_seconds`.
+          description: |
+            Path of the field in the request body: property names joined by dots, and a zero-based index in
+            brackets for an item of a list. For example `check.url`, `settings.timeout_seconds`,
+            `check.headers[2].value`, `check.json_rules[1].field`, `check.query_params[0].name`, and
+            `headers[0].name` for a webhook target.
         code: { $ref: '#/components/schemas/FieldErrorCode' }
-        message: { type: string }
+        message:
+          type: string
+          description: |
+            Text the interface shows on the field as it is. It states the limit that applies on this install,
+            for example "The timeout is 1 to 60 seconds.", because limits come from the deployment
+            configuration and the interface cannot read them.
 
     Problem:
       type: object
@@ -1006,10 +1018,19 @@ components:
       allOf:
         - $ref: '#/components/schemas/ServiceInput'
         - type: object
-          required: [id, paused, state]
+          required: [id, paused, state, target_count, alert_delivery_failed]
           properties:
             id: { type: string, readOnly: true }
             paused: { type: boolean, readOnly: true }
+            target_count:
+              type: integer
+              minimum: 0
+              readOnly: true
+              description: How many notification targets are on this service's alert list (FR-19).
+            alert_delivery_failed:
+              type: boolean
+              readOnly: true
+              description: True when any target on this service's alert list has `last_delivery_failed` (FR-86).
             state:
               readOnly: true
               allOf:

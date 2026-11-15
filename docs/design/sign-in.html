@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign-in · Monitory design</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="sign-in.css"><link rel="stylesheet" href="board.css">
+</head>
+<body class="board">
+<header class="board-head"><h1>Monitory · UI reference</h1><nav aria-label="Screens"><a href="index.html">Overview</a><a href="sign-in.html" aria-current="page">1 Sign-in</a><a href="dashboard.html">2 Dashboard</a><a href="service-form.html">3 Service form</a><a href="alerts.html">4 Alert list</a><a href="public.html">5 Public page</a></nav></header>
+<div class="board-intro"><h2>1 · Sign-in</h2><p>FR-1, FR-2, FR-97. Username, password, submit. No sign-up, password reset or password change. Every message appears in one banner slot above the fields, so the form never shifts below it.</p><ul class="board-toc"><li><a href="#idle">Idle</a></li><li><a href="#submitting">Submitting</a></li><li><a href="#wrong-credentials">Wrong credentials</a></li><li><a href="#locked-after-5-failures">Locked after 5 failures</a></li><li><a href="#https-required">HTTPS required</a></li><li><a href="#server-unreachable-or-unexpected-error">Server unreachable or unexpected error</a></li><li><a href="#session-expired-or-signed-out">Session expired or signed out</a></li></ul></div>
+<section class="state" id="idle"><h2 class="state__title">Idle<code class="state__src">signIn</code></h2><p class="state__note">Focus starts in Username. Tab order: Username → Password → Sign in. Enter in either field submits. The focus outline is drawn on Username here.</p><div class="frames"><figure class="frame frame--desktop"><figcaption>Desktop 1120 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:620px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-1d">Username</label><input class="input is-focus" id="u-1d" name="username-1d" autocomplete="username" value="" required></div>
+<div class="field"><label class="label" for="p-1d">Password</label><input class="input" id="p-1d" name="password-1d" type="password" autocomplete="current-password" value="" required></div>
+<button type="submit" class="btn btn--primary"><span>Sign in</span></button>
+</form></div></main></div></div></figure><figure class="frame frame--mobile"><figcaption>360 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:560px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-1m">Username</label><input class="input is-focus" id="u-1m" name="username-1m" autocomplete="username" value="" required></div>
+<div class="field"><label class="label" for="p-1m">Password</label><input class="input" id="p-1m" name="password-1m" type="password" autocomplete="current-password" value="" required></div>
+<button type="submit" class="btn btn--primary"><span>Sign in</span></button>
+</form></div></main></div></div></figure></div></section><section class="state" id="submitting"><h2 class="state__title">Submitting<code class="state__src">signIn (pending)</code></h2><p class="state__note">Fields and button are disabled while the request is in flight; the button shows a spinner and “Signing in…”. Focus stays on the button.</p><div class="frames"><figure class="frame frame--desktop"><figcaption>Desktop 1120 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:620px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-2d">Username</label><input class="input" id="u-2d" name="username-2d" autocomplete="username" value="admin" disabled required></div>
+<div class="field"><label class="label" for="p-2d">Password</label><input class="input" id="p-2d" name="password-2d" type="password" autocomplete="current-password" value="••••••••••" disabled required></div>
+<button type="submit" class="btn btn--primary" aria-busy="true" disabled><svg class="icon spinner icon--sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><span>Signing in…</span></button>
+</form></div></main></div></div></figure><figure class="frame frame--mobile"><figcaption>360 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:560px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-2m">Username</label><input class="input" id="u-2m" name="username-2m" autocomplete="username" value="admin" disabled required></div>
+<div class="field"><label class="label" for="p-2m">Password</label><input class="input" id="p-2m" name="password-2m" type="password" autocomplete="current-password" value="••••••••••" disabled required></div>
+<button type="submit" class="btn btn--primary" aria-busy="true" disabled><svg class="icon spinner icon--sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><span>Signing in…</span></button>
+</form></div></main></div></div></figure></div></section><section class="state" id="wrong-credentials"><h2 class="state__title">Wrong credentials<code class="state__src">signIn 401 invalid_credentials</code></h2><p class="state__note">One message that never says which field was wrong. The password is cleared and focus moves to Password; the banner is announced (aria-live).</p><div class="frames"><figure class="frame frame--desktop"><figcaption>Desktop 1120 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:620px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"><div class="banner banner--error" role="alert"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg><div class="banner__body"><span class="banner__title">Username or password is incorrect.</span></div></div></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-3d">Username</label><input class="input" id="u-3d" name="username-3d" autocomplete="username" value="admin" required></div>
+<div class="field"><label class="label" for="p-3d">Password</label><input class="input" id="p-3d" name="password-3d" type="password" autocomplete="current-password" value="" required></div>
+<button type="submit" class="btn btn--primary"><span>Sign in</span></button>
+</form></div></main></div></div></figure><figure class="frame frame--mobile"><figcaption>360 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:560px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"><div class="banner banner--error" role="alert"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg><div class="banner__body"><span class="banner__title">Username or password is incorrect.</span></div></div></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-3m">Username</label><input class="input" id="u-3m" name="username-3m" autocomplete="username" value="admin" required></div>
+<div class="field"><label class="label" for="p-3m">Password</label><input class="input" id="p-3m" name="password-3m" type="password" autocomplete="current-password" value="" required></div>
+<button type="submit" class="btn btn--primary"><span>Sign in</span></button>
+</form></div></main></div></div></figure></div></section><section class="state" id="locked-after-5-failures"><h2 class="state__title">Locked after 5 failures<code class="state__src">signIn 429 sign_in_locked + Retry-After</code></h2><p class="state__note">Retry-After (seconds) drives a countdown, shown in minutes and seconds. The button stays disabled until it reaches zero, then the banner is removed.</p><div class="frames"><figure class="frame frame--desktop"><figcaption>Desktop 1120 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:620px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"><div class="banner banner--error" role="alert"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><div class="banner__body"><span class="banner__title">Too many failed attempts.</span><span>Try again in <span class="signin__wait">4 min 52 s</span>.</span></div></div></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-4d">Username</label><input class="input" id="u-4d" name="username-4d" autocomplete="username" value="admin" required></div>
+<div class="field"><label class="label" for="p-4d">Password</label><input class="input" id="p-4d" name="password-4d" type="password" autocomplete="current-password" value="••••••••••" required></div>
+<button type="submit" class="btn btn--primary" disabled><span>Sign in</span></button>
+</form></div></main></div></div></figure><figure class="frame frame--mobile"><figcaption>360 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:560px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"><div class="banner banner--error" role="alert"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><div class="banner__body"><span class="banner__title">Too many failed attempts.</span><span>Try again in <span class="signin__wait">4 min 52 s</span>.</span></div></div></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-4m">Username</label><input class="input" id="u-4m" name="username-4m" autocomplete="username" value="admin" required></div>
+<div class="field"><label class="label" for="p-4m">Password</label><input class="input" id="p-4m" name="password-4m" type="password" autocomplete="current-password" value="••••••••••" required></div>
+<button type="submit" class="btn btn--primary" disabled><span>Sign in</span></button>
+</form></div></main></div></div></figure></div></section><section class="state" id="https-required"><h2 class="state__title">HTTPS required<code class="state__src">signIn 403 https_required + detail</code></h2><p class="state__note">The server’s <code>detail</code> is shown verbatim as plain text (NFR-7), in monospace so commands and setting names stay readable. The detail text drawn here is a placeholder, not the server’s real wording.</p><div class="frames"><figure class="frame frame--desktop"><figcaption>Desktop 1120 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:620px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"><div class="banner banner--warn" role="alert"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><div class="banner__body"><span class="banner__title">Sign-in requires HTTPS</span><span><span class="signin__detail">Sign-in is only allowed over HTTPS. To allow plain HTTP on a trusted network, set MONITORY_REQUIRE_HTTPS=false and restart the server.</span></span></div></div></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-5d">Username</label><input class="input" id="u-5d" name="username-5d" autocomplete="username" value="admin" required></div>
+<div class="field"><label class="label" for="p-5d">Password</label><input class="input" id="p-5d" name="password-5d" type="password" autocomplete="current-password" value="••••••••••" required></div>
+<button type="submit" class="btn btn--primary"><span>Sign in</span></button>
+</form></div></main></div></div></figure><figure class="frame frame--mobile"><figcaption>360 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:600px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"><div class="banner banner--warn" role="alert"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><div class="banner__body"><span class="banner__title">Sign-in requires HTTPS</span><span><span class="signin__detail">Sign-in is only allowed over HTTPS. To allow plain HTTP on a trusted network, set MONITORY_REQUIRE_HTTPS=false and restart the server.</span></span></div></div></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-5m">Username</label><input class="input" id="u-5m" name="username-5m" autocomplete="username" value="admin" required></div>
+<div class="field"><label class="label" for="p-5m">Password</label><input class="input" id="p-5m" name="password-5m" type="password" autocomplete="current-password" value="••••••••••" required></div>
+<button type="submit" class="btn btn--primary"><span>Sign in</span></button>
+</form></div></main></div></div></figure></div></section><section class="state" id="server-unreachable-or-unexpected-error"><h2 class="state__title">Server unreachable or unexpected error<code class="state__src">network failure / 5xx (no contract source)</code></h2><p class="state__note">One generic message with a retry. Retry resubmits the same values.</p><div class="frames"><figure class="frame frame--desktop"><figcaption>Desktop 1120 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:620px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"><div class="banner banner--error" role="alert"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/></svg><div class="banner__body"><span class="banner__title">Can’t reach the server.</span><span>Check your connection and try again.</span></div><div class="banner__actions"><button type="button" class="btn"><svg class="icon icon--sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span>Retry</span></button></div></div></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-6d">Username</label><input class="input" id="u-6d" name="username-6d" autocomplete="username" value="admin" required></div>
+<div class="field"><label class="label" for="p-6d">Password</label><input class="input" id="p-6d" name="password-6d" type="password" autocomplete="current-password" value="••••••••••" required></div>
+<button type="submit" class="btn btn--primary"><span>Sign in</span></button>
+</form></div></main></div></div></figure><figure class="frame frame--mobile"><figcaption>360 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:600px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"><div class="banner banner--error" role="alert"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/></svg><div class="banner__body"><span class="banner__title">Can’t reach the server.</span><span>Check your connection and try again.</span></div><div class="banner__actions"><button type="button" class="btn"><svg class="icon icon--sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span>Retry</span></button></div></div></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-6m">Username</label><input class="input" id="u-6m" name="username-6m" autocomplete="username" value="admin" required></div>
+<div class="field"><label class="label" for="p-6m">Password</label><input class="input" id="p-6m" name="password-6m" type="password" autocomplete="current-password" value="••••••••••" required></div>
+<button type="submit" class="btn btn--primary"><span>Sign in</span></button>
+</form></div></main></div></div></figure></div></section><section class="state" id="session-expired-or-signed-out"><h2 class="state__title">Session expired or signed out<code class="state__src">any gated operation 401 unauthenticated</code></h2><p class="state__note">Where every admin screen lands on 401. After sign-in the app returns to the screen the admin was on. The notice is not shown after a deliberate sign-out.</p><div class="frames"><figure class="frame frame--desktop"><figcaption>Desktop 1120 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:620px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"><div class="banner banner--info"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><div class="banner__body"><span class="banner__title">Your session has ended.</span><span>Sign in again to continue.</span></div></div></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-7d">Username</label><input class="input" id="u-7d" name="username-7d" autocomplete="username" value="admin" required></div>
+<div class="field"><label class="label" for="p-7d">Password</label><input class="input" id="p-7d" name="password-7d" type="password" autocomplete="current-password" value="" required></div>
+<button type="submit" class="btn btn--primary"><span>Sign in</span></button>
+</form></div></main></div></div></figure><figure class="frame frame--mobile"><figcaption>360 px</figcaption><div class="frame__screen"><div class="app " data-theme="light" style="--frame-h:560px"><main class="signin"><div class="signin__card">
+<div class="brand"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg><span>Monitory</span></div>
+<h1 class="signin__title">Sign in</h1>
+<div aria-live="polite" class="stack"><div class="banner banner--info"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><div class="banner__body"><span class="banner__title">Your session has ended.</span><span>Sign in again to continue.</span></div></div></div>
+<form class="signin__form" novalidate>
+<div class="field"><label class="label" for="u-7m">Username</label><input class="input" id="u-7m" name="username-7m" autocomplete="username" value="admin" required></div>
+<div class="field"><label class="label" for="p-7m">Password</label><input class="input" id="p-7m" name="password-7m" type="password" autocomplete="current-password" value="" required></div>
+<button type="submit" class="btn btn--primary"><span>Sign in</span></button>
+</form></div></main></div></div></figure></div></section>
+</body>
+</html>
