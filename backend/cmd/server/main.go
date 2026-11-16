@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"monitory/internal/domain"
 	"monitory/internal/handler"
 	"monitory/internal/memstore"
 	"monitory/internal/platform/config"
@@ -20,6 +21,7 @@ import (
 	"monitory/internal/repository"
 	"monitory/internal/usecase"
 	"monitory/internal/web"
+	"monitory/internal/worker"
 	"monitory/migration"
 	"monitory/pkg/clock"
 )
@@ -32,6 +34,26 @@ func main() {
 	if err := run(log); err != nil {
 		log.Error("the app stopped", "error", err.Error())
 		os.Exit(1)
+	}
+}
+
+// serviceLimits maps the configured limits to the ones saving a service applies.
+func serviceLimits(l config.Limits) domain.ServiceLimits {
+	toRange := func(r config.Range) domain.Range { return domain.Range{Default: r.Default, Min: r.Min, Max: r.Max} }
+	return domain.ServiceLimits{
+		CheckInterval:         toRange(l.CheckInterval),
+		Timeout:               toRange(l.Timeout),
+		RetryCount:            toRange(l.RetryCount),
+		RetryInterval:         toRange(l.RetryInterval),
+		ServiceNameMaxLength:  l.ServiceNameMaxLength,
+		MaxServices:           l.MaxServices,
+		MaxJSONRules:          l.MaxJSONRules,
+		RequestURLMaxLength:   l.RequestURLMaxLength,
+		RequestMaxQueryParams: l.RequestMaxQueryParams,
+		RequestMaxHeaders:     l.RequestMaxHeaders,
+		HeaderNameMaxLength:   l.HeaderNameMaxLength,
+		HeaderValueMaxLength:  l.HeaderValueMaxLength,
+		RequestBodyMaxBytes:   l.RequestBodyMaxBytes,
 	}
 }
 
@@ -67,10 +89,11 @@ func run(log *slog.Logger) error {
 
 	settings := usecase.NewSettingsService(repository.NewSettingsRepository(db), clock.Real{})
 
+	services := usecase.NewServiceService(repository.NewServiceRepository(db), worker.NoopScheduler{}, clock.Real{}, serviceLimits(cfg.Limits))
 	sessions := memstore.NewSessions(clock.Real{})
 	auth := usecase.NewAuthService(cfg.AdminUsername, cfg.AdminPassword, cfg.RequireHTTPS, sessions, clock.Real{})
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(settings, auth, log, cfg.RequireHTTPS),
+		Server:          handler.NewServer(settings, services, auth, log, cfg.RequireHTTPS),
 		Sessions:        sessions,
 		Log:             log,
 		MaxRequestBytes: cfg.Limits.APIRequestMaxBytes,

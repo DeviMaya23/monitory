@@ -42,6 +42,8 @@ var domainProblems = []struct {
 	{domain.ErrCSRFFailed, http.StatusForbidden, api.ProblemCodeCsrfFailed, "Request not accepted", ""},
 	{domain.ErrNotFound, http.StatusNotFound, api.ProblemCodeNotFound, "Not found", ""},
 	{domain.ErrInvalidCredentials, http.StatusUnauthorized, api.ProblemCodeInvalidCredentials, "Invalid credentials", ""},
+	{domain.ErrServiceNameTaken, http.StatusConflict, api.ProblemCodeServiceNameTaken, "Name already used", ""},
+	{domain.ErrServiceLimitReached, http.StatusConflict, api.ProblemCodeServiceLimitReached, "Service limit reached", ""},
 	{domain.ErrHTTPSRequired, http.StatusForbidden, api.ProblemCodeHttpsRequired, "HTTPS required", httpsRequiredDetail},
 }
 
