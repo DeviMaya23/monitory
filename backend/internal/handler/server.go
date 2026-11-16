@@ -5,14 +5,22 @@ package handler
 
 import (
 	"context"
+	"log/slog"
 
 	"monitory/internal/api"
+	"monitory/internal/domain"
 )
 
 // SettingsService is what the settings handlers need from the usecase layer.
 type SettingsService interface {
 	PublicViewEnabled(ctx context.Context) (bool, error)
 	SetPublicViewEnabled(ctx context.Context, enabled bool) error
+}
+
+// AuthService is what the session handlers need from the usecase layer.
+type AuthService interface {
+	SignIn(ctx context.Context, username, password string, https bool) (domain.Session, error)
+	SignOut(ctx context.Context, token string) error
 }
 
 // Server implements the generated strict server interface, one method per operation in
@@ -27,11 +35,16 @@ type Server struct {
 	unimplemented
 
 	settings SettingsService
+	auth     AuthService
+	log      *slog.Logger
+	// secureCookie is whether the session cookie carries Secure: it follows the
+	// "require HTTPS" setting, not the scheme of the request (FR-98).
+	secureCookie bool
 }
 
 // NewServer builds the Server from its dependencies.
-func NewServer(settings SettingsService) *Server {
-	return &Server{settings: settings}
+func NewServer(settings SettingsService, auth AuthService, log *slog.Logger, secureCookie bool) *Server {
+	return &Server{settings: settings, auth: auth, log: log, secureCookie: secureCookie}
 }
 
 // The compiler checks that Server covers every operation in the contract.

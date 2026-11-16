@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,9 @@ import (
 	"monitory/internal/handler"
 	"monitory/internal/handler/middleware"
 )
+
+// sessionExpiry is the ExpiresAt of the session oneSession knows.
+var sessionExpiry = time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
 
 const (
 	validToken = "valid-session-token"
@@ -30,7 +34,7 @@ func (oneSession) Session(token string) (domain.Session, bool) {
 	if token != validToken {
 		return domain.Session{}, false
 	}
-	return domain.Session{CSRFToken: csrfToken}, true
+	return domain.Session{Token: validToken, CSRFToken: csrfToken, ExpiresAt: sessionExpiry}, true
 }
 
 // settingsSpy is a handler.SettingsService that returns canned values and records
@@ -48,8 +52,35 @@ func (s *settingsSpy) SetPublicViewEnabled(_ context.Context, enabled bool) erro
 	return s.err
 }
 
+// authSpy is a handler.AuthService that returns canned values and records its calls.
+type authSpy struct {
+	session domain.Session
+	err     error
+
+	signIns  []signInCall
+	signOuts []string
+}
+
+type signInCall struct {
+	username, password string
+	https              bool
+}
+
+func (a *authSpy) SignIn(_ context.Context, username, password string, https bool) (domain.Session, error) {
+	a.signIns = append(a.signIns, signInCall{username, password, https})
+	return a.session, a.err
+}
+
+func (a *authSpy) SignOut(_ context.Context, token string) error {
+	a.signOuts = append(a.signOuts, token)
+	return a.err
+}
+
 type routerOptions struct {
 	settings        handler.SettingsService
+	auth            handler.AuthService
+	requireHTTPS    bool
+	logOutput       io.Writer
 	maxRequestBytes int
 	trustProxy      bool
 	clientIPHeader  string
@@ -61,6 +92,13 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 	if opts.settings == nil {
 		opts.settings = &settingsSpy{}
 	}
+	if opts.auth == nil {
+		opts.auth = &authSpy{}
+	}
+	if opts.logOutput == nil {
+		opts.logOutput = io.Discard
+	}
+	log := slog.New(slog.NewTextHandler(opts.logOutput, nil))
 	if opts.maxRequestBytes == 0 {
 		opts.maxRequestBytes = 1 << 20
 	}
@@ -68,9 +106,9 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 		opts.clientIPHeader = "X-Forwarded-For"
 	}
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(opts.settings),
+		Server:          handler.NewServer(opts.settings, opts.auth, log, opts.requireHTTPS),
 		Sessions:        oneSession{},
-		Log:             slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Log:             log,
 		MaxRequestBytes: opts.maxRequestBytes,
 		TrustProxy:      opts.trustProxy,
 		ClientIPHeader:  opts.clientIPHeader,
