@@ -1,8 +1,14 @@
 type Day = { year: number; month: number; day: number }
 
 function dayIn(date: Date, locale: string | undefined, timeZone: string | undefined): Day {
-  const parts = new Intl.DateTimeFormat(locale, { timeZone, year: 'numeric', month: 'numeric', day: 'numeric' })
-    .formatToParts(date)
+  // Latin digits so Number() can read the parts; the locale still picks the calendar.
+  const parts = new Intl.DateTimeFormat(locale, {
+    timeZone,
+    numberingSystem: 'latn',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  }).formatToParts(date)
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
   return { year: get('year'), month: get('month'), day: get('day') }
 }
