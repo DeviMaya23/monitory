@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useToast } from '../components/ui/useToast'
 import { ApiError } from '../lib/api/ApiError'
 import { setCsrfToken, setUnauthenticatedHandler } from '../lib/api/request'
 import { getSession, signOut as signOutRequest, type SessionInfo } from '../lib/api/session'
@@ -27,6 +28,7 @@ function endSession(queryClient: QueryClient): void {
 /** Holds the one session query for the page load; everything else reads it through `useSession`. */
 export function SessionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const [notice, setNotice] = useState(false)
   // Set before a sign-out request starts and cleared when it settles, so a 401 it
   // causes is not reported as a session that ended.
@@ -64,6 +66,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     onSuccess: () => {
       setCsrfToken(null)
       endSession(queryClient)
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === 'csrf_failed') {
+        toast.show({
+          kind: 'error',
+          message: 'The request wasn’t accepted. Reload and try again.',
+          action: { label: 'Reload', onClick: () => window.location.reload() },
+        })
+      } else {
+        toast.show({ kind: 'error', message: 'Couldn’t sign out. Try again.' })
+      }
     },
     onSettled: () => {
       signOutInFlight.current = false
