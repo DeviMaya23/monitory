@@ -96,14 +96,14 @@ Router checks first, as above. The generated binder then decodes the body as `Se
 
 The usecase validates the whole input, collects every field error, and only then writes once (CONVENTIONS rule 7). One field gets at most one error: the first rule that fails, in the order listed. A rejection returns `domain.ValidationError` and nothing is saved, no scheduler call is made. Errors come out in this order: `name`; then the `check.*` fields in the order of the list below; then `settings.*`; then `settings`; then `unhealthy_message`; then `recovery_message`. Inside a list the rows go in order.
 
-Every limit below comes from the configuration, passed in; none is a literal in code except the message limit (500, `domain.MessageMaxLength`). "Characters" are Unicode code points (`utf8.RuneCountInString`); the body limit is bytes. Nothing is trimmed except the two messages. A value at its limit passes and one past it is rejected.
+Every limit below comes from the configuration, passed in; none is a literal in code except the message limit (500, `domain.MessageMaxLength`). "Characters" are Unicode code points (`utf8.RuneCountInString`); the body limit is bytes. Before anything else is checked, surrounding whitespace (`strings.TrimSpace`) is removed from the fields that name or locate something: `name`, `check.url`, `check.host`, and the `name` of each query parameter, header and JSON rule `field`. Lengths are counted after trimming, and what is saved is the trimmed text. The two messages are trimmed too (see below). Everything else is kept as typed: header and query parameter values, the body content, a rule's `failing_value`, `check.method`, `check.type`. A value at its limit passes and one past it is rejected. A value at its limit passes and one past it is rejected.
 
 **name**
 
-1. Empty, or only whitespace (`strings.TrimSpace` is empty): `required`.
+1. Empty after trimming (so also only whitespace): `required`.
 2. More than `ServiceNameMaxLength` characters: `too_long`.
 
-The name is saved as typed (not trimmed). Uniqueness is decided by `domain.ServiceNameKey(name)` in the repository (see "Saving").
+The name is saved trimmed, with its inner letter case kept. Uniqueness is decided by `domain.ServiceNameKey(name)` in the repository (see "Saving").
 
 **check, any type**
 
@@ -180,7 +180,7 @@ The message is shown on the field as it is. `{N}` and the other braces are the c
 The usecase builds a `domain.Service` from the validated input and then asks the repository to save it. What is built:
 
 - `ID`: a new UUIDv7 as 36-character text (`domain.NewID`, see "Structure").
-- `Name` as typed; `NameKey` = `domain.ServiceNameKey(Name)`.
+- `Name` trimmed; `NameKey` = `domain.ServiceNameKey(Name)`.
 - `CheckType`, and the type's own columns; the other type's columns are nil or their defaults (`[]`, `none`, empty, `any`, false) whatever else was sent. List columns keep the order the admin gave. A rule's `FailingValue` is a string or a bool.
 - The four timing values in force (the configured default where absent), `AlertsEnabled`, `ShownOnPublicView`, the two trimmed messages, `Paused` false.
 - `CreatedAt` and `UpdatedAt` both the clock's current time, in UTC.
@@ -213,7 +213,7 @@ Logging: on success the handler logs one info line, message `service added`, wit
 
 - **No first check yet (FR-67).** The scheduler is a do-nothing placeholder until the scheduler task, so a new service stays `not_yet_checked`. The verifier does not flag this. The backlog tracks it.
 - **IDs read the wall clock inside the library.** `uuid.NewV7` takes the time itself, not from `pkg/clock`. The ID's embedded time is not a rule-bearing timestamp; do not wrap it further.
-- **Names are saved as typed.** `API` and `API ` (trailing space) are different names; only the letter case is ignored. The data model says "as the admin typed it".
+- **Names are saved trimmed.** `API` and `API` with a trailing space are the same name, because the usecase trims before saving. The repository does not trim: given a name with a trailing space it saves it as it is. Only the letter case is ignored in the comparison. The data model says "trimmed, otherwise as the admin typed it".
 - **A URL is not parsed.** `http://` alone passes validation; the check fails when it runs. A host is not parsed either. A `json` body is not checked for valid JSON. Duplicate header names and duplicate query parameter names are allowed.
 - **Saved services are not re-validated** when a limit in the configuration changes (`docs/data-model.md`).
 
@@ -274,10 +274,10 @@ Every criterion is a test that fails if the behavior is removed. Usecase tests u
 **Validation (`usecase/service_validation_test.go`, table-driven)**
 
 - A valid minimal HTTP input (name, `GET`, `https://x`) has no errors; a valid TCP input (host, port) has none (FR-6, FR-33).
-- Name: empty, absent and whitespace-only are `required` with the exact message; `ServiceNameMaxLength` characters pass and one more is `too_long` with the exact message; the count is in characters (multi-byte characters at the limit pass) (FR-59).
+- Name: empty, absent and whitespace-only are `required` with the exact message; `ServiceNameMaxLength` characters pass and one more is `too_long` with the exact message; the count is in characters (multi-byte characters at the limit pass); spaces around a name are trimmed before the count and before saving (FR-59).
 - `check.type`: absent and empty are `required`; `ftp` is `invalid_value`; either way no other `check.*` error appears in the same result (FR-33).
 - Method: each of the nine methods passes; empty is `required`; `get` (lower case) and `FETCH` are `invalid_value` (FR-36).
-- URL: empty is `required`; `ftp://x`, `example.com` and `   ` are `invalid_format`; `HTTP://x` and `https://x` pass; the length limit counts query parameters (a URL one character under the limit plus one parameter that pushes it to the limit passes, one more character is `too_long`), and multi-byte characters count once (FR-38, FR-74).
+- URL: empty is `required`; `   ` is `required`; `ftp://x` and `example.com` are `invalid_format`; a URL with spaces around it passes; `HTTP://x` and `https://x` pass; the length limit counts query parameters (a URL one character under the limit plus one parameter that pushes it to the limit passes, one more character is `too_long`), and multi-byte characters count once (FR-38, FR-74).
 - Query parameters: the limit passes, one more is `too_many` on `check.query_params`; a row with an empty name is `required` on `check.query_params[1].name` with the right index (FR-38).
 - Headers: the row limit; an empty name is `required`; a name at its limit passes and one past is `too_long`; a value at its limit passes and one past is `too_long` on `check.headers[i].value`; an empty value passes (FR-38).
 - Body: absent is `none`; `xml` is `invalid_value`; content at the byte limit passes and one byte past is `too_long`, where multi-byte characters count by bytes; over-long content is `too_long` with type `none` as well (FR-37, FR-38).
@@ -287,12 +287,14 @@ Every criterion is a test that fails if the behavior is removed. Usecase tests u
 - Settings: each of the four absent takes the configured default; each is rejected one below `Min` and one above `Max` with its exact message and passes at both; messages carry the configured, non-default limits (FR-57).
 - Budget: a case exactly equal to the interval passes and one second over is `check_budget_exceeded` on `settings` with the exact message and the computed `{W}` and `{I}`; with retry count 0 the retry interval does not count; the budget error is absent when any of the four values is out of range (FR-56).
 - Messages: 500 characters pass and 501 are `too_long` for each of the two; spaces around a message are trimmed before the count (500 characters plus spaces passes); absent is empty (FR-65).
+- Trimming: a name, URL, host, query parameter name, header name and rule field of only spaces is `required`; each at its limit with spaces around it passes; `failing_value`, header and query values are not trimmed (FR-12, FR-59).
 - Several problems at once return all of them, in the order named under "Validation", each field once (FR-12).
 
 **Service usecase (`usecase/service_test.go`)**
 
 - A valid HTTP input returns a `ServiceView` whose service has a UUIDv7 id, the typed name, `NameKey` in lower case, the other check type's columns empty, the defaults from the non-default configured limits, `AlertsEnabled` true, `ShownOnPublicView` false, `Paused` false, `CreatedAt` and `UpdatedAt` equal to the fake clock's time; the state is `not_yet_checked` with no times and no failure; `TargetCount` 0 and `AlertDeliveryFailed` false; the fake repository holds exactly that service (FR-6, FR-20, FR-68).
 - A TCP input is saved with host and port and no method or URL (FR-33).
+- The saved name, URL, host, query parameter names, header names and rule fields are trimmed; values and `failing_value` are kept as typed; the caller's input is not changed (FR-59).
 - Everything given is saved as given: query parameters, headers and rules in the order sent, body type and content, mode `all`, certificate options, both messages trimmed, `alerts_enabled` false, `shown_on_public_view` true (FR-35, FR-37, FR-44, FR-47).
 - The repository receives the configured `MaxServices`.
 - The scheduler is called exactly once with the saved service, and after the repository write (the fakes record events in one list and the test asserts their order) (FR-67, seam).
@@ -305,7 +307,7 @@ Every criterion is a test that fails if the behavior is removed. Usecase tests u
 - A TCP service round-trips with host and port (FR-33).
 - The `service_states` row exists after `Create` with `not_yet_checked` and every other column null.
 - Closing the database and opening the same file again (`testutil.CloseDB`, `testutil.OpenDB`) shows the service and its state row (NFR-1).
-- A second service whose name differs only in case (`API` after `api`), and one that differs by a Unicode case pair (`É` after `é`), return `ErrServiceNameTaken`; one row remains and no state row without a service. A name that differs by a trailing space is accepted (FR-59).
+- A second service whose name differs only in case (`API` after `api`), and one that differs by a Unicode case pair (`É` after `é`), return `ErrServiceNameTaken`; one row remains and no state row without a service. The repository does not trim: a name that differs by a trailing space is accepted there (FR-59). The usecase trims first, so this does not happen through the API.
 - With the limit set to 2 and two services saved, a third returns `ErrServiceLimitReached` and nothing is written; a duplicate name at the limit also returns `ErrServiceLimitReached` (FR-60).
 - Concurrency: with limit 5 and 4 saved, ten goroutines each create a distinct name; exactly one succeeds, nine get `ErrServiceLimitReached`, and the table holds 5 (FR-60). Ten goroutines creating the same name (different case) leave exactly one row and nine `ErrServiceNameTaken` (FR-59).
 - A failure other than those two (a service with an id that already exists and a new name) is returned as an error that is neither sentinel, and nothing is left behind. With the limit lowered below the number of saved services, `Create` returns `ErrServiceLimitReached`.

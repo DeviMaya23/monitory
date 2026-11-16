@@ -63,7 +63,7 @@ Branch: `feat/create-service-api`. Paths are under `backend/internal/` unless no
 
 ### Repo-wide
 
-- [x] `make check` passes, except `lint-md`: see Judgment calls (item 8), a finding in the task file that I may not edit.
+- [x] `make check` passes (see Judgment calls, item 8).
 - [x] `git diff go.mod go.sum`: only the `google/uuid` change.
 - [x] Nothing outside allowed paths changed.
 
@@ -76,11 +76,34 @@ Branch: `feat/create-service-api`. Paths are under `backend/internal/` unless no
 1. `usecase.ValidateServiceInput` and the type `usecase.ServiceSettings` are exported, because the validation tests live in `usecase_test` (as the other usecase tests do) and the task asks for the function to be tested directly.
 2. The input shape is mine: `ServiceInput` holds a `CheckInput{Type, HTTP, TCP}`, and the four timings and two flags are pointers. A rule keeps `domain.JSONRule`, with a nil `FailingValue` for absent.
 3. A `false` failing value counts as present; only nil is absent.
-4. **Changed at the user's request, against the task file.** The task says nothing is trimmed except the two messages. The user asked for surrounding whitespace to be trimmed, so `usecase` now trims the service name, the URL, the TCP host, and the names of query parameters, headers and JSON rule fields, before validating and saving. Lengths are counted after trimming, and a value of only spaces is `required`. Values, the body and the messages' own rule are unchanged. This makes the task's "`API ` is a different name" gap and its URL row for `   ` (`invalid_format`, now `required`) out of date, and `docs/tasks/create-service-api.md` should be updated by the user. The repository still saves whatever name it is given.
+4. **Changed at the user's request, against the task file.** The task says nothing is trimmed except the two messages. The user asked for surrounding whitespace to be trimmed, so `usecase` now trims the service name, the URL, the TCP host, and the names of query parameters, headers and JSON rule fields, before validating and saving. Lengths are counted after trimming, and a value of only spaces is `required`. Values, the body and the messages' own rule are unchanged. This makes the task's "a name with a trailing space is a different name" gap and its URL row for `   ` (`invalid_format`, now `required`) out of date, and `docs/tasks/create-service-api.md` should be updated by the user. The repository still saves whatever name it is given.
 5. A check type in another case (`HTTP`) is `invalid_value`, since the task says `http` or `tcp` exactly.
 6. Every "Use N characters or fewer." message is built by one helper, so the string appears once. The 500 comes from `domain.MessageMaxLength`.
 7. The default services spy in `helpers_test.go` returns an empty view. The gate and CSRF tables only assert "not 401 or 403" for the allowed case, so the 500 it gives there does not matter. No existing assertion changed.
-8. `make check` fails at `lint-md` on `docs/tasks/create-service-api.md:216` (MD038, spaces in the code span `` `API ` ``). That is the task file, which no builder may edit, so I left it. Everything else in `make check` passes: golangci-lint, ESLint, Stylelint, shellcheck, and the rest of `lint-md` once this plan file was fixed. See the report for the remaining steps.
+8. `make check` first failed at `lint-md` on the task file (MD038, a code span with a trailing space). The user asked for the docs to be updated for trimming, and that rewrite removed the span, so `make check` now passes.
 9. I ran `npm ci` in `frontend/` only to install the linters; nothing tracked changed.
 10. `go mod tidy` moved `google/uuid` v1.6.0 to the direct block and changed nothing else; the `go` line is unchanged.
 11. The handler tests take about 25 s because `newRouter` builds the router, and so parses the contract, for each case. I did not change the shared helper.
+
+## Trimming, in one place
+
+Trimmed (`strings.TrimSpace`, in `usecase/service_validation.go`, before validating and saving; lengths count the trimmed text; only spaces gives `required`):
+
+| Field | Saved as |
+|---|---|
+| `name` | trimmed |
+| `check.url` | trimmed |
+| `check.host` | trimmed |
+| `check.query_params[i].name` | trimmed |
+| `check.headers[i].name` | trimmed |
+| `check.json_rules[i].field` | trimmed |
+| `unhealthy_message`, `recovery_message` | trimmed (as the task already said); empty means the default message |
+
+Not trimmed, saved as typed:
+
+| Field | Why |
+|---|---|
+| header values, query parameter values | spaces can be meaningful; an empty value is allowed |
+| `check.body.content` | sent as is |
+| `check.json_rules[i].failing_value` | compared with the response; spaces can be meaningful |
+| `check.method`, `check.type`, `check.body.type`, `check.json_rule_mode` | exact values; a padded one is `invalid_value` |

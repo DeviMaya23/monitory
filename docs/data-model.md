@@ -29,7 +29,7 @@ Serves: FR-6 to FR-9, FR-20, FR-27, FR-33 to FR-38, FR-41, FR-44 to FR-47, FR-50
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | `id` | TEXT | no | |
-| `name` | TEXT | no | As the admin typed it |
+| `name` | TEXT | no | Trimmed of surrounding whitespace by the app, otherwise as the admin typed it |
 | `name_key` | TEXT | no | `name` in lower case by Unicode rules, written by the app with every write of `name` |
 | `check_type` | TEXT | no | `http` or `tcp` |
 | `http_method` | TEXT | yes | Set for `http`, null for `tcp` |
