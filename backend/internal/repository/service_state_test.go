@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -190,4 +191,28 @@ func TestServiceStateUpdate_SurvivesReopen(t *testing.T) {
 	assert.Equal(t, want.FailureCode, got.FailureCode)
 	assert.Equal(t, want.FailureHTTPStatus, got.FailureHTTPStatus)
 	assert.Equal(t, want.FailureJSONRuleField, got.FailureJSONRuleField)
+}
+
+func TestServiceStateUpdate_ConcurrentUpdatesDoNotLoseWrites(t *testing.T) {
+	db, repo := newStateFixture(t, "s1")
+	const n = 20
+	var wg sync.WaitGroup
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assert.NoError(t, repo.Update(t.Context(), "s1", func(s domain.ServiceState) domain.ServiceState {
+				at := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+				if s.FailureHTTPStatus == nil {
+					s.FailureHTTPStatus = ptr(0)
+				}
+				*s.FailureHTTPStatus++
+				s.Status, s.FailureCode, s.LastCheckedAt = domain.StatusUnhealthy, ptr(domain.FailureNon2xxStatus), &at
+				return s
+			}))
+		}()
+	}
+	wg.Wait()
+
+	assert.Equal(t, ptr(n), readState(t, db, "s1").FailureHTTPStatus)
 }

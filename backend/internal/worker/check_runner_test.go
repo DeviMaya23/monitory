@@ -395,13 +395,23 @@ func TestRun_DeadlineInsteadOfCancel(t *testing.T) {
 	assert.Empty(t, r.recorder.list())
 }
 
-func TestRun_DeadlineDuringAttempt(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
-	defer cancel()
-	r := newRig(step{block: true})
+func TestRun_MaxRetriesLongInterval(t *testing.T) {
+	script := make([]step, 6)
+	for i := range script {
+		script[i] = failed(domain.FailureTimedOut)
+	}
+	r := newRig(script...)
+	done := r.run(t.Context(), httpService(5, 300))
+	for range 5 {
+		r.prober.waitForCall(t)
+		assert.Equal(t, 300*time.Second, r.clock.waitForTimer(t))
+		r.clock.Advance(300 * time.Second)
+	}
+	require.NoError(t, r.finish(t, done))
 
-	require.ErrorIs(t, r.runner.Run(ctx, httpService(1, 1)), context.DeadlineExceeded)
-	assert.Empty(t, r.recorder.list())
+	assert.Equal(t, 6, r.prober.callCount())
+	assert.Equal(t, 5, r.clock.timerCount())
+	assert.Len(t, r.recorder.list(), 1)
 }
 
 func TestRun_ContextWinsOverFiredTimer(t *testing.T) {
