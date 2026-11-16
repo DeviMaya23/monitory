@@ -6,11 +6,11 @@ What no automated test covers. The user runs these and ticks the boxes; agents d
 
 Once, before the next front-end task is drafted.
 
-- [ ] `make build`, start the binary, open `http://localhost:8080`: the app page loads from the binary, not the placeholder.
-- [ ] The Vite dev server on `:5173` reaches the API through its proxy.
-- [ ] The screen matches its board in `docs/design/`: tokens, type, spacing, status badges.
-- [ ] Dark theme follows the operating system setting.
-- [ ] No error in the browser console.
+- [x] `make build`, start the binary, open `http://localhost:8080`: the app page loads from the binary, not the placeholder.
+- [x] The Vite dev server on `:5173` reaches the API through its proxy.
+- [x] The screen matches its board in `docs/design/`: tokens, type, spacing, status badges.
+- [x] Dark theme follows the operating system setting.
+- [x] No error in the browser console.
 
 ## At each milestone
 
