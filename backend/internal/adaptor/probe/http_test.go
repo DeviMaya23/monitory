@@ -107,6 +107,31 @@ func TestCheckHTTP_RequestShape(t *testing.T) {
 			assert.Empty(t, reqs[0].Body)
 		})
 	}
+	t.Run("User-Agent on every hop of a redirect chain", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		requireHealthy(t, run(t, 3, get(chain(ts, 2), longTimeout)))
+		reqs := ts.Requests()
+		require.Len(t, reqs, 3)
+		for _, r := range reqs {
+			assert.Equal(t, "Monitory", r.Header.Get("User-Agent"), r.Path)
+		}
+	})
+	t.Run("fragment is not sent", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/f", testutil.Route{})
+		requireHealthy(t, run(t, 3, get(ts.URL()+"/f?q=1#frag", longTimeout)))
+		require.Len(t, ts.Requests(), 1)
+		assert.Equal(t, "/f", ts.Requests()[0].Path)
+		assert.Equal(t, "q=1", ts.Requests()[0].RawQuery)
+	})
+	t.Run("user and password in the URL become Authorization", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/a", testutil.Route{})
+		u := strings.Replace(ts.URL(), "http://", "http://user:pw@", 1)
+		requireHealthy(t, run(t, 3, get(u+"/a", longTimeout)))
+		require.Len(t, ts.Requests(), 1)
+		assert.Equal(t, "Basic dXNlcjpwdw==", ts.Requests()[0].Header.Get("Authorization"))
+	})
 	t.Run("empty method is GET", func(t *testing.T) {
 		ts := testutil.NewTargetServer(t)
 		ts.Script("/", testutil.Route{})
@@ -162,6 +187,29 @@ func TestCheckHTTP_Timeout(t *testing.T) {
 
 	requireFailed(t, run(t, 3, get(ts.URL()+"/slow", 50*time.Millisecond)), domain.FailureTimedOut)
 	requireHealthy(t, run(t, 3, get(ts.URL()+"/quick", 200*time.Millisecond)))
+
+	// A listener that accepts and never answers: the deadline must stop the wait at the
+	// request headers (http) and at the TLS handshake (https).
+	for _, scheme := range []string{"http", "https"} {
+		t.Run("silent server, "+scheme, func(t *testing.T) {
+			l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = l.Close() })
+			conns := make(chan net.Conn, 1)
+			go func() {
+				c, err := l.Accept()
+				if err == nil {
+					conns <- c
+				}
+			}()
+			requireFailed(t, run(t, 3, get(scheme+"://"+l.Addr().String()+"/", 100*time.Millisecond)), domain.FailureTimedOut)
+			select {
+			case c := <-conns:
+				_ = c.Close()
+			default:
+			}
+		})
+	}
 
 	t.Run("late response is timed out whatever its status", func(t *testing.T) {
 		ts.Script("/late500", testutil.Route{Status: 500, Delay: 150 * time.Millisecond})
@@ -229,6 +277,7 @@ func TestCheckHTTP_CouldNotConnect(t *testing.T) {
 		{"bad method", domain.HTTPCheck{Method: "BAD METHOD", URL: ts.URL() + "/", Timeout: longTimeout}},
 		{"redirect to ftp", get(ts.URL()+"/ftp", longTimeout)},
 		{"connection closed without an answer", get(ts.URL()+"/hangup", longTimeout)},
+		{"https to a plain-HTTP server", get(strings.Replace(ts.URL(), "http://", "https://", 1)+"/", longTimeout)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -268,6 +317,10 @@ func TestCheckHTTP_TrustedRoots(t *testing.T) {
 func TestCheckHTTP_CallerContext(t *testing.T) {
 	ts := testutil.NewTargetServer(t)
 	ts.Script("/slow", testutil.Route{Delay: 100 * time.Millisecond})
+	// A path of its own: Arrived is closed for good by the first request to a path, so
+	// sharing /slow with the baseline would make the cancel subtest cancel before the
+	// request is sent.
+	ts.Script("/slow-cancel", testutil.Route{Delay: 100 * time.Millisecond})
 	check := get(ts.URL()+"/slow", 500*time.Millisecond)
 
 	t.Run("baseline returns a result", func(t *testing.T) {
@@ -286,12 +339,13 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 		}
 		done := make(chan outcome, 1)
 		go func() {
-			res, err := NewHTTPProber(3).CheckHTTP(ctx, check)
+			res, err := NewHTTPProber(3).CheckHTTP(ctx, get(ts.URL()+"/slow-cancel", 500*time.Millisecond))
 			done <- outcome{res, err}
 		}()
-		<-ts.Arrived("/slow")
+		<-ts.Arrived("/slow-cancel")
 		cancel()
 		got := <-done
+		assert.Len(t, ts.RequestsTo("/slow-cancel"), 1, "the request must have reached the server before the cancel")
 		require.ErrorIs(t, got.err, context.Canceled)
 		assert.Equal(t, domain.CheckResult{}, got.res)
 	})
