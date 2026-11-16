@@ -250,6 +250,11 @@ func TestToAPIService_StateMapping(t *testing.T) {
 			false, `{"status":"unhealthy",` + times + `,"last_failure_reason":{"code":"json_rule_matched"}}`},
 		{"unhealthy without a code has a null reason", domain.ServiceState{Status: domain.StatusUnhealthy, LastCheckedAt: &checked, LastStatusChangeAt: &changed},
 			false, `{"status":"unhealthy",` + times + `,"last_failure_reason":null}`},
+		{"a stray failure code on a healthy service is not returned", func() domain.ServiceState {
+			st := unhealthy(domain.FailureNon2xxStatus, ptr(503), nil)
+			st.Status = domain.StatusHealthy
+			return st
+		}(), false, `{"status":"healthy",` + times + `,"last_failure_reason":null}`},
 		{"paused keeps its stored status and reason", unhealthy(domain.FailureNon2xxStatus, ptr(502), nil),
 			true, `{"status":"unhealthy",` + times + `,"last_failure_reason":{"code":"non_2xx_status","http_status":502}}`},
 	}
