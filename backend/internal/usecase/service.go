@@ -6,17 +6,11 @@ import (
 	"monitory/internal/domain"
 )
 
-// ServiceRepository stores services and their state.
-type ServiceRepository interface {
-	// Create saves the service and its state row (status not_yet_checked) in one
-	// transaction. It returns domain.ErrServiceLimitReached when maxServices services
-	// exist already, and domain.ErrServiceNameTaken when the name is used (FR-59, FR-60).
-	Create(ctx context.Context, service domain.Service, maxServices int) error
-}
-
-// Scheduler runs the checks of services. Start begins checking a saved service.
+// Scheduler runs the checks of services. Start begins checking a saved service; Stop
+// ends the checking of a deleted one.
 type Scheduler interface {
 	Start(service domain.Service)
+	Stop(serviceID string)
 }
 
 // ServiceService adds, and later lists and changes, the services the admin monitors.
@@ -55,6 +49,22 @@ func (s *ServiceService) CreateService(ctx context.Context, input domain.Service
 		Service: service,
 		State:   domain.ServiceState{ServiceID: service.ID, Status: domain.StatusNotYetChecked},
 	}, nil
+}
+
+// ListServices returns every service with its state, in the order the repository gives.
+func (s *ServiceService) ListServices(ctx context.Context) ([]domain.ServiceView, error) {
+	return s.services.List(ctx)
+}
+
+// DeleteService deletes the service with its state and alert list, then tells the
+// scheduler to stop it (FR-8, FR-70, FR-71). The scheduler is told only after the
+// delete has succeeded.
+func (s *ServiceService) DeleteService(ctx context.Context, id string) error {
+	if err := s.services.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.scheduler.Stop(id)
+	return nil
 }
 
 // buildService makes the row to save from validated input.

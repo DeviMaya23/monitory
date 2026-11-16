@@ -52,12 +52,25 @@ func (s *settingsSpy) SetPublicViewEnabled(_ context.Context, enabled bool) erro
 	return s.err
 }
 
-// serviceSpy is a handler.ServiceService that returns a canned view and error and
-// records the inputs it was given.
+// serviceSpy is a handler.ServiceService that returns canned values and records the
+// inputs, list calls and deleted ids it was given.
 type serviceSpy struct {
-	view   domain.ServiceView
-	err    error
-	inputs []domain.ServiceInput
+	view      domain.ServiceView
+	views     []domain.ServiceView
+	err       error
+	inputs    []domain.ServiceInput
+	listCalls int
+	deleted   []string
+}
+
+func (s *serviceSpy) ListServices(context.Context) ([]domain.ServiceView, error) {
+	s.listCalls++
+	return s.views, s.err
+}
+
+func (s *serviceSpy) DeleteService(_ context.Context, id string) error {
+	s.deleted = append(s.deleted, id)
+	return s.err
 }
 
 func (s *serviceSpy) CreateService(_ context.Context, input domain.ServiceInput) (domain.ServiceView, error) {

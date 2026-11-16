@@ -20,6 +20,8 @@ type SettingsService interface {
 // ServiceService is what the service handlers need from the usecase layer.
 type ServiceService interface {
 	CreateService(ctx context.Context, input domain.ServiceInput) (domain.ServiceView, error)
+	ListServices(ctx context.Context) ([]domain.ServiceView, error)
+	DeleteService(ctx context.Context, id string) error
 }
 
 // AuthService is what the session handlers need from the usecase layer.

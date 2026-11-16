@@ -1,6 +1,7 @@
 package usecase_test
 
 import (
+	"errors"
 	"regexp"
 	"testing"
 	"time"
@@ -257,4 +258,66 @@ func TestCreateService_SavesATrimmedHost(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "db.local", *view.Service.TCPHost)
+}
+
+// seeded returns a setup whose repository already holds a service with the id.
+func seeded(id string) serviceSetup {
+	s := newServiceSetup()
+	s.repo.services = []domain.Service{{ID: id, Name: "api"}}
+	return s
+}
+
+func TestDeleteService_StopsTheSchedulerOnceAfterTheDelete(t *testing.T) {
+	s := seeded("id-1")
+
+	require.NoError(t, s.svc.DeleteService(t.Context(), "id-1"))
+
+	assert.Equal(t, []string{"id-1"}, s.repo.deleted)
+	assert.Equal(t, []string{"id-1"}, s.scheduler.stopped)
+	assert.Equal(t, []string{"delete", "stop"}, *s.events)
+}
+
+func TestDeleteService_FailedDeleteDoesNotStopTheScheduler(t *testing.T) {
+	// Baseline: the same call, succeeding, stops the scheduler.
+	baseline := seeded("id-1")
+	require.NoError(t, baseline.svc.DeleteService(t.Context(), "id-1"))
+	require.Equal(t, []string{"id-1"}, baseline.scheduler.stopped)
+
+	tests := []struct {
+		name string
+		id   string
+		err  error
+		want error
+	}{
+		{"unknown id", "other", nil, domain.ErrNotFound},
+		{"repository says not found", "id-1", domain.ErrNotFound, domain.ErrNotFound},
+		{"any other error", "id-1", errors.New("disk full"), nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := seeded("id-1")
+			s.repo.err = tc.err
+
+			err := s.svc.DeleteService(t.Context(), tc.id)
+
+			require.Error(t, err)
+			if tc.want != nil {
+				require.ErrorIs(t, err, tc.want)
+			} else {
+				assert.EqualError(t, err, "disk full")
+			}
+			assert.Empty(t, s.scheduler.stopped)
+		})
+	}
+}
+
+func TestDeleteService_SecondDeleteIsNotFoundAndStopsNothing(t *testing.T) {
+	s := seeded("id-1")
+
+	first := s.svc.DeleteService(t.Context(), "id-1")
+	second := s.svc.DeleteService(t.Context(), "id-1")
+
+	require.NoError(t, first)
+	require.ErrorIs(t, second, domain.ErrNotFound)
+	assert.Equal(t, []string{"id-1"}, s.scheduler.stopped)
 }

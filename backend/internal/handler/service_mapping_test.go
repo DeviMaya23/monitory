@@ -1,8 +1,10 @@
 package handler_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -213,6 +215,69 @@ func TestToServiceInput_ShapesThatDoNotFitTheContractAre400(t *testing.T) {
 			testutil.AssertConforms(t, "createService", res)
 			assert.Equal(t, "malformed_request", problemCode(t, res))
 			assert.Empty(t, spy.inputs, "the usecase is not called")
+		})
+	}
+}
+
+func TestToAPIService_StateMapping(t *testing.T) {
+	zone := time.FixedZone("UTC+5", 5*3600)
+	checked := time.Date(2026, 5, 6, 12, 0, 0, 0, zone)
+	changed := time.Date(2026, 5, 6, 11, 0, 0, 0, zone)
+	unhealthy := func(code domain.FailureCode, httpStatus *int, field *string) domain.ServiceState {
+		return domain.ServiceState{Status: domain.StatusUnhealthy, LastCheckedAt: &checked, LastStatusChangeAt: &changed,
+			FailureCode: &code, FailureHTTPStatus: httpStatus, FailureJSONRuleField: field}
+	}
+	const times = `"last_checked_at":"2026-05-06T07:00:00Z","last_status_change_at":"2026-05-06T06:00:00Z"`
+	tests := []struct {
+		name   string
+		state  domain.ServiceState
+		paused bool
+		want   string
+	}{
+		{"healthy renders times in UTC", domain.ServiceState{Status: domain.StatusHealthy, LastCheckedAt: &checked, LastStatusChangeAt: &changed},
+			false, `{"status":"healthy",` + times + `,"last_failure_reason":null}`},
+		{"not yet checked has null times", domain.ServiceState{Status: domain.StatusNotYetChecked},
+			false, stateNotYetChecked},
+		{"non 2xx has the status code", unhealthy(domain.FailureNon2xxStatus, ptr(503), nil),
+			false, `{"status":"unhealthy",` + times + `,"last_failure_reason":{"code":"non_2xx_status","http_status":503}}`},
+		{"json rule has the field", unhealthy(domain.FailureJSONRuleMatched, nil, ptr("data.ok")),
+			false, `{"status":"unhealthy",` + times + `,"last_failure_reason":{"code":"json_rule_matched","json_rule_field":"data.ok"}}`},
+		{"timed out has neither", unhealthy(domain.FailureTimedOut, ptr(500), ptr("stray")),
+			false, `{"status":"unhealthy",` + times + `,"last_failure_reason":{"code":"timed_out"}}`},
+		{"non 2xx without a status code omits it", unhealthy(domain.FailureNon2xxStatus, nil, nil),
+			false, `{"status":"unhealthy",` + times + `,"last_failure_reason":{"code":"non_2xx_status"}}`},
+		{"json rule without a field omits it", unhealthy(domain.FailureJSONRuleMatched, nil, nil),
+			false, `{"status":"unhealthy",` + times + `,"last_failure_reason":{"code":"json_rule_matched"}}`},
+		{"unhealthy without a code has a null reason", domain.ServiceState{Status: domain.StatusUnhealthy, LastCheckedAt: &checked, LastStatusChangeAt: &changed},
+			false, `{"status":"unhealthy",` + times + `,"last_failure_reason":null}`},
+		{"a stray failure code on a healthy service is not returned", func() domain.ServiceState {
+			st := unhealthy(domain.FailureNon2xxStatus, ptr(503), nil)
+			st.Status = domain.StatusHealthy
+			return st
+		}(), false, `{"status":"healthy",` + times + `,"last_failure_reason":null}`},
+		{"paused keeps its stored status and reason", unhealthy(domain.FailureNon2xxStatus, ptr(502), nil),
+			true, `{"status":"unhealthy",` + times + `,"last_failure_reason":{"code":"non_2xx_status","http_status":502}}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			view := minimalHTTPView()
+			view.State.Status, view.State.LastCheckedAt, view.State.LastStatusChangeAt = tc.state.Status, tc.state.LastCheckedAt, tc.state.LastStatusChangeAt
+			view.State.FailureCode, view.State.FailureHTTPStatus, view.State.FailureJSONRuleField = tc.state.FailureCode, tc.state.FailureHTTPStatus, tc.state.FailureJSONRuleField
+			view.Service.Paused = tc.paused
+			e := newRouter(t, routerOptions{services: &serviceSpy{views: []domain.ServiceView{view}}})
+
+			res := getServices(e)
+
+			require.Equal(t, http.StatusOK, res.StatusCode)
+			testutil.AssertConforms(t, "listServices", res)
+			var items []struct {
+				Paused bool            `json:"paused"`
+				State  json.RawMessage `json:"state"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(readBody(t, res)), &items))
+			require.Len(t, items, 1)
+			assert.JSONEq(t, tc.want, string(items[0].State))
+			assert.Equal(t, tc.paused, items[0].Paused)
 		})
 	}
 }
