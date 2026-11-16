@@ -242,9 +242,10 @@ func TestCreateService_SavesTrimmedNamesAndLocations(t *testing.T) {
 	assert.Equal(t, "my api", svc.NameKey)
 	assert.Equal(t, "https://x/y", *svc.HTTPURL)
 	assert.Equal(t, []domain.NameValue{{Name: "a", Value: " keep "}}, svc.HTTPQueryParams)
-	assert.Equal(t, []domain.NameValue{{Name: "X-Id", Value: " keep "}}, svc.HTTPHeaders)
+	assert.Equal(t, []domain.NameValue{{Name: "X-Id", Value: "keep"}}, svc.HTTPHeaders)
 	assert.Equal(t, []domain.JSONRule{{Field: "ok", FailingValue: " x "}}, svc.JSONRules)
 	assert.Equal(t, " a ", in.Check.HTTP.QueryParams[0].Name, "the caller's input is not changed")
+	assert.Equal(t, " keep ", in.Check.HTTP.Headers[0].Value, "the caller's input is not changed")
 }
 
 func TestCreateService_SavesATrimmedHost(t *testing.T) {

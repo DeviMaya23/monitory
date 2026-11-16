@@ -184,6 +184,12 @@ func TestValidateServiceInput(t *testing.T) {
 		{"header value one past the limit", withHTTP(func(c *domain.HTTPCheckInput) {
 			c.Headers = []domain.NameValue{{Name: "A"}, {Name: "B", Value: chars(13)}}
 		}), []domain.FieldError{fe("check.headers[1].value", domain.FieldErrorTooLong, "Use 12 characters or fewer.")}},
+		{"header value length is counted after trimming", withHTTP(func(c *domain.HTTPCheckInput) {
+			c.Headers = []domain.NameValue{{Name: "A", Value: " " + chars(12) + " "}}
+		}), nil},
+		{"header value of only spaces is empty and allowed", withHTTP(func(c *domain.HTTPCheckInput) {
+			c.Headers = []domain.NameValue{{Name: "A", Value: "   "}}
+		}), nil},
 		{"header empty value", withHTTP(func(c *domain.HTTPCheckInput) {
 			c.Headers = []domain.NameValue{{Name: "A", Value: ""}}
 		}), nil},

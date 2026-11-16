@@ -61,15 +61,18 @@ func ValidateServiceInput(in domain.ServiceInput, limits domain.ServiceLimits) [
 }
 
 // normalizeServiceInput trims the surrounding whitespace from the fields that name or
-// locate something: the service name, the URL, the host, and the names of query
-// parameters, headers and JSON rule fields. Values, the body and the messages' own
-// rule are left as typed. It returns a copy; the input's lists are not changed.
+// locate something: the service name, the URL, the host, the names of query
+// parameters and headers, the values of headers, and JSON rule fields. Query values,
+// the body and a rule's failing value are left as typed. It returns a copy; the input's lists are not changed.
 func normalizeServiceInput(in domain.ServiceInput) domain.ServiceInput {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Check.HTTP.URL = strings.TrimSpace(in.Check.HTTP.URL)
 	in.Check.TCP.Host = strings.TrimSpace(in.Check.TCP.Host)
 	in.Check.HTTP.QueryParams = trimNames(in.Check.HTTP.QueryParams)
 	in.Check.HTTP.Headers = trimNames(in.Check.HTTP.Headers)
+	for i := range in.Check.HTTP.Headers {
+		in.Check.HTTP.Headers[i].Value = strings.TrimSpace(in.Check.HTTP.Headers[i].Value)
+	}
 	if rules := in.Check.HTTP.JSONRules; rules != nil {
 		in.Check.HTTP.JSONRules = make([]domain.JSONRule, len(rules))
 		for i, r := range rules {

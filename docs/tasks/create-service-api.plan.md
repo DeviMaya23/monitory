@@ -76,7 +76,7 @@ Branch: `feat/create-service-api`. Paths are under `backend/internal/` unless no
 1. `usecase.ValidateServiceInput` and the type `usecase.ServiceSettings` are exported, because the validation tests live in `usecase_test` (as the other usecase tests do) and the task asks for the function to be tested directly.
 2. The input shape is mine: `ServiceInput` holds a `CheckInput{Type, HTTP, TCP}`, and the four timings and two flags are pointers. A rule keeps `domain.JSONRule`, with a nil `FailingValue` for absent.
 3. A `false` failing value counts as present; only nil is absent.
-4. **Changed at the user's request, against the task file.** The task says nothing is trimmed except the two messages. The user asked for surrounding whitespace to be trimmed, so `usecase` now trims the service name, the URL, the TCP host, and the names of query parameters, headers and JSON rule fields, before validating and saving. Lengths are counted after trimming, and a value of only spaces is `required`. Values, the body and the messages' own rule are unchanged. This makes the task's "a name with a trailing space is a different name" gap and its URL row for `   ` (`invalid_format`, now `required`) out of date, and `docs/tasks/create-service-api.md` should be updated by the user. The repository still saves whatever name it is given.
+4. **Changed at the user's request, against the task file.** The task says nothing is trimmed except the two messages. The user asked for surrounding whitespace to be trimmed, so `usecase` now trims the service name, the URL, the TCP host, the names of query parameters and headers, the values of headers, and JSON rule fields, before validating and saving. Lengths are counted after trimming, and a name, URL, host or field of only spaces is `required` (a header value of only spaces is saved empty, which is allowed). Query values, the body and `failing_value` are unchanged. This makes the task's "a name with a trailing space is a different name" gap and its URL row for `   ` (`invalid_format`, now `required`) out of date; I updated `docs/tasks/create-service-api.md` and `docs/data-model.md` to match, at the user's request. The repository still saves whatever name it is given.
 5. A check type in another case (`HTTP`) is `invalid_value`, since the task says `http` or `tcp` exactly.
 6. Every "Use N characters or fewer." message is built by one helper, so the string appears once. The 500 comes from `domain.MessageMaxLength`.
 7. The default services spy in `helpers_test.go` returns an empty view. The gate and CSRF tables only assert "not 401 or 403" for the allowed case, so the 500 it gives there does not matter. No existing assertion changed.
@@ -96,6 +96,7 @@ Trimmed (`strings.TrimSpace`, in `usecase/service_validation.go`, before validat
 | `check.host` | trimmed |
 | `check.query_params[i].name` | trimmed |
 | `check.headers[i].name` | trimmed |
+| `check.headers[i].value` | trimmed; only spaces is saved as empty, which is allowed |
 | `check.json_rules[i].field` | trimmed |
 | `unhealthy_message`, `recovery_message` | trimmed (as the task already said); empty means the default message |
 
@@ -103,7 +104,7 @@ Not trimmed, saved as typed:
 
 | Field | Why |
 |---|---|
-| header values, query parameter values | spaces can be meaningful; an empty value is allowed |
+| query parameter values | spaces can be meaningful (a trailing space changes the request) |
 | `check.body.content` | sent as is |
 | `check.json_rules[i].failing_value` | compared with the response; spaces can be meaningful |
 | `check.method`, `check.type`, `check.body.type`, `check.json_rule_mode` | exact values; a padded one is `invalid_value` |
