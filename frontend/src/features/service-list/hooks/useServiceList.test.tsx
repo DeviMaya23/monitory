@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -164,5 +164,37 @@ describe('the automatic refresh (FR-95)', () => {
     expect(listServices).toHaveBeenCalledTimes(2)
     vi.doUnmock('../../../lib/config')
     vi.doUnmock('../../../lib/api/services')
+  })
+})
+
+describe('refetch triggers other than the interval (FR-95)', () => {
+  afterEach(() => {
+    focusManager.setFocused(undefined)
+  })
+
+  it('does not refetch when the window regains focus', async () => {
+    vi.mocked(listServices).mockResolvedValue(makeServiceList(makeService()))
+    const { result } = setup()
+    await waitFor(() => expect(result.current.state).toBe('list'))
+    expect(listServices).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+    })
+    expect(listServices).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps refreshing on the interval while the page is in the background', async () => {
+    vi.useFakeTimers()
+    vi.mocked(listServices).mockResolvedValue(makeServiceList(makeService()))
+    setup()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    focusManager.setFocused(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+    })
+    expect(listServices).toHaveBeenCalledTimes(2)
   })
 })
