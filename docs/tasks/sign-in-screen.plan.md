@@ -1,6 +1,6 @@
 # Plan: sign-in screen
 
-Branch: `feat/sign-in-screen`. Integration tests (`make test-integration`): not run: frontend-only task, no Go code or integration tests touched.
+Branch: `feat/sign-in-screen`. Integration tests (`make test-integration`): not run: frontend-only task, no Go code or integration tests touched (no database involved).
 
 Test files: `SP` = `frontend/src/app-shell/SessionProvider.test.tsx`, `APP` = `frontend/src/App.test.tsx`, `HOOK` = `frontend/src/features/sign-in/hooks/useSignIn.test.tsx`, `FORM` = `frontend/src/features/sign-in/components/SignInForm.test.tsx`.
 Source: `frontend/src/lib/api/session.ts`, `app-shell/{SessionProvider.tsx,useSession.ts,sessionContext.ts,AdminLayout.tsx}`, `features/sign-in/{components/SignInForm.tsx,hooks/useSignIn.ts,sign-in.css}`, `pages/SignInPage.tsx`, `App.tsx`.
@@ -50,3 +50,15 @@ Source: `frontend/src/lib/api/session.ts`, `app-shell/{SessionProvider.tsx,useSe
 
 - [ ] `make check` passes
 - [ ] Nothing outside `frontend/src/` changed (plus this plan file)
+
+## Judgment calls
+
+- `useSession` also returns `signingOut` (true while the sign-out request is in flight). The top bar needs it to disable the button and the task's list of return values did not name it.
+- Shared test data (`sessionInfo`, `problem()` to build an `ApiError`) lives in `frontend/src/test/fixtures.ts`, beside the existing `test/setup.ts`, instead of being repeated in four test files. It holds test helpers only.
+- Focus is set through our own refs beside react-hook-form's, not `setFocus`, because `setFocus` defers with `setTimeout` and focus would then land after the render the behavior is tied to. The empty-field focus uses react-hook-form's own error focus (first registered field first).
+- `Retry` after a failed `signIn` resubmits the last submitted values held in a ref, not the current field contents, so it is the "same username and password" even if the fields were edited.
+- An empty `detail` string on `https_required` is treated like an absent one (title alone).
+- A failed sign-out is swallowed: the mutation's error is not shown anywhere, as the task says.
+- A successful `signIn` leaves the form in its submitting state until the route redirects, instead of re-enabling it for a moment.
+- On `/sign-in` the card is `<main class="signin">`; the admin layout renders the top bar and then the page's own `<main>` (the placeholder).
+- Mutation checks run by hand on `SessionProvider.tsx`: dropping `setCsrfToken` in `signedIn`, dropping `setNotice(false)`, using `status === 'pending'` for checking, and dropping the sign-out-in-flight guard each made a test fail; the file was restored after each.

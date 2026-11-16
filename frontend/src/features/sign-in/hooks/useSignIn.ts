@@ -19,7 +19,7 @@ function toFailure(error: unknown): SignInFailure {
 
 /** Submits the sign-in form and turns each outcome into one of the screen's states. */
 export function useSignIn(onSignedIn: (info: SessionInfo) => void) {
-  const { register, handleSubmit, setValue, setFocus } = useForm<SignInRequest>({
+  const { register, handleSubmit, setValue } = useForm<SignInRequest>({
     defaultValues: { username: '', password: '' },
   })
   const [submitting, setSubmitting] = useState(false)
@@ -44,7 +44,6 @@ export function useSignIn(onSignedIn: (info: SessionInfo) => void) {
 
   return {
     register,
-    setFocus,
     submitting,
     failure,
     /** The form's `onSubmit`. An empty required field sends nothing and focuses that field. */

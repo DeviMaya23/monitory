@@ -16,31 +16,36 @@ interface SignInFormProps {
 }
 
 export function SignInForm({ sessionEnded, unreachable, rechecking, onSignedIn, onRecheck }: SignInFormProps) {
-  const { register, setFocus, submitting, failure, submit, retry } = useSignIn(onSignedIn)
+  const { register, submitting, failure, submit, retry } = useSignIn(onSignedIn)
+  const usernameRef = useRef<HTMLInputElement | null>(null)
+  const passwordRef = useRef<HTMLInputElement | null>(null)
   const submitRef = useRef<HTMLButtonElement>(null)
   const retryRef = useRef<HTMLButtonElement>(null)
   const wasRechecking = useRef(false)
 
   useEffect(() => {
-    setFocus('username')
-  }, [setFocus])
+    usernameRef.current?.focus()
+  }, [])
 
   // Focus follows the outcome of a submit.
   useEffect(() => {
-    if (failure?.kind === 'invalid-credentials') setFocus('password')
+    if (failure?.kind === 'invalid-credentials') passwordRef.current?.focus()
     else if (failure?.kind === 'https-required') submitRef.current?.focus()
     else if (failure?.kind === 'unexpected') retryRef.current?.focus()
-  }, [failure, setFocus])
+  }, [failure])
 
   // Focus follows the end of a recheck.
   useEffect(() => {
     if (wasRechecking.current && !rechecking) {
       if (unreachable) retryRef.current?.focus()
-      else setFocus('username')
+      else usernameRef.current?.focus()
     }
     wasRechecking.current = rechecking
-  }, [rechecking, unreachable, setFocus])
+  }, [rechecking, unreachable])
 
+  // react-hook-form owns each input's ref; ours sits beside it for focus.
+  const usernameField = register('username', { required: true })
+  const passwordField = register('password', { required: true })
   const locked = submitting || rechecking
   // Precedence: the last submit's failure, then an unreachable session, then the notice.
   const unexpected = failure?.kind === 'unexpected' || (failure === null && unreachable)
@@ -111,7 +116,11 @@ export function SignInForm({ sessionEnded, unreachable, rechecking, onSignedIn, 
               id="signin-username"
               autoComplete="username"
               disabled={locked}
-              {...register('username', { required: true })}
+              {...usernameField}
+              ref={(el) => {
+                usernameField.ref(el)
+                usernameRef.current = el
+              }}
             />
           </div>
           <div className="field">
@@ -124,7 +133,11 @@ export function SignInForm({ sessionEnded, unreachable, rechecking, onSignedIn, 
               type="password"
               autoComplete="current-password"
               disabled={locked}
-              {...register('password', { required: true })}
+              {...passwordField}
+              ref={(el) => {
+                passwordField.ref(el)
+                passwordRef.current = el
+              }}
             />
           </div>
           <button
