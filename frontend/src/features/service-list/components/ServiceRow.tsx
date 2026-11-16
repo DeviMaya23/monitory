@@ -1,0 +1,97 @@
+import { Bell, BellOff, CircleAlert, Eye, EyeOff, TriangleAlert } from 'lucide-react'
+import type { Service } from '../../../lib/api/services'
+import { failureReasonText } from '../lib/failureReason'
+import { formatTime } from '../lib/formatTime'
+import { StatusBadge } from './StatusBadge'
+
+function Time({ iso, now }: { iso: string; now: Date }) {
+  return (
+    <time className="svc__time" dateTime={iso}>
+      {formatTime(iso, now)}
+    </time>
+  )
+}
+
+/** One service: data only, no actions (FR-9, FR-62). Server text is rendered as text (NFR-7). */
+export function ServiceRow({ service, now }: { service: Service; now: Date }) {
+  const { state } = service
+  const reason = !service.paused && state.status === 'unhealthy' ? state.last_failure_reason : null
+  const alertsOn = service.alerts_enabled ?? true
+  const shown = service.shown_on_public_view ?? false
+
+  return (
+    <li className={service.paused ? 'svc svc--paused' : 'svc'}>
+      <div className="svc__status">
+        <StatusBadge service={service} />
+      </div>
+      <div className="svc__main">
+        <div className="svc__title">
+          <span className="svc__name">{service.name}</span>
+          <span className="chip">{service.check.type === 'tcp' ? 'TCP' : 'HTTP'}</span>
+        </div>
+        {reason && (
+          <p className="svc__reason">
+            <CircleAlert className="icon icon--sm" aria-hidden="true" />
+            <span>{failureReasonText(reason)}</span>
+          </p>
+        )}
+        {service.alert_delivery_failed && (
+          <p className="svc__delivery">
+            <TriangleAlert className="icon icon--sm" aria-hidden="true" />
+            <span>Alert delivery failed</span>
+          </p>
+        )}
+      </div>
+      <div className="svc__cell svc__check">
+        <span className="svc__label">Last check</span>
+        {state.last_checked_at ? (
+          <Time iso={state.last_checked_at} now={now} />
+        ) : (
+          <span className="svc__never">Never</span>
+        )}
+      </div>
+      <div className="svc__cell svc__change">
+        <span className="svc__label">Last change</span>
+        {state.last_status_change_at ? (
+          <Time iso={state.last_status_change_at} now={now} />
+        ) : (
+          <span className="svc__never" aria-label="None">
+            —
+          </span>
+        )}
+      </div>
+      <div className="svc__flags">
+        <span className="svc__alerts">
+          <span className={alertsOn ? 'flag flag--on' : 'flag flag--off'}>
+            {alertsOn ? (
+              <Bell className="icon icon--sm" aria-hidden="true" />
+            ) : (
+              <BellOff className="icon icon--sm" aria-hidden="true" />
+            )}
+            <span>{alertsOn ? 'On' : 'Off'}</span>
+            <span className="sr-only"> alerts</span>
+          </span>
+        </span>
+        <span className="svc__public">
+          {service.paused ? (
+            <span className="flag flag--off">
+              <EyeOff className="icon icon--sm" aria-hidden="true" />
+              <span>Paused</span>
+              <span className="sr-only">, hidden from public page</span>
+            </span>
+          ) : (
+            <span className={shown ? 'flag flag--on' : 'flag flag--off'}>
+              {shown ? (
+                <Eye className="icon icon--sm" aria-hidden="true" />
+              ) : (
+                <EyeOff className="icon icon--sm" aria-hidden="true" />
+              )}
+              <span>{shown ? 'Shown' : 'Hidden'}</span>
+              <span className="sr-only">{shown ? ' on public page' : ' from public page'}</span>
+            </span>
+          )}
+        </span>
+      </div>
+    </li>
+  )
+}

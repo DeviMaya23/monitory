@@ -1,7 +1,8 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ToastProvider } from '../components/ui/Toast'
 import { setCsrfToken, setUnauthenticatedHandler } from '../lib/api/request'
 import { getSession, signOut, type SessionInfo } from '../lib/api/session'
 import { problem, sessionInfo } from '../test/fixtures'
@@ -31,9 +32,11 @@ function Harness({ info }: { info?: SessionInfo }) {
 function setup(client = new QueryClient()) {
   const view = render(
     <QueryClientProvider client={client}>
-      <SessionProvider>
-        <Harness />
-      </SessionProvider>
+      <ToastProvider>
+        <SessionProvider>
+          <Harness />
+        </SessionProvider>
+      </ToastProvider>
     </QueryClientProvider>,
   )
   return { client, ...view }
@@ -59,6 +62,9 @@ async function signedInSetup() {
 
 beforeEach(() => {
   vi.resetAllMocks()
+})
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('session check', () => {
@@ -151,6 +157,7 @@ describe('sign-out', () => {
     await userEvent.click(screen.getByText('sign out'))
     await waitFor(() => expect(state()).toBe('signed-out'))
     expect(setCsrfToken).toHaveBeenLastCalledWith(null)
+    expect(screen.queryAllByRole('alertdialog', { hidden: true })).toHaveLength(0)
     expect(notice()).toBe('false')
     expect(client.getQueryData(['services'])).toBeUndefined()
   })
@@ -168,14 +175,49 @@ describe('sign-out', () => {
     expect(notice()).toBe('false')
   })
 
-  it('on a 500 stays signed in', async () => {
+  it('on a 500 stays signed in and shows the error toast, with no action (NFR-8)', async () => {
     await signedInSetup()
     vi.mocked(signOut).mockRejectedValue(problem(500, 'internal_error'))
     await userEvent.click(screen.getByText('sign out'))
     await waitFor(() => expect(signOut).toHaveBeenCalled())
     await waitFor(() => expect(vi.mocked(signOut).mock.settledResults[0]?.type).toBe('rejected'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t sign out. Try again.')
+    expect(screen.queryByRole('button', { name: 'Reload' })).not.toBeInTheDocument()
     expect(state()).toBe('signed-in')
     expect(notice()).toBe('false')
+  })
+
+  it('on a network failure shows the same toast and stays signed in', async () => {
+    await signedInSetup()
+    vi.mocked(signOut).mockRejectedValue(new TypeError('Failed to fetch'))
+    await userEvent.click(screen.getByText('sign out'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t sign out. Try again.')
+    expect(state()).toBe('signed-in')
+  })
+
+  it('on 403 csrf_failed shows the toast with Reload, which reloads once; stays signed in (NFR-8)', async () => {
+    const reload = vi.fn()
+    vi.stubGlobal('location', { ...window.location, reload })
+    await signedInSetup()
+    vi.mocked(signOut).mockRejectedValue(problem(403, 'csrf_failed'))
+    await userEvent.click(screen.getByText('sign out'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The request wasn’t accepted. Reload and try again.')
+    expect(state()).toBe('signed-in')
+    expect(reload).not.toHaveBeenCalled()
+
+    fireEvent.focus(screen.getAllByRole('alertdialog', { hidden: true })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(state()).toBe('signed-in')
+  })
+
+  it('on 401 unauthenticated shows no toast', async () => {
+    await signedInSetup()
+    vi.mocked(signOut).mockRejectedValue(problem(401, 'unauthenticated'))
+    await userEvent.click(screen.getByText('sign out'))
+    await waitFor(() => expect(state()).toBe('signed-out'))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('alertdialog', { hidden: true })).toHaveLength(0)
   })
 
   it('a 401 from another request after a failed sign-out still ends the session with the notice', async () => {
