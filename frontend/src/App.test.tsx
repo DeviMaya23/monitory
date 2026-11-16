@@ -102,6 +102,34 @@ describe('App routes', () => {
     expect(signOutButton()).toBeInTheDocument()
   })
 
+  it('unreachable: a Retry answered 401 removes the banner, enables the form and focuses Username', async () => {
+    vi.mocked(getSession).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    renderAt('/')
+    await form()
+    let fail: (error: unknown) => void = () => {}
+    vi.mocked(getSession).mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)))
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled())
+    await act(async () => fail(problem(401, 'unauthenticated')))
+    await waitFor(() => expect(screen.queryByText('Can’t reach the server.')).not.toBeInTheDocument())
+    expect(screen.getByLabelText('Username')).toBeEnabled()
+    expect(screen.getByLabelText('Username')).toHaveFocus()
+  })
+
+  it('unreachable: a Retry that fails again keeps the banner and focuses Retry', async () => {
+    vi.mocked(getSession).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    renderAt('/')
+    await form()
+    let fail: (error: unknown) => void = () => {}
+    vi.mocked(getSession).mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)))
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled())
+    await act(async () => fail(new TypeError('Failed to fetch')))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled())
+    expect(screen.getByRole('button', { name: 'Retry' })).toHaveFocus()
+    expect(screen.getByLabelText('Username')).toBeEnabled()
+  })
+
   it('checking: neither a placeholder nor the form is in the page', () => {
     vi.mocked(getSession).mockReturnValue(new Promise(() => {}))
     renderAt('/')

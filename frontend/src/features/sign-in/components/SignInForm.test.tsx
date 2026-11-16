@@ -273,6 +273,17 @@ describe('unreachable session and the notice', () => {
     expect(screen.queryByText('Your session has ended.')).not.toBeInTheDocument()
   })
 
+  it('the unreachable banner is gone while a submit is in flight', async () => {
+    vi.mocked(signIn).mockReturnValue(new Promise(() => {}))
+    const { container } = setup({ unreachable: true })
+    expect(screen.getByText('Can’t reach the server.')).toBeInTheDocument()
+    await fill()
+    await userEvent.click(submitButton())
+    await waitFor(() => expect(submitButton()).toBeDisabled())
+    expect(screen.queryByText('Can’t reach the server.')).not.toBeInTheDocument()
+    expect(slot(container)).toBeEmptyDOMElement()
+  })
+
   it('the notice does not come back after a failed submit', async () => {
     setup({ sessionEnded: true })
     await failWith(problem(401, 'invalid_credentials'))
