@@ -8,6 +8,7 @@ require (
 	github.com/getkin/kin-openapi v0.142.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/golang-migrate/migrate/v4 v4.20.1
+	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v4 v4.16.5
 	github.com/oapi-codegen/runtime v1.9.0
 	github.com/stretchr/testify v1.12.1
@@ -21,7 +22,6 @@ require (
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-openapi/jsonpointer v0.23.1 // indirect
 	github.com/go-openapi/swag/jsonname v0.26.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/labstack/gommon v0.5.0 // indirect

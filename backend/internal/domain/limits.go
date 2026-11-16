@@ -16,3 +16,30 @@ const (
 	// SignInLockout is how long the account stays locked (FR-2).
 	SignInLockout = 15 * time.Minute
 )
+
+// Range is a per-service setting's default and the limits a value must stay within
+// (FR-57). It is built from the configuration; domain does not import it.
+type Range struct {
+	Default int
+	Min     int
+	Max     int
+}
+
+// ServiceLimits are the configured limits that saving a service applies (FR-38, FR-57,
+// FR-59, FR-60). main.go builds it from the configuration.
+type ServiceLimits struct {
+	CheckInterval Range // seconds
+	Timeout       Range // seconds
+	RetryCount    Range
+	RetryInterval Range // seconds
+
+	ServiceNameMaxLength  int
+	MaxServices           int
+	MaxJSONRules          int
+	RequestURLMaxLength   int
+	RequestMaxQueryParams int
+	RequestMaxHeaders     int
+	HeaderNameMaxLength   int
+	HeaderValueMaxLength  int
+	RequestBodyMaxBytes   int
+}
