@@ -49,6 +49,17 @@ describe('formatTime (FR-94)', () => {
     expect(text).not.toContain('08:14:03')
   })
 
+  it.each(['ar-EG', 'fa-IR'])('shows the time alone for earlier today in %s, whose digits are not Latin', (locale) => {
+    const iso = '2026-11-15T14:31:52Z'
+    const timeOnly = new Intl.DateTimeFormat(locale, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZone: 'UTC',
+    }).format(new Date(iso))
+    expect(formatTime(iso, NOW, locale, 'UTC')).toBe(timeOnly)
+  })
+
   it('returns a string that is not a date as received', () => {
     expect(fmt('not a date')).toBe('not a date')
   })
