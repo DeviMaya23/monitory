@@ -21,7 +21,7 @@ The drafter resolves the current stable version when a task adds a dependency, r
 | Background scheduler | None, hand-rolled: in process, one goroutine and timer per service, behind an interface, with an injected clock [FR-10, NFR-6] |
 | Alert delivery worker | None, hand-rolled: in process and in memory, behind an interface, with an injected clock [FR-85, NFR-5]. No job queue |
 | Email | `wneessen/go-mail` over SMTP, behind an interface [FR-81, FR-85] |
-| Outbound HTTP and TCP to admin-supplied addresses | One check client and one webhook client in `pkg/`, the only way to make such requests. Private addresses are allowed (requirements section 6) |
+| Outbound HTTP and TCP to admin-supplied addresses | One check client in `adaptor/probe` and one webhook client in `adaptor/webhook`, the only way to make such requests. Private addresses are allowed (requirements section 6) |
 | Rate limiting | None, hand-rolled: fixed window per client address for the public view [FR-32], in memory, injected clock |
 | Sign-in lockout | None, hand-rolled: per account, in memory, injected clock [FR-2] |
 | Client address and scheme | `TRUST_PROXY` (off by default). When on: scheme from `X-Forwarded-Proto`; client address from the header named by `CLIENT_IP_HEADER` (default `X-Forwarded-For`, last entry) [FR-99] |
