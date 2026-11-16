@@ -16,8 +16,9 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-6, FR-12, FR-35, FR-36, FR-56, FR-57, FR-59, FR-60, FR-67 | `createService` | Add a service | HTTP type with method and URL only; the other request fields are milestone 3. The whole request shape is validated from the start |
-| FR-9, FR-62, FR-94, FR-95, FR-112 | `listServices` | Admin dashboard | List, states, refresh, local times. Left out of `sign-in-screen`: the toast wrapper, and with it what a failed sign-out and a `403 csrf_failed` show |
+| FR-6, FR-12, FR-74 | `createService` (built in `create-service-api`) | Add a service | The screen only: name, method and URL, the `422` field errors on the fields, and the `409` banners. The other form rows are milestone 3 |
+| FR-67 | none | none | Left out of `create-service-api`, which calls a scheduler seam after the save with a do-nothing `worker.NoopScheduler`: the first check runs once the scheduler exists and replaces that placeholder |
+| FR-9, FR-62, FR-77, FR-95, FR-112 | `listServices` | none | The server side. Left out of `dashboard-screen`, which runs against a mock; the screen is built there |
 | FR-8, FR-70, FR-71, FR-72 | `deleteService` | Dashboard delete dialog | Stops the schedule after the delete commits |
 | FR-10, FR-51, FR-53, FR-54, FR-55, FR-111, NFR-6 | none | none | Left out of `http-probe`: the scheduler, retries, status transitions and the start-up rebuild, and wiring the probe in |
 | Milestone journeys | all of the above | Sign-in, dashboard, add | End-to-end suite set up in `e2e/`; the last task of the milestone |
@@ -71,6 +72,8 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 | NFR-2, NFR-3 | none | All screens | By hand: `docs/manual-checks.md` |
 
 ## Cross-cutting and later
+
+- Left out of `dashboard-screen`, to be added by the task that builds what each does: the name as a link to Edit, with the desktop ellipsis and the full-name tooltip (the edit screen); the "view alert list" link on the delivery-failed notice and the row's Alerts button (the alert list); the row's Pause and Resume, Delete, the public-page switch and the "Open public page" link (their own tasks, listed above). The failed-action toasts for row actions come with the row action that causes them.
 
 - Production, after the first deploy (`deploy/RUNBOOK.md`): a payment method on the Fly.io account so the machine stays up; the certificate and DNS record for the custom domain; the release workflow with its deploy token; a redeploy that shows data survives; `Fly-Client-IP` checked once sign-in exists. Needs: the user. Deadline: before first real use.
 
