@@ -20,13 +20,13 @@ Branch chain: builder `<branch>` → verifier `<branch>` → <!-- fix round / se
 - `make check`: <!-- passed on which branch/commit -->
 - Integration tests: <!-- run by me, passed | not run, and why -->
 
-## Checked by hand
+## By hand
 
-<!-- What I did in a browser or with curl. Delete the lines that do not apply. -->
+<!-- The verifier fills this in; nobody ticks anything. Nothing is tested by hand per pull request: whatever a test can assert (statuses, limits, messages) is in the report, and what needs a person is in `docs/manual-checks.md`. -->
 
-- [ ] Ran the app and used the feature normally
-- [ ] Tried the failure paths named in the task file
-- [ ] Tested together with: <!-- other branches this must work with, or "nothing else" -->
+- Live run by the verifier: <!-- yes: what it ran and against what, and the report section that lists it | no, and why -->
+- Manual checks due once this merges: <!-- the heading in `docs/manual-checks.md` this merge makes due | none until <what else must merge> | none -->
+- Pairs with: <!-- the other slice of this feature and which merges first, from the task file | nothing -->
 
 ## For the reviewer
 
