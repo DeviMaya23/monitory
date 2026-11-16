@@ -1,12 +1,25 @@
 #!/usr/bin/env bash
-# Start one stage of the agent chain as a cloud session. Run it from `main`.
+# Start one stage of the agent chain. Run it from `main`, in your main checkout.
 #
 #   bash scripts/stage.sh <stage> TASK=<slug> [NAME=value ...] [--dry-run]
+#   bash scripts/stage.sh clean TASK=<slug>
 #
 # TASK is the task file's name without .md: TASK=save-a-url is docs/tasks/save-a-url.md.
-# Every session starts from `main` as it is on GitHub; the prompt then tells the agent
-# to move its own branch onto the branch it continues from. You never check that
-# branch out. The branch name is found for you (see below) or given as NAME=value.
+#
+# Where the session runs (WHERE=local is the default):
+#   WHERE=local   a session on this machine, in its own git worktree on its own branch, so
+#                 several stages can run at once and your main checkout stays on `main`.
+#                 The worktree is <repo>-wt/<task>-<stage> beside the repo (STAGE_WORKTREES
+#                 names another parent directory). The branch is feat/<task> (builder),
+#                 verify/<task>, fix/<task> or verify2/<task>, prefixed with BRANCH_PREFIX if
+#                 that is set. The builder starts from origin/main; every other stage starts
+#                 from the branch it continues, so the "move onto <branch>" step in its
+#                 prompt changes nothing. Your .env is copied in. `claude` then starts in
+#                 that directory, in this terminal: use one terminal per stage.
+#   WHERE=cloud   a cloud session (`claude --remote`). It starts from `main` as it is on
+#                 GitHub, and the prompt tells the agent to move its own branch onto the
+#                 branch it continues from.
+# Either way the session pushes its branch, and the next stage finds it on GitHub.
 #
 # Stages (see docs/tasks/prompts.md):
 #   builder                                       nothing else needed
@@ -15,6 +28,7 @@
 #                                                 found: the branch with <TASK>.report.md
 #   verify-2  [FIX_BRANCH=...]                    found the same way
 #   draft     [FOCUS=...] [MODE=local|remote]     no TASK; prints the drafter's prompt (see below)
+#   clean                                         removes the task's local worktrees (see below)
 #
 # Finding a branch lists up to 5 unmerged remote branches (any name except main) that have the
 # stage's marker file, newest first, and asks you to confirm (Enter takes the first). The
@@ -29,20 +43,24 @@
 # "Git mode"): local (default) is your own checkout, where the drafter makes no commits;
 # remote is a cloud or other non-local session, where it commits to its session branch.
 #
+# clean removes every worktree this script made for the task, after its pull request is
+# merged. A worktree with uncommitted changes is left alone and named. Local branches are
+# kept: delete them yourself (`git branch -D <name>`) once you no longer need them.
+#
 # Kit note: the default branch is hard-coded as `main` (see templates/README.md).
 #
-# --dry-run prints the filled prompt and does not start a session, so you can
-# paste it into claude.ai/code instead.
+# --dry-run prints the filled prompt and does not start a session or make a worktree, so
+# you can paste it into any session instead.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$root/docs/tasks/prompts"
 
 stage="${1:-}"
-[ -n "$stage" ] || { sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ -n "$stage" ] || { last=$(awk 'NR>1 && !/^#/ {print NR-1; exit}' "$0"); sed -n "2,${last}p" "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 shift
 file="$dir/$stage.txt"
-[ -f "$file" ] || { echo "unknown stage '$stage' (builder, verify-1, fix, verify-2, draft)" >&2; exit 2; }
+[ "$stage" = clean ] || [ -f "$file" ] || { echo "unknown stage '$stage' (builder, verify-1, fix, verify-2, draft, clean)" >&2; exit 2; }
 
 dry=0
 pairs=()
@@ -71,8 +89,33 @@ fi
 
 cd "$root"
 
-# The session clones main from GitHub, so main must be what is pushed. (The draft stage
-# runs locally and needs none of this.)
+where="$(value_of WHERE)"; where="${where:-local}"
+case "$where" in local|cloud) ;; *) echo "WHERE must be local or cloud, not '$where'" >&2; exit 2 ;; esac
+
+# Local worktrees live beside the repo, one per task and stage.
+wt_root="${STAGE_WORKTREES:-$(dirname "$root")/$(basename "$root")-wt}"
+
+if [ "$stage" = clean ]; then
+  left=0
+  for name in builder verify-1 fix verify-2; do
+    path="$wt_root/$task-$name"
+    [ -d "$path" ] || continue
+    if git worktree remove "$path" 2>/dev/null; then
+      echo "removed $path"
+    else
+      echo "kept $path: it has uncommitted changes or is not a worktree of this repo" >&2
+      left=1
+    fi
+  done
+  git worktree prune
+  branches="$(git for-each-ref --format='%(refname:short)' refs/heads/ | grep -E "(^|/)(feat|verify|fix|verify2)/$task\$" || true)"
+  [ -z "$branches" ] || { echo "local branches kept:"; printf '%s\n' "$branches" | sed 's/^/  /'; }
+  exit "$left"
+fi
+
+# A session starts from main as it is on GitHub (a cloud session clones it, a local
+# worktree is cut from origin/main), so main must be what is pushed. (The draft stage
+# needs none of this.)
 if [ "$stage" != draft ]; then
   git fetch -q origin main
   have="$(git rev-parse --abbrev-ref HEAD)"
@@ -81,7 +124,7 @@ if [ "$stage" != draft ]; then
     [ "$dry" = 1 ] || exit 1
   fi
   if [ -n "$(git rev-list origin/main..HEAD 2>/dev/null)" ]; then
-    echo "main has commits that are not on GitHub. Push them first: the cloud session cannot see them." >&2
+    echo "main has commits that are not on GitHub. Push them first: the session starts from origin/main." >&2
     [ "$dry" = 1 ] || exit 1
   fi
 fi
@@ -170,4 +213,38 @@ if [ "$dry" = 1 ] || [ "$stage" = draft ]; then
   exit 0
 fi
 
-exec claude --remote "$prompt"
+if [ "$where" = cloud ]; then
+  exec claude --remote "$prompt"
+fi
+
+# Local: a worktree of its own, on a new branch cut from what this stage continues.
+case "$stage" in
+  builder)  kind=feat;    base=main ;;
+  verify-1) kind=verify;  base="$(value_of BUILDER_BRANCH)" ;;
+  fix)      kind=fix;     base="$(value_of VERIFIER_BRANCH)" ;;
+  verify-2) kind=verify2; base="$(value_of FIX_BRANCH)" ;;
+esac
+branch="${BRANCH_PREFIX:-}$kind/$task"
+path="$wt_root/$task-$stage"
+
+if [ -e "$path" ]; then
+  echo "$path already exists. Continue that session there (cd into it and run claude)," >&2
+  echo "or remove it first: bash scripts/stage.sh clean TASK=$task" >&2
+  exit 1
+fi
+if git show-ref --verify -q "refs/heads/$branch"; then
+  echo "the local branch $branch already exists. Delete it (git branch -D $branch) or set BRANCH_PREFIX." >&2
+  exit 1
+fi
+git fetch -q origin "+refs/heads/$base:refs/remotes/origin/$base" \
+  || { echo "no branch '$base' on GitHub" >&2; exit 2; }
+
+mkdir -p "$wt_root"
+# --no-track: the session pushes its own branch name, never the branch it started from.
+git worktree add -q --no-track -b "$branch" "$path" "origin/$base"
+[ ! -f "$root/.env" ] || cp "$root/.env" "$path/.env"
+echo "worktree: $path" >&2
+echo "branch:   $branch (from origin/$base)" >&2
+
+cd "$path"
+exec claude "$prompt"
