@@ -244,6 +244,38 @@ func TestServiceCreate_Concurrent(t *testing.T) {
 		assert.EqualValues(t, 5, count(t, db, &domain.Service{}))
 		assert.EqualValues(t, 5, count(t, db, &domain.ServiceState{}))
 	})
+	// One round can pass by luck without the transaction (the count and the insert race
+	// only when the goroutines overlap), so release many creates together, many times.
+	t.Run("creates released together never pass the limit, round after round", func(t *testing.T) {
+		for round := range 10 {
+			db := testutil.NewDB(t)
+			repo := repository.NewServiceRepository(db)
+			for i := range 4 {
+				require.NoError(t, repo.Create(t.Context(), httpService(fmt.Sprintf("seed-%d", i), fmt.Sprintf("seed%d", i)), 5))
+			}
+
+			const n = 20
+			errs := make([]error, n)
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			for i := range n {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					<-start
+					errs[i] = repo.Create(t.Context(), httpService(fmt.Sprintf("id-%d", i), fmt.Sprintf("name%d", i)), 5)
+				}()
+			}
+			close(start)
+			wg.Wait()
+
+			ok, refused := tally(errs, domain.ErrServiceLimitReached)
+			require.Equal(t, 1, ok, "round %d", round)
+			require.Equal(t, n-1, refused, "round %d", round)
+			require.EqualValues(t, 5, count(t, db, &domain.Service{}), "round %d", round)
+			require.EqualValues(t, 5, count(t, db, &domain.ServiceState{}), "round %d", round)
+		}
+	})
 	t.Run("ten creates of the same name in different case", func(t *testing.T) {
 		db := testutil.NewDB(t)
 
