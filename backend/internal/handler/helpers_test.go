@@ -52,6 +52,19 @@ func (s *settingsSpy) SetPublicViewEnabled(_ context.Context, enabled bool) erro
 	return s.err
 }
 
+// serviceSpy is a handler.ServiceService that returns a canned view and error and
+// records the inputs it was given.
+type serviceSpy struct {
+	view   domain.ServiceView
+	err    error
+	inputs []domain.ServiceInput
+}
+
+func (s *serviceSpy) CreateService(_ context.Context, input domain.ServiceInput) (domain.ServiceView, error) {
+	s.inputs = append(s.inputs, input)
+	return s.view, s.err
+}
+
 // authSpy is a handler.AuthService that returns canned values and records its calls.
 type authSpy struct {
 	session domain.Session
@@ -78,6 +91,7 @@ func (a *authSpy) SignOut(_ context.Context, token string) error {
 
 type routerOptions struct {
 	settings        handler.SettingsService
+	services        handler.ServiceService
 	auth            handler.AuthService
 	requireHTTPS    bool
 	logOutput       io.Writer
@@ -91,6 +105,9 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 	t.Helper()
 	if opts.settings == nil {
 		opts.settings = &settingsSpy{}
+	}
+	if opts.services == nil {
+		opts.services = &serviceSpy{}
 	}
 	if opts.auth == nil {
 		opts.auth = &authSpy{}
@@ -106,7 +123,7 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 		opts.clientIPHeader = "X-Forwarded-For"
 	}
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(opts.settings, opts.auth, log, opts.requireHTTPS),
+		Server:          handler.NewServer(opts.settings, opts.services, opts.auth, log, opts.requireHTTPS),
 		Sessions:        oneSession{},
 		Log:             log,
 		MaxRequestBytes: opts.maxRequestBytes,

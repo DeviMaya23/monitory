@@ -3,9 +3,16 @@ package domain
 // FieldErrorCode is the code of one field error inside a validation failure.
 type FieldErrorCode string
 
-// The field error codes. Later tasks add the others in docs/openapi.yaml.
+// The field error codes of docs/openapi.yaml.
 const (
-	FieldErrorRequired FieldErrorCode = "required"
+	FieldErrorRequired            FieldErrorCode = "required"
+	FieldErrorTooLong             FieldErrorCode = "too_long"
+	FieldErrorOutOfRange          FieldErrorCode = "out_of_range"
+	FieldErrorTooMany             FieldErrorCode = "too_many"
+	FieldErrorInvalidFormat       FieldErrorCode = "invalid_format"
+	FieldErrorInvalidValue        FieldErrorCode = "invalid_value"
+	FieldErrorRequiresHTTPSURL    FieldErrorCode = "requires_https_url"
+	FieldErrorCheckBudgetExceeded FieldErrorCode = "check_budget_exceeded"
 )
 
 // FieldError is one rejected field. Field is its path in the contract's syntax and

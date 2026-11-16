@@ -17,6 +17,11 @@ type SettingsService interface {
 	SetPublicViewEnabled(ctx context.Context, enabled bool) error
 }
 
+// ServiceService is what the service handlers need from the usecase layer.
+type ServiceService interface {
+	CreateService(ctx context.Context, input domain.ServiceInput) (domain.ServiceView, error)
+}
+
 // AuthService is what the session handlers need from the usecase layer.
 type AuthService interface {
 	SignIn(ctx context.Context, username, password string, https bool) (domain.Session, error)
@@ -35,6 +40,7 @@ type Server struct {
 	unimplemented
 
 	settings SettingsService
+	services ServiceService
 	auth     AuthService
 	log      *slog.Logger
 	// secureCookie is whether the session cookie carries Secure: it follows the
@@ -43,8 +49,8 @@ type Server struct {
 }
 
 // NewServer builds the Server from its dependencies.
-func NewServer(settings SettingsService, auth AuthService, log *slog.Logger, secureCookie bool) *Server {
-	return &Server{settings: settings, auth: auth, log: log, secureCookie: secureCookie}
+func NewServer(settings SettingsService, services ServiceService, auth AuthService, log *slog.Logger, secureCookie bool) *Server {
+	return &Server{settings: settings, services: services, auth: auth, log: log, secureCookie: secureCookie}
 }
 
 // The compiler checks that Server covers every operation in the contract.

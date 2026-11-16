@@ -16,4 +16,9 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	// ErrHTTPSRequired: sign-in over plain HTTP while "require HTTPS" is on (FR-97).
 	ErrHTTPSRequired = errors.New("https required")
+
+	// ErrServiceNameTaken: another service has the same name, ignoring case (FR-59).
+	ErrServiceNameTaken = errors.New("service name taken")
+	// ErrServiceLimitReached: the service limit is reached (FR-60).
+	ErrServiceLimitReached = errors.New("service limit reached")
 )
