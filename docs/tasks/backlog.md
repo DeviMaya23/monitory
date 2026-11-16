@@ -17,10 +17,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
 | FR-6, FR-12, FR-74 | `createService` (built in `create-service-api`) | Add a service | The screen only: name, method and URL, the `422` field errors on the fields, and the `409` banners. The other form rows are milestone 3. The server trims surrounding whitespace from the name and URL before validating and saving, so a name of only spaces is `required` and `API` with a trailing space is the same name as `API`; the screen shows what the 201 returns |
-| FR-67 | none | none | Left out of `create-service-api`, which calls a scheduler seam after the save with a do-nothing `worker.NoopScheduler`: the first check runs once the scheduler exists and replaces that placeholder |
 | FR-8, FR-72 | `deleteService` (built in `list-and-delete-services-api`) | Dashboard delete dialog | The screen only: the confirmation dialog, the target count from `listServices`, the deleting state, and the failure toasts |
-| FR-71 | none | none | Left out of `list-and-delete-services-api`, which calls the scheduler's `Stop` seam after the delete commits with the do-nothing scheduler: the scheduler task makes it stop the service's timer, a running attempt and a retry wait |
-| FR-10, FR-111, NFR-6 | none | none | Left out of `check-sequence-and-state`, which built the check runner (attempt, retries, wait) and the usecase that saves a result as the state, and calls neither: the scheduler with one timer per service, checks that start within 10 s of their time, the start-up rebuild, and wiring the runner and the probe in. Waits for `list-and-delete-services-api` (both change the scheduler seam) |
 | Milestone journeys | all of the above | Sign-in, dashboard, add | End-to-end suite set up in `e2e/`; the last task of the milestone |
 
 ### Milestone 2: alerting
@@ -75,7 +72,9 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - Left out of `dashboard-screen`, to be added by the task that builds what each does: the name as a link to Edit, with the desktop ellipsis and the full-name tooltip (the edit screen); the "view alert list" link on the delivery-failed notice and the row's Alerts button (the alert list); the row's Pause and Resume, Delete, the public-page switch and the "Open public page" link (their own tasks, listed above). The failed-action toasts for row actions come with the row action that causes them.
 
-- Left out of `check-sequence-and-state`: its runner does nothing for a TCP service, so one stays `not_yet_checked`. The task that builds the TCP probe (FR-49, FR-52, milestone 3) makes the runner call it with the same retry rule; the scheduler starts no timer for a TCP service until then.
+- Left out of `check-sequence-and-state`: its runner does nothing for a TCP service, so one stays `not_yet_checked`; the `scheduler` task still gives a TCP service a timer, whose every sequence does nothing. The task that builds the TCP probe (FR-49, FR-52, milestone 3) makes the runner call it with the same retry rule.
+
+- Left out of `scheduler`: a log line per check outcome with the failure reason (`CONVENTIONS.md`, Logging). The runner returns no result to log. Matters when: the admin needs to see in the log why a service went unhealthy; best added with the first alert task, which handles the status change.
 
 - Production, after the first deploy (`deploy/RUNBOOK.md`): a payment method on the Fly.io account so the machine stays up; the certificate and DNS record for the custom domain; the release workflow with its deploy token; a redeploy that shows data survives; `Fly-Client-IP` checked once sign-in exists. Needs: the user. Deadline: before first real use.
 
