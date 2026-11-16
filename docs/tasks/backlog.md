@@ -16,7 +16,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-6, FR-12, FR-74 | `createService` (built in `create-service-api`) | Add a service | The screen only: name, method and URL, the `422` field errors on the fields, and the `409` banners. The other form rows are milestone 3 |
+| FR-6, FR-12, FR-74 | `createService` (built in `create-service-api`) | Add a service | The screen only: name, method and URL, the `422` field errors on the fields, and the `409` banners. The other form rows are milestone 3. The server trims surrounding whitespace from the name and URL before validating and saving, so a name of only spaces is `required` and `API ` is the same name as `API`; the screen shows what the 201 returns |
 | FR-67 | none | none | Left out of `create-service-api`, which calls a scheduler seam after the save with a do-nothing `worker.NoopScheduler`: the first check runs once the scheduler exists and replaces that placeholder |
 | FR-8, FR-72 | `deleteService` (built in `list-and-delete-services-api`) | Dashboard delete dialog | The screen only: the confirmation dialog, the target count from `listServices`, the deleting state, and the failure toasts |
 | FR-71 | none | none | Left out of `list-and-delete-services-api`, which calls the scheduler's `Stop` seam after the delete commits with the do-nothing scheduler: the scheduler task makes it stop the service's timer, a running attempt and a retry wait |
@@ -90,6 +90,7 @@ Each needs a decision, or to be dropped, by the next milestone.
 
 - Default unhealthy and recovery messages, and the email subject and body. Decide by: the first milestone 2 task is drafted.
 - `updatePublicViewSettings` with `{}` counts as off, because `enabled` then reads as false. Reject it as `validation_failed`, or keep. Decide by: the milestone 4 settings task is drafted.
+- Where the shared service-input normalization lives. `create-service-api` trims surrounding whitespace from the name, URL, host, query parameter names, header names and values, rule fields and the two messages in a private `normalizeServiceInput` in `usecase/service_validation.go`, before validating, and saves the trimmed text. `updateService` must apply the same rules or an edited name could differ from a created one, so it needs the function shared (a new shared place, which needs your approval); `testServiceCheck` should probably trim the URL and host too, so a test run matches what would be saved. Decide by: the first milestone 3 task that touches `updateService` or `testServiceCheck` is drafted.
 - SMTP provider for production. Decide by: before the first alert task is deployed.
 - What watches the app from outside (the Fly.io health check alone, or an external monitor on `/health`). Decide by: before first real use.
 
