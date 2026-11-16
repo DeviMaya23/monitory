@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"net/http"
+	"sync"
 
 	"monitory/internal/domain"
 )
@@ -22,6 +23,9 @@ type HTTPProber struct {
 	maxRedirects int
 	// roots are the trusted roots; nil means the system's roots. Tests set it.
 	roots *x509.CertPool
+
+	once   sync.Once
+	client *http.Client
 }
 
 // NewHTTPProber returns a prober that follows up to maxRedirects redirects.
@@ -48,7 +52,7 @@ func (p *HTTPProber) CheckHTTP(ctx context.Context, check domain.HTTPCheck) (dom
 	}
 	req.Header.Set("User-Agent", userAgent)
 
-	resp, err := p.client().Do(req)
+	resp, err := p.httpClient().Do(req)
 	if err != nil {
 		return p.classify(ctx, probeCtx, err)
 	}
@@ -64,25 +68,28 @@ func (p *HTTPProber) CheckHTTP(ctx context.Context, check domain.HTTPCheck) (dom
 	}}, nil
 }
 
-// client builds a client for one attempt: no proxy, no keep-alive, no cookie jar, and a
-// redirect policy that enforces the limit.
-func (p *HTTPProber) client() *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			Proxy:             nil,
-			DisableKeepAlives: true,
-			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-				RootCAs:    p.roots,
+// httpClient returns the prober's client, built on first use: no proxy, no keep-alive,
+// no cookie jar, and a redirect policy that enforces the limit.
+func (p *HTTPProber) httpClient() *http.Client {
+	p.once.Do(func() {
+		p.client = &http.Client{
+			Transport: &http.Transport{
+				Proxy:             nil,
+				DisableKeepAlives: true,
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+					RootCAs:    p.roots,
+				},
 			},
-		},
-		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
-			if len(via) > p.maxRedirects {
-				return errTooManyRedirects
-			}
-			return nil
-		},
-	}
+			CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+				if len(via) > p.maxRedirects {
+					return errTooManyRedirects
+				}
+				return nil
+			},
+		}
+	})
+	return p.client
 }
 
 // classify turns a failure to get a response into a result, in the order the task
@@ -91,8 +98,9 @@ func (p *HTTPProber) classify(callerCtx, probeCtx context.Context, cause error) 
 	if err := callerCtx.Err(); err != nil {
 		return domain.CheckResult{}, err
 	}
+	deadlinePassed := errors.Is(probeCtx.Err(), context.DeadlineExceeded)
 	switch {
-	case probeCtx.Err() != nil:
+	case deadlinePassed:
 		return failure(domain.FailureTimedOut), nil
 	case isCertificateError(cause):
 		return failure(domain.FailureCertificateProblem), nil
