@@ -11,4 +11,9 @@ var (
 	ErrCSRFFailed = errors.New("csrf check failed")
 	// ErrNotFound: the service or target does not exist.
 	ErrNotFound = errors.New("not found")
+
+	// ErrInvalidCredentials: the username or the password is wrong (FR-1). It never says which.
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	// ErrHTTPSRequired: sign-in over plain HTTP while "require HTTPS" is on (FR-97).
+	ErrHTTPSRequired = errors.New("https required")
 )
