@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"monitory/internal/domain"
 	"monitory/internal/handler"
+	"monitory/internal/memstore"
 	"monitory/internal/platform/config"
 	"monitory/internal/platform/database"
 	"monitory/internal/platform/migrate"
@@ -67,9 +67,11 @@ func run(log *slog.Logger) error {
 
 	settings := usecase.NewSettingsService(repository.NewSettingsRepository(db), clock.Real{})
 
+	sessions := memstore.NewSessions(clock.Real{})
+	auth := usecase.NewAuthService(cfg.AdminUsername, cfg.AdminPassword, cfg.RequireHTTPS, sessions, clock.Real{})
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(settings),
-		Sessions:        noSessions{},
+		Server:          handler.NewServer(settings, auth, log, cfg.RequireHTTPS),
+		Sessions:        sessions,
 		Log:             log,
 		MaxRequestBytes: cfg.Limits.APIRequestMaxBytes,
 		TrustProxy:      cfg.TrustProxy,
@@ -113,9 +115,3 @@ func run(log *slog.Logger) error {
 	log.Info("stopped")
 	return nil
 }
-
-// noSessions knows no session, so every gated operation answers 401. The sign-in task
-// replaces it with the session store in memstore.
-type noSessions struct{}
-
-func (noSessions) Session(string) (domain.Session, bool) { return domain.Session{}, false }

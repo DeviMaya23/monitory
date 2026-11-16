@@ -26,6 +26,9 @@ var errMalformedRequest = echo.NewHTTPError(http.StatusBadRequest)
 // one for stubs (CONVENTIONS.md, rule 2).
 const codeNotImplemented api.ProblemCode = "not_implemented"
 
+// httpsRequiredDetail tells the installer what to change (FR-97).
+const httpsRequiredDetail = "Sign-in is only allowed over HTTPS. If the app is behind an HTTPS proxy, set TRUST_PROXY=true. To allow sign-in over plain HTTP, set REQUIRE_HTTPS=false. Restart the app after changing either setting."
+
 // domainProblems maps domain errors to the error codes in docs/openapi.yaml. Add a row
 // whenever a usecase gains a sentinel error; the code must exist in the contract.
 var domainProblems = []struct {
@@ -33,10 +36,13 @@ var domainProblems = []struct {
 	status int
 	code   api.ProblemCode
 	title  string
+	detail string
 }{
-	{domain.ErrUnauthenticated, http.StatusUnauthorized, api.ProblemCodeUnauthenticated, "Sign-in required"},
-	{domain.ErrCSRFFailed, http.StatusForbidden, api.ProblemCodeCsrfFailed, "Request not accepted"},
-	{domain.ErrNotFound, http.StatusNotFound, api.ProblemCodeNotFound, "Not found"},
+	{domain.ErrUnauthenticated, http.StatusUnauthorized, api.ProblemCodeUnauthenticated, "Sign-in required", ""},
+	{domain.ErrCSRFFailed, http.StatusForbidden, api.ProblemCodeCsrfFailed, "Request not accepted", ""},
+	{domain.ErrNotFound, http.StatusNotFound, api.ProblemCodeNotFound, "Not found", ""},
+	{domain.ErrInvalidCredentials, http.StatusUnauthorized, api.ProblemCodeInvalidCredentials, "Invalid credentials", ""},
+	{domain.ErrHTTPSRequired, http.StatusForbidden, api.ProblemCodeHttpsRequired, "HTTPS required", httpsRequiredDetail},
 }
 
 // NewErrorHandler returns Echo's error handler. Every error response is
@@ -66,8 +72,22 @@ func NewErrorHandler(log *slog.Logger) echo.HTTPErrorHandler {
 func problemFor(err error) api.Problem {
 	for _, m := range domainProblems {
 		if errors.Is(err, m.err) {
-			return newProblem(m.status, m.code, m.title)
+			problem := newProblem(m.status, m.code, m.title)
+			if m.detail != "" {
+				problem.Detail = &m.detail
+			}
+			return problem
 		}
+	}
+	var validation domain.ValidationError
+	if errors.As(err, &validation) {
+		problem := newProblem(http.StatusUnprocessableEntity, api.ProblemCodeValidationFailed, "Validation failed")
+		fields := make([]api.FieldError, len(validation.Fields))
+		for i, f := range validation.Fields {
+			fields[i] = api.FieldError{Field: f.Field, Code: api.FieldErrorCode(f.Code), Message: f.Message}
+		}
+		problem.Errors = &fields
+		return problem
 	}
 	if errors.Is(err, ErrNotImplemented) {
 		return newProblem(http.StatusNotImplemented, codeNotImplemented, "Not implemented")
