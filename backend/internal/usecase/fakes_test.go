@@ -34,3 +34,37 @@ func newFakeSessions() *fakeSessions {
 
 func (f *fakeSessions) Put(session domain.Session) { f.sessions[session.Token] = session }
 func (f *fakeSessions) Delete(token string)        { delete(f.sessions, token) }
+
+// fakeServices is an in-memory usecase.ServiceRepository. It records its writes and
+// the scheduler's calls in one list, so a test can assert their order.
+type fakeServices struct {
+	services    []domain.Service
+	maxServices []int
+	err         error
+	events      *[]string
+}
+
+func (f *fakeServices) Create(_ context.Context, service domain.Service, maxServices int) error {
+	f.maxServices = append(f.maxServices, maxServices)
+	if f.err != nil {
+		return f.err
+	}
+	f.services = append(f.services, service)
+	if f.events != nil {
+		*f.events = append(*f.events, "create")
+	}
+	return nil
+}
+
+// fakeScheduler is a usecase.Scheduler that records what it was started with.
+type fakeScheduler struct {
+	started []domain.Service
+	events  *[]string
+}
+
+func (f *fakeScheduler) Start(service domain.Service) {
+	f.started = append(f.started, service)
+	if f.events != nil {
+		*f.events = append(*f.events, "start")
+	}
+}
