@@ -73,11 +73,13 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 ## Cross-cutting and later
 
 - Production, after the first deploy (`deploy/RUNBOOK.md`): a payment method on the Fly.io account so the machine stays up; the certificate and DNS record for the custom domain; the release workflow with its deploy token; a redeploy that shows data survives; `Fly-Client-IP` checked once sign-in exists. Needs: the user. Deadline: before first real use.
-- Browser checkpoint: after the sign-in screen and `sign-in-api` merge, the user opens the app and runs "After the first front-end slice" in `docs/manual-checks.md` before the next front-end task is drafted.
 
 ## Loose ends from verifier reports
 
 <!-- One line each: `- `<task>`: <finding>. Matters when: <trigger>.` -->
+
+- `sign-in-screen`: focus is not moved to Username after a fast recheck, because the focus effect runs only when the form renders once with `rechecking` true; an instantly rejecting `getSession` after Retry leaves focus on `body`. Matters when: the server answers a recheck faster than one render, for example a local or very fast network, or a change moves the recheck onto a cached path.
+- `sign-in-screen`: the three focus effects and four refs sit in `SignInForm` rather than a hook, against the hook-per-concern rule in `CONVENTIONS.md` ("Component and hook granularity"). Matters when: a second screen needs the same focus-follows-outcome logic, or the convention is read as strict.
 
 ## Decisions waiting on the user
 
