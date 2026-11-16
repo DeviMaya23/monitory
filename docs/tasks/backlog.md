@@ -101,3 +101,7 @@ Each needs a decision, or to be dropped, by the next milestone.
 ## Non-blocking findings from fix rounds
 
 <!-- Fix rounds append here: `- [<task slug>] finding. Matters when: <trigger>.` -->
+
+- [dashboard-screen] `App.test.tsx` "a 401 unauthenticated and a 204 show no toast" only drives the 401; the 204 assertion lives in `SessionProvider.test.tsx`. Cosmetic. Matters when: someone trusts the name and removes the `SessionProvider` 204 assertion.
+- [dashboard-screen] Row time tests compare against `formatTime` itself, so they pass in any locale and prove wiring, not wording. Matters when: the row stops calling `formatTime` correctly but still in a way the helper agrees with.
+- [dashboard-screen] Skeleton rows lack the `svc__status` and `svc__flags` classes, which only affects the skeleton's placement in the 640px card layout. Cosmetic. Matters when: someone adds a visual regression test at 360px.
