@@ -120,8 +120,23 @@ func TestValidateServiceInput(t *testing.T) {
 			[]domain.FieldError{fe("check.url", domain.FieldErrorInvalidFormat, "Enter a URL that starts with http:// or https://.")}},
 		{"url without scheme", withHTTP(func(c *domain.HTTPCheckInput) { c.URL = "example.com" }),
 			[]domain.FieldError{fe("check.url", domain.FieldErrorInvalidFormat, "Enter a URL that starts with http:// or https://.")}},
-		{"url spaces", withHTTP(func(c *domain.HTTPCheckInput) { c.URL = "   " }),
-			[]domain.FieldError{fe("check.url", domain.FieldErrorInvalidFormat, "Enter a URL that starts with http:// or https://.")}},
+		{"url spaces only is required", withHTTP(func(c *domain.HTTPCheckInput) { c.URL = "   " }),
+			[]domain.FieldError{fe("check.url", domain.FieldErrorRequired, "Enter a URL.")}},
+		{"url with surrounding spaces passes", withHTTP(func(c *domain.HTTPCheckInput) { c.URL = "  https://x \t" }), nil},
+		{"url length is counted after trimming", withHTTP(func(c *domain.HTTPCheckInput) { c.URL = " " + urlLimit + " " }), nil},
+		{"query param name of spaces is required", withHTTP(func(c *domain.HTTPCheckInput) {
+			c.QueryParams = []domain.NameValue{{Name: "  ", Value: "v"}}
+		}), []domain.FieldError{fe("check.query_params[0].name", domain.FieldErrorRequired, msgRequired)}},
+		{"header name of spaces is required", withHTTP(func(c *domain.HTTPCheckInput) {
+			c.Headers = []domain.NameValue{{Name: " "}}
+		}), []domain.FieldError{fe("check.headers[0].name", domain.FieldErrorRequired, msgRequired)}},
+		{"header name length is counted after trimming", withHTTP(func(c *domain.HTTPCheckInput) {
+			c.Headers = []domain.NameValue{{Name: " " + chars(8) + " "}}
+		}), nil},
+		{"json rule field of spaces is required", withHTTP(func(c *domain.HTTPCheckInput) {
+			c.JSONRules = []domain.JSONRule{{Field: " ", FailingValue: "x"}}
+		}), []domain.FieldError{fe("check.json_rules[0].field", domain.FieldErrorRequired, msgRequired)}},
+		{"name length is counted after trimming", with(validHTTP(), func(i *domain.ServiceInput) { i.Name = " " + chars(10) + " " }), nil},
 		{"url scheme upper case", withHTTP(func(c *domain.HTTPCheckInput) { c.URL = "HTTP://x" }), nil},
 		{"url at the limit", withHTTP(func(c *domain.HTTPCheckInput) { c.URL = urlLimit }), nil},
 		{"url one past the limit", withHTTP(func(c *domain.HTTPCheckInput) { c.URL = urlLimit + "a" }),
@@ -240,6 +255,8 @@ func TestValidateServiceInput(t *testing.T) {
 
 		// TCP
 		{"tcp empty host", with(validTCP(), func(i *domain.ServiceInput) { i.Check.TCP.Host = "" }),
+			[]domain.FieldError{fe("check.host", domain.FieldErrorRequired, "Enter a host.")}},
+		{"tcp host of spaces is required", with(validTCP(), func(i *domain.ServiceInput) { i.Check.TCP.Host = "  " }),
 			[]domain.FieldError{fe("check.host", domain.FieldErrorRequired, "Enter a host.")}},
 		{"tcp port 0 or absent", with(validTCP(), func(i *domain.ServiceInput) { i.Check.TCP.Port = 0 }),
 			[]domain.FieldError{fe("check.port", domain.FieldErrorOutOfRange, "Must be between 1 and 65535.")}},

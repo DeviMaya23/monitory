@@ -220,3 +220,40 @@ func TestCreateService_RepositorySentinelsComeBackUnchangedAndStartNothing(t *te
 		})
 	}
 }
+
+func TestCreateService_SavesTrimmedNamesAndLocations(t *testing.T) {
+	s := newServiceSetup()
+	in := domain.ServiceInput{
+		Name: "  My API \n",
+		Check: domain.CheckInput{Type: "http", HTTP: domain.HTTPCheckInput{
+			Method:      "GET",
+			URL:         " https://x/y ",
+			QueryParams: []domain.NameValue{{Name: " a ", Value: " keep "}},
+			Headers:     []domain.NameValue{{Name: "\tX-Id ", Value: " keep "}},
+			JSONRules:   []domain.JSONRule{{Field: " ok ", FailingValue: " x "}},
+		}},
+	}
+
+	view, err := s.svc.CreateService(t.Context(), in)
+
+	require.NoError(t, err)
+	svc := view.Service
+	assert.Equal(t, "My API", svc.Name)
+	assert.Equal(t, "my api", svc.NameKey)
+	assert.Equal(t, "https://x/y", *svc.HTTPURL)
+	assert.Equal(t, []domain.NameValue{{Name: "a", Value: " keep "}}, svc.HTTPQueryParams)
+	assert.Equal(t, []domain.NameValue{{Name: "X-Id", Value: " keep "}}, svc.HTTPHeaders)
+	assert.Equal(t, []domain.JSONRule{{Field: "ok", FailingValue: " x "}}, svc.JSONRules)
+	assert.Equal(t, " a ", in.Check.HTTP.QueryParams[0].Name, "the caller's input is not changed")
+}
+
+func TestCreateService_SavesATrimmedHost(t *testing.T) {
+	s := newServiceSetup()
+	in := validTCP()
+	in.Check.TCP.Host = " db.local "
+
+	view, err := s.svc.CreateService(t.Context(), in)
+
+	require.NoError(t, err)
+	assert.Equal(t, "db.local", *view.Service.TCPHost)
+}

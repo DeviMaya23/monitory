@@ -36,6 +36,7 @@ func NewServiceService(services ServiceRepository, scheduler Scheduler, clock Cl
 // the scheduler (FR-6, FR-12). Nothing is saved, and the scheduler is not called, when
 // the input is rejected or the save fails.
 func (s *ServiceService) CreateService(ctx context.Context, input domain.ServiceInput) (domain.ServiceView, error) {
+	input = normalizeServiceInput(input)
 	if fields := ValidateServiceInput(input, s.limits); len(fields) > 0 {
 		return domain.ServiceView{}, domain.ValidationError{Fields: fields}
 	}

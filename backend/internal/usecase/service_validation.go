@@ -50,6 +50,7 @@ func effectiveSettings(in domain.ServiceInput, limits domain.ServiceLimits) Serv
 // settings, then the messages. One field gets at most one error. It reads nothing but
 // its arguments.
 func ValidateServiceInput(in domain.ServiceInput, limits domain.ServiceLimits) []domain.FieldError {
+	in = normalizeServiceInput(in)
 	v := &fieldErrors{}
 	validateName(v, in.Name, limits)
 	validateCheck(v, in.Check, limits)
@@ -57,6 +58,38 @@ func ValidateServiceInput(in domain.ServiceInput, limits domain.ServiceLimits) [
 	validateMessage(v, "unhealthy_message", in.UnhealthyMessage)
 	validateMessage(v, "recovery_message", in.RecoveryMessage)
 	return v.list
+}
+
+// normalizeServiceInput trims the surrounding whitespace from the fields that name or
+// locate something: the service name, the URL, the host, and the names of query
+// parameters, headers and JSON rule fields. Values, the body and the messages' own
+// rule are left as typed. It returns a copy; the input's lists are not changed.
+func normalizeServiceInput(in domain.ServiceInput) domain.ServiceInput {
+	in.Name = strings.TrimSpace(in.Name)
+	in.Check.HTTP.URL = strings.TrimSpace(in.Check.HTTP.URL)
+	in.Check.TCP.Host = strings.TrimSpace(in.Check.TCP.Host)
+	in.Check.HTTP.QueryParams = trimNames(in.Check.HTTP.QueryParams)
+	in.Check.HTTP.Headers = trimNames(in.Check.HTTP.Headers)
+	if rules := in.Check.HTTP.JSONRules; rules != nil {
+		in.Check.HTTP.JSONRules = make([]domain.JSONRule, len(rules))
+		for i, r := range rules {
+			r.Field = strings.TrimSpace(r.Field)
+			in.Check.HTTP.JSONRules[i] = r
+		}
+	}
+	return in
+}
+
+func trimNames(rows []domain.NameValue) []domain.NameValue {
+	if rows == nil {
+		return nil
+	}
+	out := make([]domain.NameValue, len(rows))
+	for i, r := range rows {
+		r.Name = strings.TrimSpace(r.Name)
+		out[i] = r
+	}
+	return out
 }
 
 type fieldErrors struct {
@@ -72,7 +105,7 @@ func (f *fieldErrors) add(field string, code domain.FieldErrorCode, message stri
 
 func validateName(v *fieldErrors, name string, limits domain.ServiceLimits) {
 	switch {
-	case strings.TrimSpace(name) == "":
+	case name == "":
 		v.add("name", domain.FieldErrorRequired, "Enter a name.")
 	case utf8.RuneCountInString(name) > limits.ServiceNameMaxLength:
 		v.add("name", domain.FieldErrorTooLong, tooLongChars(limits.ServiceNameMaxLength))
