@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -232,5 +233,177 @@ func TestCreateService_BindingAndGateFailuresNeverReachTheSpy(t *testing.T) {
 
 		require.Equal(t, http.StatusCreated, res.StatusCode)
 		assert.Len(t, spy.inputs, 1)
+	})
+}
+
+func getServices(e *echo.Echo, opts ...requestOption) *http.Response {
+	return do(e, http.MethodGet, "/api/services", "", append([]requestOption{withSession}, opts...)...)
+}
+
+func deleteService(e *echo.Echo, id string, opts ...requestOption) *http.Response {
+	return do(e, http.MethodDelete, "/api/services/"+id, "", append([]requestOption{withSession, withCSRF}, opts...)...)
+}
+
+func TestListServices_EmptyResultIsAnEmptyList(t *testing.T) {
+	for name, views := range map[string][]domain.ServiceView{"nil": nil, "empty": {}} {
+		t.Run(name, func(t *testing.T) {
+			e := newRouter(t, routerOptions{services: &serviceSpy{views: views}})
+
+			res := getServices(e)
+
+			require.Equal(t, http.StatusOK, res.StatusCode)
+			testutil.AssertConforms(t, "listServices", res)
+			assert.Equal(t, "[]", strings.TrimSpace(readBody(t, res)))
+		})
+	}
+}
+
+func TestListServices_ReturnsEveryServiceInTheOrderGiven(t *testing.T) {
+	full := fullHTTPView()
+	full.Service.Paused = true
+	full.TargetCount, full.AlertDeliveryFailed = 3, true
+	e := newRouter(t, routerOptions{services: &serviceSpy{views: []domain.ServiceView{tcpView(), full}}})
+
+	res := getServices(e)
+
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	testutil.AssertConforms(t, "listServices", res)
+	assert.JSONEq(t, `[{
+		"id":"id-2","name":"db","paused":false,"target_count":0,"alert_delivery_failed":false,
+		"state":`+stateNotYetChecked+`,
+		"settings":{"check_interval_seconds":60,"timeout_seconds":10,"retry_count":1,"retry_interval_seconds":5},
+		"alerts_enabled":true,"shown_on_public_view":false,"unhealthy_message":"","recovery_message":"",
+		"check":{"type":"tcp","host":"db.local","port":5432}},
+	{
+		"id":"id-1","name":"Full","paused":true,"target_count":3,"alert_delivery_failed":true,
+		"state":`+stateNotYetChecked+`,
+		"settings":{"check_interval_seconds":60,"timeout_seconds":10,"retry_count":1,"retry_interval_seconds":5},
+		"alerts_enabled":false,"shown_on_public_view":true,"unhealthy_message":"down","recovery_message":"up",
+		"check":{"type":"http","method":"PATCH","url":"https://x/y","query_params":[{"name":"b","value":"2"}],
+			"headers":[{"name":"A","value":""}],"body":{"type":"json","content":"{\"k\":1}"},
+			"json_rules":[{"field":"ok","failing_value":"true"},{"field":"up","failing_value":true}],
+			"json_rule_mode":"all","certificate_check":{"enabled":true,"min_days_left":14},
+			"ignore_certificate_errors":true}}]`, readBody(t, res))
+}
+
+func TestListServices_MapsTheSameWayAsCreateService(t *testing.T) {
+	view := fullHTTPView()
+	e := newRouter(t, routerOptions{services: &serviceSpy{view: view, views: []domain.ServiceView{view}}})
+
+	var created map[string]any
+	var listed []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(readBody(t, postService(e, `{"name":"x"}`))), &created))
+	require.NoError(t, json.Unmarshal([]byte(readBody(t, getServices(e))), &listed))
+
+	require.Len(t, listed, 1)
+	assert.Equal(t, created, listed[0])
+}
+
+func TestListServices_UnexpectedErrorHidesItsText(t *testing.T) {
+	e := newRouter(t, routerOptions{services: &serviceSpy{err: errors.New("disk I/O error at /data/monitory.db")}})
+
+	res := getServices(e)
+
+	require.Equal(t, http.StatusInternalServerError, res.StatusCode)
+	testutil.AssertConforms(t, "listServices", res)
+	body := readBody(t, res)
+	assert.Contains(t, body, `"code":"internal_error"`)
+	assert.NotContains(t, body, "disk")
+}
+
+func TestListServices_WithoutASessionIs401AndNeverReachesTheSpy(t *testing.T) {
+	spy := &serviceSpy{}
+	e := newRouter(t, routerOptions{services: spy})
+
+	res := do(e, http.MethodGet, "/api/services", "")
+
+	require.Equal(t, http.StatusUnauthorized, res.StatusCode)
+	testutil.AssertConforms(t, "listServices", res)
+	assert.Equal(t, "unauthenticated", problemCode(t, res))
+	assert.Zero(t, spy.listCalls)
+}
+
+func TestDeleteService_Answers204WithAnEmptyBody(t *testing.T) {
+	spy := &serviceSpy{}
+	e := newRouter(t, routerOptions{services: spy})
+
+	res := deleteService(e, "id-1")
+
+	require.Equal(t, http.StatusNoContent, res.StatusCode)
+	testutil.AssertConforms(t, "deleteService", res)
+	assert.Empty(t, readBody(t, res))
+	assert.Empty(t, res.Header.Values("Set-Cookie"))
+	assert.Equal(t, []string{"id-1"}, spy.deleted)
+}
+
+func TestDeleteService_ErrorsMapToTheirCodes(t *testing.T) {
+	t.Run("not found", func(t *testing.T) {
+		e := newRouter(t, routerOptions{services: &serviceSpy{err: domain.ErrNotFound}})
+
+		res := deleteService(e, "id-1")
+
+		require.Equal(t, http.StatusNotFound, res.StatusCode)
+		testutil.AssertConforms(t, "deleteService", res)
+		body := readBody(t, res)
+		assert.Contains(t, body, `"code":"not_found"`)
+		assert.Contains(t, body, `"title":"Not found"`)
+	})
+	t.Run("unexpected error hides its text", func(t *testing.T) {
+		e := newRouter(t, routerOptions{services: &serviceSpy{err: errors.New("disk I/O error at /data/monitory.db")}})
+
+		res := deleteService(e, "id-1")
+
+		require.Equal(t, http.StatusInternalServerError, res.StatusCode)
+		testutil.AssertConforms(t, "deleteService", res)
+		body := readBody(t, res)
+		assert.Contains(t, body, `"code":"internal_error"`)
+		assert.NotContains(t, body, "disk")
+	})
+}
+
+func TestDeleteService_LogsOneLineWithTheIDOnly(t *testing.T) {
+	var logs bytes.Buffer
+	e := newRouter(t, routerOptions{services: &serviceSpy{}, logOutput: &logs})
+
+	res := deleteService(e, "id-1")
+
+	require.Equal(t, http.StatusNoContent, res.StatusCode)
+	lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+	require.Len(t, lines, 1)
+	_, attrs, found := strings.Cut(lines[0], `msg="service deleted" `)
+	require.True(t, found, "line: %s", lines[0])
+	assert.Equal(t, "service_id=id-1", attrs)
+}
+
+func TestDeleteService_GateFailuresNeverReachTheSpy(t *testing.T) {
+	tests := []struct {
+		name   string
+		opts   []requestOption
+		status int
+		code   string
+	}{
+		{"no session", []requestOption{withCSRF}, http.StatusUnauthorized, "unauthenticated"},
+		{"no CSRF token", []requestOption{withSession}, http.StatusForbidden, "csrf_failed"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spy := &serviceSpy{}
+			e := newRouter(t, routerOptions{services: spy})
+
+			res := do(e, http.MethodDelete, "/api/services/id-1", "", tc.opts...)
+
+			require.Equal(t, tc.status, res.StatusCode)
+			testutil.AssertConforms(t, "deleteService", res)
+			assert.Equal(t, tc.code, problemCode(t, res))
+			assert.Empty(t, spy.deleted)
+		})
+	}
+
+	t.Run("baseline: with both, the spy is called", func(t *testing.T) {
+		spy := &serviceSpy{}
+		e := newRouter(t, routerOptions{services: spy})
+
+		require.Equal(t, http.StatusNoContent, deleteService(e, "id-1").StatusCode)
+		assert.Equal(t, []string{"id-1"}, spy.deleted)
 	})
 }

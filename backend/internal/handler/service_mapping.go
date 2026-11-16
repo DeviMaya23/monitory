@@ -232,12 +232,17 @@ func toAPIState(st domain.ServiceState) *api.ServiceState {
 		LastCheckedAt:      utcOrNil(st.LastCheckedAt),
 		LastStatusChangeAt: utcOrNil(st.LastStatusChangeAt),
 	}
-	if st.FailureCode != nil {
-		out.LastFailureReason = &api.FailureReason{
-			Code:          api.FailureReasonCode(*st.FailureCode),
-			HttpStatus:    st.FailureHTTPStatus,
-			JsonRuleField: st.FailureJSONRuleField,
+	// A reason is returned only for an unhealthy service that has a stored code; the
+	// status code and the rule field only with the code they belong to.
+	if st.Status == domain.StatusUnhealthy && st.FailureCode != nil {
+		reason := &api.FailureReason{Code: api.FailureReasonCode(*st.FailureCode)}
+		switch *st.FailureCode {
+		case domain.FailureNon2xxStatus:
+			reason.HttpStatus = st.FailureHTTPStatus
+		case domain.FailureJSONRuleMatched:
+			reason.JsonRuleField = st.FailureJSONRuleField
 		}
+		out.LastFailureReason = reason
 	}
 	return out
 }

@@ -162,7 +162,7 @@ func TestRouter_BodyMustBeJSON(t *testing.T) {
 func TestRouter_UnimplementedOperationAnswers501(t *testing.T) {
 	e := newRouter(t, routerOptions{})
 
-	res := do(e, http.MethodGet, "/api/services", "", withSession)
+	res := do(e, http.MethodGet, "/api/services/a-service", "", withSession)
 
 	require.Equal(t, http.StatusNotImplemented, res.StatusCode)
 	assert.Equal(t, "not_implemented", problemCode(t, res))
