@@ -20,7 +20,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 | FR-67 | none | none | Left out of `create-service-api`, which calls a scheduler seam after the save with a do-nothing `worker.NoopScheduler`: the first check runs once the scheduler exists and replaces that placeholder |
 | FR-8, FR-72 | `deleteService` (built in `list-and-delete-services-api`) | Dashboard delete dialog | The screen only: the confirmation dialog, the target count from `listServices`, the deleting state, and the failure toasts |
 | FR-71 | none | none | Left out of `list-and-delete-services-api`, which calls the scheduler's `Stop` seam after the delete commits with the do-nothing scheduler: the scheduler task makes it stop the service's timer, a running attempt and a retry wait |
-| FR-10, FR-51, FR-53, FR-54, FR-55, FR-111, NFR-6 | none | none | Left out of `http-probe`: the scheduler, retries, status transitions and the start-up rebuild, and wiring the probe in |
+| FR-10, FR-111, NFR-6 | none | none | Left out of `check-sequence-and-state`, which built the check runner (attempt, retries, wait) and the usecase that saves a result as the state, and calls neither: the scheduler with one timer per service, checks that start within 10 s of their time, the start-up rebuild, and wiring the runner and the probe in. Waits for `list-and-delete-services-api` (both change the scheduler seam) |
 | Milestone journeys | all of the above | Sign-in, dashboard, add | End-to-end suite set up in `e2e/`; the last task of the milestone |
 
 ### Milestone 2: alerting
@@ -75,6 +75,8 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - Left out of `dashboard-screen`, to be added by the task that builds what each does: the name as a link to Edit, with the desktop ellipsis and the full-name tooltip (the edit screen); the "view alert list" link on the delivery-failed notice and the row's Alerts button (the alert list); the row's Pause and Resume, Delete, the public-page switch and the "Open public page" link (their own tasks, listed above). The failed-action toasts for row actions come with the row action that causes them.
 
+- Left out of `check-sequence-and-state`: its runner does nothing for a TCP service, so one stays `not_yet_checked`. The task that builds the TCP probe (FR-49, FR-52, milestone 3) makes the runner call it with the same retry rule; the scheduler starts no timer for a TCP service until then.
+
 - Production, after the first deploy (`deploy/RUNBOOK.md`): a payment method on the Fly.io account so the machine stays up; the certificate and DNS record for the custom domain; the release workflow with its deploy token; a redeploy that shows data survives; `Fly-Client-IP` checked once sign-in exists. Needs: the user. Deadline: before first real use.
 
 ## Loose ends from verifier reports
@@ -83,6 +85,10 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - `sign-in-screen`: focus is not moved to Username after a fast recheck, because the focus effect runs only when the form renders once with `rechecking` true; an instantly rejecting `getSession` after Retry leaves focus on `body`. Matters when: the server answers a recheck faster than one render, for example a local or very fast network, or a change moves the recheck onto a cached path.
 - `sign-in-screen`: the three focus effects and four refs sit in `SignInForm` rather than a hook, against the hook-per-concern rule in `CONVENTIONS.md` ("Component and hook granularity"). Matters when: a second screen needs the same focus-follows-outcome logic, or the convention is read as strict.
+
+- `create-service-api`: the handler suite takes about 30 s because `newRouter` parses the contract for every case, in the shared `helpers_test.go`. Matters when: later tasks add more handler cases to the same helper and CI time grows with each.
+- `http-probe`: wall-clock assertions can flake under load (`TestTargetServer_DelayAndRedirect` expects an answer in under 100 ms; several probe tests rely on a 20 ms delay against a 200 ms timeout). Matters when: CI runs the suite on a loaded runner with `-race` and one fails with no code change.
+- `http-probe`: the test target server's `Arrived` closes once per path and never again, so a test cannot wait for a second request to the same path. Matters when: the scheduler task tests a retry against one path and wants to wait for the second attempt.
 
 ## Decisions waiting on the user
 
