@@ -8,3 +8,6 @@ type NoopScheduler struct{}
 
 // Start does nothing.
 func (NoopScheduler) Start(domain.Service) {}
+
+// Stop does nothing.
+func (NoopScheduler) Stop(string) {}

@@ -1,6 +1,7 @@
 package repository_test
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -308,4 +309,269 @@ func TestServiceCreate_OtherFailuresAreNotSentinelsAndLeaveNothing(t *testing.T)
 	assert.EqualValues(t, 1, count(t, db, &domain.Service{}))
 	assert.EqualValues(t, 1, count(t, db, &domain.ServiceState{}))
 	assert.Equal(t, "first", readService(t, db, "same-id").Name)
+}
+
+func createAll(t *testing.T, repo *repository.ServiceRepository, services ...domain.Service) {
+	t.Helper()
+	for _, s := range services {
+		require.NoError(t, repo.Create(t.Context(), s, noLimit))
+	}
+}
+
+func setState(t *testing.T, db *gorm.DB, state domain.ServiceState) {
+	t.Helper()
+	require.NoError(t, db.Save(&state).Error)
+}
+
+func addTargets(t *testing.T, db *gorm.DB, serviceID string, n, failed int) {
+	t.Helper()
+	for i := range n {
+		value := fmt.Sprintf("%s-%d@example.com", serviceID, i)
+		require.NoError(t, db.Create(&domain.Target{
+			ID: fmt.Sprintf("%s-t%d", serviceID, i), ServiceID: serviceID, Type: domain.TargetTypeEmail,
+			Value: value, ValueKey: value, Headers: []domain.NameValue{},
+			LastDeliveryFailed: i < failed,
+			CreatedAt:          serviceTime, UpdatedAt: serviceTime,
+		}).Error)
+	}
+}
+
+func viewByName(t *testing.T, views []domain.ServiceView, name string) domain.ServiceView {
+	t.Helper()
+	for _, v := range views {
+		if v.Service.Name == name {
+			return v
+		}
+	}
+	require.FailNow(t, "service not in list", name)
+	return domain.ServiceView{}
+}
+
+func TestServiceList_EmptyIsNonNilEmptyList(t *testing.T) {
+	repo := repository.NewServiceRepository(testutil.NewDB(t))
+
+	got, err := repo.List(t.Context())
+
+	require.NoError(t, err)
+	assert.NotNil(t, got)
+	assert.Empty(t, got)
+}
+
+func TestServiceList_ReturnsServicesAsCreated(t *testing.T) {
+	repo := repository.NewServiceRepository(testutil.NewDB(t))
+	full := httpService("id-1", "Full")
+	full.HTTPQueryParams = []domain.NameValue{{Name: "b", Value: "2"}, {Name: "a", Value: "1"}}
+	full.HTTPHeaders = []domain.NameValue{{Name: "Z", Value: "secret"}, {Name: "A", Value: ""}}
+	full.HTTPBodyType, full.HTTPBodyContent = domain.BodyTypeJSON, `{"k":1}`
+	full.JSONRules = []domain.JSONRule{{Field: "ok", FailingValue: "true"}, {Field: "up", FailingValue: true}}
+	full.JSONRuleMode = domain.JSONRuleModeAll
+	full.CertCheck, full.CertMinDaysLeft = true, ptr(14)
+	full.IgnoreCertErrs, full.AlertsEnabled, full.ShownOnPublicView = true, false, true
+	full.UnhealthyMessage, full.RecoveryMessage = "down", "up"
+	tcp := tcpService("id-2", "tcp")
+	createAll(t, repo, full, tcp)
+
+	got, err := repo.List(t.Context())
+
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, full, got[0].Service)
+	assert.Equal(t, tcp, got[1].Service)
+	assert.Equal(t, domain.ServiceState{ServiceID: "id-1", Status: domain.StatusNotYetChecked}, got[0].State)
+}
+
+func TestServiceList_OrdersByNameIgnoringCase(t *testing.T) {
+	names := []string{"banana", "Apple", "cherry", "Äpfel", "apple2"}
+	want := []string{"Apple", "apple2", "banana", "cherry", "Äpfel"}
+	orders := [][]int{{0, 1, 2, 3, 4}, {4, 3, 2, 1, 0}, {2, 4, 0, 3, 1}}
+
+	for _, order := range orders {
+		repo := repository.NewServiceRepository(testutil.NewDB(t))
+		for _, i := range order {
+			createAll(t, repo, httpService(fmt.Sprintf("id-%d", i), names[i]))
+		}
+
+		got, err := repo.List(t.Context())
+
+		require.NoError(t, err)
+		var gotNames []string
+		for _, v := range got {
+			gotNames = append(gotNames, v.Service.Name)
+		}
+		assert.Equal(t, want, gotNames, "insert order %v", order)
+	}
+}
+
+func TestServiceList_ReturnsStateAndFailureReason(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	createAll(t, repo, httpService("s1", "a-healthy"), httpService("s2", "b-503"), httpService("s3", "c-rule"),
+		httpService("s4", "d-timeout"), httpService("s5", "e-new"))
+	zone := time.FixedZone("UTC+5", 5*3600)
+	checked := time.Date(2026, 5, 6, 12, 0, 0, 0, zone)
+	changed := time.Date(2026, 5, 6, 11, 0, 0, 0, zone)
+	setState(t, db, domain.ServiceState{ServiceID: "s1", Status: domain.StatusHealthy, LastCheckedAt: &checked, LastStatusChangeAt: &changed})
+	setState(t, db, domain.ServiceState{ServiceID: "s2", Status: domain.StatusUnhealthy, LastCheckedAt: &checked, LastStatusChangeAt: &changed,
+		FailureCode: ptr(domain.FailureNon2xxStatus), FailureHTTPStatus: ptr(503)})
+	setState(t, db, domain.ServiceState{ServiceID: "s3", Status: domain.StatusUnhealthy, LastCheckedAt: &checked, LastStatusChangeAt: &changed,
+		FailureCode: ptr(domain.FailureJSONRuleMatched), FailureJSONRuleField: ptr("data.ok")})
+	setState(t, db, domain.ServiceState{ServiceID: "s4", Status: domain.StatusUnhealthy, LastCheckedAt: &checked, LastStatusChangeAt: &changed,
+		FailureCode: ptr(domain.FailureTimedOut)})
+
+	got, err := repo.List(t.Context())
+
+	require.NoError(t, err)
+	require.Len(t, got, 5)
+	wantChecked, wantChanged := checked.UTC(), changed.UTC()
+
+	healthy := viewByName(t, got, "a-healthy").State
+	assert.Equal(t, domain.StatusHealthy, healthy.Status)
+	require.NotNil(t, healthy.LastCheckedAt)
+	assert.Equal(t, time.UTC, healthy.LastCheckedAt.Location())
+	assert.True(t, wantChecked.Equal(*healthy.LastCheckedAt))
+	require.NotNil(t, healthy.LastStatusChangeAt)
+	assert.Equal(t, time.UTC, healthy.LastStatusChangeAt.Location())
+	assert.True(t, wantChanged.Equal(*healthy.LastStatusChangeAt))
+	assert.Nil(t, healthy.FailureCode)
+
+	s503 := viewByName(t, got, "b-503").State
+	assert.Equal(t, domain.StatusUnhealthy, s503.Status)
+	assert.Equal(t, domain.FailureNon2xxStatus, *s503.FailureCode)
+	assert.Equal(t, 503, *s503.FailureHTTPStatus)
+	assert.Nil(t, s503.FailureJSONRuleField)
+
+	rule := viewByName(t, got, "c-rule").State
+	assert.Equal(t, domain.FailureJSONRuleMatched, *rule.FailureCode)
+	assert.Equal(t, "data.ok", *rule.FailureJSONRuleField)
+	assert.Nil(t, rule.FailureHTTPStatus)
+
+	timeout := viewByName(t, got, "d-timeout").State
+	assert.Equal(t, domain.FailureTimedOut, *timeout.FailureCode)
+	assert.Nil(t, timeout.FailureHTTPStatus)
+	assert.Nil(t, timeout.FailureJSONRuleField)
+
+	fresh := viewByName(t, got, "e-new").State
+	assert.Equal(t, domain.StatusNotYetChecked, fresh.Status)
+	assert.Nil(t, fresh.LastCheckedAt)
+	assert.Nil(t, fresh.LastStatusChangeAt)
+	assert.Nil(t, fresh.FailureCode)
+}
+
+func TestServiceList_PausedKeepsStoredStatus(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	paused := httpService("s1", "paused")
+	paused.Paused = true
+	createAll(t, repo, paused, httpService("s2", "running"))
+	setState(t, db, domain.ServiceState{ServiceID: "s1", Status: domain.StatusUnhealthy, FailureCode: ptr(domain.FailureTimedOut)})
+
+	got, err := repo.List(t.Context())
+
+	require.NoError(t, err)
+	assert.True(t, viewByName(t, got, "paused").Service.Paused)
+	assert.Equal(t, domain.StatusUnhealthy, viewByName(t, got, "paused").State.Status)
+	assert.False(t, viewByName(t, got, "running").Service.Paused)
+}
+
+func TestServiceList_CountsTargetsPerService(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	createAll(t, repo, httpService("s1", "none"), httpService("s2", "clean"), httpService("s3", "one-failed"), httpService("s4", "two"))
+	addTargets(t, db, "s2", 3, 0)
+	addTargets(t, db, "s3", 3, 1)
+	addTargets(t, db, "s4", 2, 0)
+
+	got, err := repo.List(t.Context())
+
+	require.NoError(t, err)
+	for name, want := range map[string]struct {
+		count  int
+		failed bool
+	}{"none": {0, false}, "clean": {3, false}, "one-failed": {3, true}, "two": {2, false}} {
+		v := viewByName(t, got, name)
+		assert.Equal(t, want.count, v.TargetCount, name)
+		assert.Equal(t, want.failed, v.AlertDeliveryFailed, name)
+	}
+}
+
+func TestServiceDelete_RemovesServiceStateAndTargets(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	createAll(t, repo, httpService("s1", "gone"), httpService("s2", "kept"))
+	addTargets(t, db, "s1", 2, 1)
+	addTargets(t, db, "s2", 3, 0)
+	require.EqualValues(t, 2, count(t, db, &domain.ServiceState{}))
+	require.EqualValues(t, 5, count(t, db, &domain.Target{}))
+
+	require.NoError(t, repo.Delete(t.Context(), "s1"))
+
+	assert.EqualValues(t, 1, count(t, db, &domain.Service{}))
+	assert.EqualValues(t, 1, count(t, db, &domain.ServiceState{}))
+	assert.EqualValues(t, 3, count(t, db, &domain.Target{}))
+	got, err := repo.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "kept", got[0].Service.Name)
+	assert.Equal(t, 3, got[0].TargetCount)
+}
+
+func TestServiceDelete_UnknownIDAndRepeat(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	createAll(t, repo, httpService("s1", "api"))
+
+	err := repo.Delete(t.Context(), "nope")
+	require.ErrorIs(t, err, domain.ErrNotFound)
+	assert.EqualValues(t, 1, count(t, db, &domain.Service{}))
+	assert.EqualValues(t, 1, count(t, db, &domain.ServiceState{}))
+
+	require.NoError(t, repo.Delete(t.Context(), "s1"))
+	require.ErrorIs(t, repo.Delete(t.Context(), "s1"), domain.ErrNotFound)
+}
+
+func TestServiceDelete_ConcurrentDeletesOneWins(t *testing.T) {
+	repo := repository.NewServiceRepository(testutil.NewDB(t))
+	createAll(t, repo, httpService("s1", "api"))
+	const n = 10
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- repo.Delete(t.Context(), "s1")
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	var ok, notFound int
+	for err := range errs {
+		switch {
+		case err == nil:
+			ok++
+		case errors.Is(err, domain.ErrNotFound):
+			notFound++
+		default:
+			require.NoError(t, err)
+		}
+	}
+	assert.Equal(t, 1, ok)
+	assert.Equal(t, n-1, notFound)
+}
+
+func TestServiceDelete_SurvivesReopeningTheDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "restart.db")
+	db := testutil.OpenDB(t, path)
+	repo := repository.NewServiceRepository(db)
+	createAll(t, repo, httpService("s1", "gone"), httpService("s2", "kept"))
+	require.NoError(t, repo.Delete(t.Context(), "s1"))
+	testutil.CloseDB(t, db)
+
+	reopened := repository.NewServiceRepository(testutil.OpenDB(t, path))
+
+	got, err := reopened.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "kept", got[0].Service.Name)
 }
