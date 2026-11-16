@@ -131,8 +131,8 @@ The page is `<main class="page">`: a heading block, a toolbar, then the state's 
 - **Last check**: a `time` element with the formatted time (see "Times"), or the text `Never` when `state.last_checked_at` is null.
 - **Last change**: the same, or the text `—` (with `aria-label="None"`, as the board has it) when `state.last_status_change_at` is null.
 - At 360 px (the card layout) "Last check" and "Last change" carry a visible label (`.svc__label`), hidden on wide screens, as the board has it.
-- **Alerts**: a flag with the Lucide `Bell` icon and `On` when `alerts_enabled` is true, `BellOff` and `Off` when false, followed by the visually hidden text ` alerts`. The contract leaves `alerts_enabled` optional with default true, so an absent value reads as `On`.
-- **Public**: when the service is not paused, `Eye` and `Shown` when `shown_on_public_view` is true, `EyeOff` and `Hidden` when false (the contract's default for an absent value is false, so absent reads as `Hidden`), followed by the visually hidden text ` on public page` or ` from public page`. When the service is paused the flag reads `Paused` with `EyeOff`, followed by the visually hidden text `, hidden from public page`.
+- **Alerts**: a flag with the Lucide `Bell` icon and `On` when `alerts_enabled` is true, `BellOff` and `Off` when false, followed by the visually hidden text `alerts` (with a leading space). The contract leaves `alerts_enabled` optional with default true, so an absent value reads as `On`.
+- **Public**: when the service is not paused, `Eye` and `Shown` when `shown_on_public_view` is true, `EyeOff` and `Hidden` when false (the contract's default for an absent value is false, so absent reads as `Hidden`), followed by the visually hidden text `on public page` or `from public page` (each with a leading space). When the service is paused the flag reads `Paused` with `EyeOff`, followed by the visually hidden text `, hidden from public page`.
 
 A paused row has the paused background. At 360 px width (the board's container rule at 640 px) each row becomes a card with labelled "Last check" and "Last change", and nothing scrolls sideways.
 

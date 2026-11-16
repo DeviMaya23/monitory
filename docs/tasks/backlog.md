@@ -16,7 +16,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-6, FR-12, FR-74 | `createService` (built in `create-service-api`) | Add a service | The screen only: name, method and URL, the `422` field errors on the fields, and the `409` banners. The other form rows are milestone 3. The server trims surrounding whitespace from the name and URL before validating and saving, so a name of only spaces is `required` and `API ` is the same name as `API`; the screen shows what the 201 returns |
+| FR-6, FR-12, FR-74 | `createService` (built in `create-service-api`) | Add a service | The screen only: name, method and URL, the `422` field errors on the fields, and the `409` banners. The other form rows are milestone 3. The server trims surrounding whitespace from the name and URL before validating and saving, so a name of only spaces is `required` and `API` with a trailing space is the same name as `API`; the screen shows what the 201 returns |
 | FR-67 | none | none | Left out of `create-service-api`, which calls a scheduler seam after the save with a do-nothing `worker.NoopScheduler`: the first check runs once the scheduler exists and replaces that placeholder |
 | FR-8, FR-72 | `deleteService` (built in `list-and-delete-services-api`) | Dashboard delete dialog | The screen only: the confirmation dialog, the target count from `listServices`, the deleting state, and the failure toasts |
 | FR-71 | none | none | Left out of `list-and-delete-services-api`, which calls the scheduler's `Stop` seam after the delete commits with the do-nothing scheduler: the scheduler task makes it stop the service's timer, a running attempt and a retry wait |
