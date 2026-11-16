@@ -84,9 +84,9 @@ func (r *ServiceRepository) List(ctx context.Context) ([]domain.ServiceView, err
 	}
 	views := make([]domain.ServiceView, len(rows))
 	for i, row := range rows {
-		row.Service.CreatedAt, row.Service.UpdatedAt = row.Service.CreatedAt.UTC(), row.Service.UpdatedAt.UTC()
-		row.ServiceState.LastCheckedAt = utc(row.ServiceState.LastCheckedAt)
-		row.ServiceState.LastStatusChangeAt = utc(row.ServiceState.LastStatusChangeAt)
+		row.CreatedAt, row.UpdatedAt = row.CreatedAt.UTC(), row.UpdatedAt.UTC()
+		row.LastCheckedAt = utc(row.LastCheckedAt)
+		row.LastStatusChangeAt = utc(row.LastStatusChangeAt)
 		views[i] = domain.ServiceView{
 			Service:             row.Service,
 			State:               row.ServiceState,
