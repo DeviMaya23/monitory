@@ -18,8 +18,8 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 |---|---|---|---|
 | FR-6, FR-12, FR-74 | `createService` (built in `create-service-api`) | Add a service | The screen only: name, method and URL, the `422` field errors on the fields, and the `409` banners. The other form rows are milestone 3 |
 | FR-67 | none | none | Left out of `create-service-api`, which calls a scheduler seam after the save with a do-nothing `worker.NoopScheduler`: the first check runs once the scheduler exists and replaces that placeholder |
-| FR-9, FR-62, FR-77, FR-95, FR-112 | `listServices` | none | The server side. Left out of `dashboard-screen`, which runs against a mock; the screen is built there |
-| FR-8, FR-70, FR-71, FR-72 | `deleteService` | Dashboard delete dialog | Stops the schedule after the delete commits |
+| FR-8, FR-72 | `deleteService` (built in `list-and-delete-services-api`) | Dashboard delete dialog | The screen only: the confirmation dialog, the target count from `listServices`, the deleting state, and the failure toasts |
+| FR-71 | none | none | Left out of `list-and-delete-services-api`, which calls the scheduler's `Stop` seam after the delete commits with the do-nothing scheduler: the scheduler task makes it stop the service's timer, a running attempt and a retry wait |
 | FR-10, FR-51, FR-53, FR-54, FR-55, FR-111, NFR-6 | none | none | Left out of `http-probe`: the scheduler, retries, status transitions and the start-up rebuild, and wiring the probe in |
 | Milestone journeys | all of the above | Sign-in, dashboard, add | End-to-end suite set up in `e2e/`; the last task of the milestone |
 
