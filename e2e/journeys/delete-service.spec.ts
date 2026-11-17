@@ -17,8 +17,7 @@ test('journey 5: delete a service (FR-8, FR-70, FR-71, FR-72) @smoke', async ({ 
     data: { username: 'e2e-admin', password: 'e2e-password-1' },
   })
   expect(session.ok()).toBe(true)
-  const cookies = await page.context().cookies()
-  const csrf = cookies.find((c) => c.name === 'csrf_token')?.value
+  const csrf = ((await session.json()) as { csrf_token: string }).csrf_token
   expect(csrf).toBeTruthy()
   const listed = await page.request.get('/api/services')
   const services = (await listed.json()) as { items?: ServiceBody[] } | ServiceBody[]

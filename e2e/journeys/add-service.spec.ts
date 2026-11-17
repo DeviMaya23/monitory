@@ -38,7 +38,7 @@ test('journey 2: a taken name and an empty name are refused (FR-12, FR-59)', asy
   expect(posts).toHaveLength(1)
 
   await page.getByRole('button', { name: 'Cancel' }).click()
-  await expect(page.getByRole('alertdialog', { name: 'Discard unsaved changes?' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeVisible()
   await page.getByRole('button', { name: 'Discard changes' }).click()
   await expect(servicesHeading(page)).toBeVisible()
   await expect(page.getByRole('list', { name: 'Services' }).getByRole('listitem')).toHaveCount(1)
