@@ -12,12 +12,6 @@ What has not been turned into a task yet, and the loose ends from verifier repor
 
 Derived from the contract and the requirements at scaffold time: a coverage map of requirement, operation, screen and task. Keep a row only until its task file exists. Milestones are those of `TESTING.md`. Every active requirement is in exactly one row; a row is a candidate slice, not a task boundary.
 
-### Milestone 1: basic monitoring
-
-| Requirement | Operation | Screen | Notes |
-|---|---|---|---|
-| Milestone journeys | all of the above | Sign-in, dashboard, add | End-to-end suite set up in `e2e/`; the last task of the milestone |
-
 ### Milestone 2: alerting
 
 | Requirement | Operation | Screen | Notes |
