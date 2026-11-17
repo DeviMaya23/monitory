@@ -1,6 +1,7 @@
 package repository_test
 
 import (
+	"database/sql"
 	"fmt"
 	"sync"
 	"testing"
@@ -177,16 +178,36 @@ func TestTargetRepository_CreateDuplicate(t *testing.T) {
 }
 
 func TestTargetRepository_ConcurrentCreate(t *testing.T) {
-	run := func(n int, create func(i int) error) []error {
+	// run starts n calls together. The pool is filled with n idle connections first, and
+	// every goroutine waits at a gate, so the calls reach the database at the same time:
+	// opening a connection per call and starting the goroutines one by one let a create
+	// without a transaction pass these tests in most runs.
+	run := func(t *testing.T, db *gorm.DB, n int, create func(i int) error) []error {
+		t.Helper()
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		sqlDB.SetMaxIdleConns(n)
+		conns := make([]*sql.Conn, n)
+		for i := range conns {
+			conns[i], err = sqlDB.Conn(t.Context())
+			require.NoError(t, err)
+		}
+		for _, c := range conns {
+			require.NoError(t, c.Close())
+		}
+
 		errs := make([]error, n)
+		start := make(chan struct{})
 		var wg sync.WaitGroup
 		for i := range n {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				<-start
 				errs[i] = create(i)
 			}()
 		}
+		close(start)
 		wg.Wait()
 		return errs
 	}
@@ -208,7 +229,7 @@ func TestTargetRepository_ConcurrentCreate(t *testing.T) {
 		for i := range 2 {
 			require.NoError(t, repo.Create(t.Context(), emailTarget(fmt.Sprintf("seed-%d", i), "s1", fmt.Sprintf("seed%d@x.io", i)), 3))
 		}
-		errs := run(10, func(i int) error {
+		errs := run(t, db, 10, func(i int) error {
 			return repo.Create(t.Context(), emailTarget(fmt.Sprintf("id-%d", i), "s1", fmt.Sprintf("n%d@x.io", i)), 3)
 		})
 		ok, refused := tally(t, errs, domain.ErrAlertListFull)
@@ -218,7 +239,7 @@ func TestTargetRepository_ConcurrentCreate(t *testing.T) {
 	})
 	t.Run("the same contact leaves one row", func(t *testing.T) {
 		db, repo := targetFixture(t)
-		errs := run(10, func(i int) error {
+		errs := run(t, db, 10, func(i int) error {
 			return repo.Create(t.Context(), emailTarget(fmt.Sprintf("id-%d", i), "s1", "same@x.io"), 5)
 		})
 		ok, refused := tally(t, errs, domain.ErrTargetDuplicate)
@@ -252,6 +273,18 @@ func TestTargetRepository_Update(t *testing.T) {
 		list, err := repo.List(t.Context(), "s1")
 		require.NoError(t, err)
 		assert.Equal(t, []domain.Target{want}, list)
+	})
+	t.Run("an empty name and an empty header list replace the stored ones", func(t *testing.T) {
+		db, repo := targetFixture(t)
+		named := webhookTarget("t1", "s1", "https://h") // two headers
+		named.Name = "Pager"
+		insertTarget(t, db, named)
+		edit := webhookTarget("t1", "s1", "https://h")
+		edit.Name, edit.Headers = "", []domain.NameValue{}
+		got, err := repo.Update(t.Context(), edit)
+		require.NoError(t, err)
+		assert.Equal(t, "", got.Name)
+		assert.Equal(t, []domain.NameValue{}, got.Headers)
 	})
 	t.Run("a webhook can become an email with no headers", func(t *testing.T) {
 		db, repo := targetFixture(t)
