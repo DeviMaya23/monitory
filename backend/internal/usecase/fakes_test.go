@@ -103,3 +103,92 @@ func (f *fakeScheduler) Start(service domain.Service) {
 		*f.events = append(*f.events, "start")
 	}
 }
+
+// fakeTargets is an in-memory usecase.TargetRepository. It applies the same cap and
+// duplicate rules as the sentinels: the service must exist, the count comes before the
+// duplicate check, and a contact is the service, the type and the value key.
+type fakeTargets struct {
+	services []string // ids of the services that exist
+	targets  []domain.Target
+	calls    int // writes attempted
+}
+
+func newFakeTargets(serviceIDs ...string) *fakeTargets { return &fakeTargets{services: serviceIDs} }
+
+func (f *fakeTargets) serviceExists(id string) bool {
+	for _, s := range f.services {
+		if s == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *fakeTargets) List(_ context.Context, serviceID string) ([]domain.Target, error) {
+	if !f.serviceExists(serviceID) {
+		return nil, domain.ErrNotFound
+	}
+	out := []domain.Target{}
+	for _, t := range f.targets {
+		if t.ServiceID == serviceID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeTargets) sameContact(a, b domain.Target) bool {
+	return a.ServiceID == b.ServiceID && a.Type == b.Type && a.ValueKey == b.ValueKey
+}
+
+func (f *fakeTargets) Create(_ context.Context, target domain.Target, maxTargets int) error {
+	f.calls++
+	if !f.serviceExists(target.ServiceID) {
+		return domain.ErrNotFound
+	}
+	n := 0
+	for _, t := range f.targets {
+		if t.ServiceID == target.ServiceID {
+			n++
+		}
+	}
+	if n >= maxTargets {
+		return domain.ErrAlertListFull
+	}
+	for _, t := range f.targets {
+		if f.sameContact(t, target) {
+			return domain.ErrTargetDuplicate
+		}
+	}
+	f.targets = append(f.targets, target)
+	return nil
+}
+
+func (f *fakeTargets) Update(_ context.Context, target domain.Target) (domain.Target, error) {
+	f.calls++
+	for i, t := range f.targets {
+		if t.ID != target.ID || t.ServiceID != target.ServiceID {
+			continue
+		}
+		for _, other := range f.targets {
+			if other.ID != t.ID && f.sameContact(other, target) {
+				return domain.Target{}, domain.ErrTargetDuplicate
+			}
+		}
+		target.CreatedAt, target.LastDeliveryFailed = t.CreatedAt, t.LastDeliveryFailed
+		f.targets[i] = target
+		return target, nil
+	}
+	return domain.Target{}, domain.ErrNotFound
+}
+
+func (f *fakeTargets) Delete(_ context.Context, serviceID, targetID string) error {
+	f.calls++
+	for i, t := range f.targets {
+		if t.ID == targetID && t.ServiceID == serviceID {
+			f.targets = append(f.targets[:i], f.targets[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
