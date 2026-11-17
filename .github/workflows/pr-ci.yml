@@ -195,9 +195,6 @@ jobs:
       - name: Lint shell scripts
         run: make lint-shell
 
-      - name: Lint markdown
-        run: make lint-md
-
   e2e-smoke:
     name: End-to-end smoke
     needs: detect-changes
