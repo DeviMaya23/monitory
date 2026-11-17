@@ -24,6 +24,14 @@ type ServiceService interface {
 	DeleteService(ctx context.Context, id string) error
 }
 
+// TargetService is what the target handlers need from the usecase layer.
+type TargetService interface {
+	ListTargets(ctx context.Context, serviceID string) ([]domain.Target, error)
+	CreateTarget(ctx context.Context, serviceID string, input domain.TargetInput) (domain.Target, error)
+	UpdateTarget(ctx context.Context, serviceID, targetID string, input domain.TargetInput) (domain.Target, error)
+	DeleteTarget(ctx context.Context, serviceID, targetID string) error
+}
+
 // AuthService is what the session handlers need from the usecase layer.
 type AuthService interface {
 	SignIn(ctx context.Context, username, password string, https bool) (domain.Session, error)
@@ -43,6 +51,7 @@ type Server struct {
 
 	settings SettingsService
 	services ServiceService
+	targets  TargetService
 	auth     AuthService
 	log      *slog.Logger
 	// secureCookie is whether the session cookie carries Secure: it follows the
@@ -51,8 +60,8 @@ type Server struct {
 }
 
 // NewServer builds the Server from its dependencies.
-func NewServer(settings SettingsService, services ServiceService, auth AuthService, log *slog.Logger, secureCookie bool) *Server {
-	return &Server{settings: settings, services: services, auth: auth, log: log, secureCookie: secureCookie}
+func NewServer(settings SettingsService, services ServiceService, targets TargetService, auth AuthService, log *slog.Logger, secureCookie bool) *Server {
+	return &Server{settings: settings, services: services, targets: targets, auth: auth, log: log, secureCookie: secureCookie}
 }
 
 // The compiler checks that Server covers every operation in the contract.

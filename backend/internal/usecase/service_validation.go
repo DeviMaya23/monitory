@@ -217,21 +217,36 @@ func validateQueryParams(v *fieldErrors, params []domain.NameValue, limits domai
 }
 
 func validateHeaders(v *fieldErrors, headers []domain.NameValue, limits domain.ServiceLimits) {
-	if len(headers) > limits.RequestMaxHeaders {
-		v.add("check.headers", domain.FieldErrorTooMany,
-			fmt.Sprintf("Too many rows. Use %d or fewer.", limits.RequestMaxHeaders))
+	validateHeaderRows(v, "check.headers", msgRequiredRow, headers, headerLimits{
+		MaxRows:  limits.RequestMaxHeaders,
+		NameMax:  limits.HeaderNameMaxLength,
+		ValueMax: limits.HeaderValueMaxLength,
+	})
+}
+
+// headerLimits are the limits a list of header rows is held to, for a service's request
+// and for a webhook target alike (FR-38, FR-92).
+type headerLimits struct {
+	MaxRows  int
+	NameMax  int
+	ValueMax int
+}
+
+// validateHeaderRows checks a list of headers. field is the path of the list, such as
+// "check.headers", and emptyName the message for a row without a name.
+func validateHeaderRows(v *fieldErrors, field, emptyName string, headers []domain.NameValue, limits headerLimits) {
+	if len(headers) > limits.MaxRows {
+		v.add(field, domain.FieldErrorTooMany, fmt.Sprintf("Too many rows. Use %d or fewer.", limits.MaxRows))
 	}
 	for i, h := range headers {
 		switch {
 		case h.Name == "":
-			v.add(fmt.Sprintf("check.headers[%d].name", i), domain.FieldErrorRequired, msgRequiredRow)
-		case utf8.RuneCountInString(h.Name) > limits.HeaderNameMaxLength:
-			v.add(fmt.Sprintf("check.headers[%d].name", i), domain.FieldErrorTooLong,
-				tooLongChars(limits.HeaderNameMaxLength))
+			v.add(fmt.Sprintf("%s[%d].name", field, i), domain.FieldErrorRequired, emptyName)
+		case utf8.RuneCountInString(h.Name) > limits.NameMax:
+			v.add(fmt.Sprintf("%s[%d].name", field, i), domain.FieldErrorTooLong, tooLongChars(limits.NameMax))
 		}
-		if utf8.RuneCountInString(h.Value) > limits.HeaderValueMaxLength {
-			v.add(fmt.Sprintf("check.headers[%d].value", i), domain.FieldErrorTooLong,
-				tooLongChars(limits.HeaderValueMaxLength))
+		if utf8.RuneCountInString(h.Value) > limits.ValueMax {
+			v.add(fmt.Sprintf("%s[%d].value", field, i), domain.FieldErrorTooLong, tooLongChars(limits.ValueMax))
 		}
 	}
 }

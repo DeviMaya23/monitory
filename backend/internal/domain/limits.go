@@ -43,3 +43,14 @@ type ServiceLimits struct {
 	HeaderValueMaxLength  int
 	RequestBodyMaxBytes   int
 }
+
+// TargetLimits are the configured limits that saving a notification target applies
+// (FR-19, FR-92, FR-110). main.go builds it from the configuration.
+type TargetLimits struct {
+	MaxTargets           int
+	EmailMaxLength       int
+	WebhookURLMaxLength  int
+	MaxHeaders           int
+	HeaderNameMaxLength  int
+	HeaderValueMaxLength int
+}

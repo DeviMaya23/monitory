@@ -58,6 +58,17 @@ func serviceLimits(l config.Limits) domain.ServiceLimits {
 	}
 }
 
+func targetLimits(l config.Limits) domain.TargetLimits {
+	return domain.TargetLimits{
+		MaxTargets:           l.MaxTargetsPerService,
+		EmailMaxLength:       l.EmailMaxLength,
+		WebhookURLMaxLength:  l.WebhookURLMaxLength,
+		MaxHeaders:           l.RequestMaxHeaders,
+		HeaderNameMaxLength:  l.HeaderNameMaxLength,
+		HeaderValueMaxLength: l.HeaderValueMaxLength,
+	}
+}
+
 func run(log *slog.Logger) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -97,10 +108,11 @@ func run(log *slog.Logger) error {
 	defer scheduler.Close()
 
 	services := usecase.NewServiceService(repository.NewServiceRepository(db), scheduler, clock.Real{}, serviceLimits(cfg.Limits))
+	targets := usecase.NewTargetService(repository.NewTargetRepository(db), clock.Real{}, targetLimits(cfg.Limits))
 	sessions := memstore.NewSessions(clock.Real{})
 	auth := usecase.NewAuthService(cfg.AdminUsername, cfg.AdminPassword, cfg.RequireHTTPS, sessions, clock.Real{})
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(settings, services, auth, log, cfg.RequireHTTPS),
+		Server:          handler.NewServer(settings, services, targets, auth, log, cfg.RequireHTTPS),
 		Sessions:        sessions,
 		Log:             log,
 		MaxRequestBytes: cfg.Limits.APIRequestMaxBytes,
