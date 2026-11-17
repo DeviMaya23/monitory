@@ -102,9 +102,44 @@ func (a *authSpy) SignOut(_ context.Context, token string) error {
 	return a.err
 }
 
+// targetSpy is a handler.TargetService that returns canned values and records the
+// ids and inputs it was given.
+type targetSpy struct {
+	target  domain.Target
+	targets []domain.Target
+	err     error
+
+	listed  []string
+	inputs  []domain.TargetInput
+	updated []string // "serviceID/targetID"
+	deleted []string // "serviceID/targetID"
+}
+
+func (s *targetSpy) ListTargets(_ context.Context, serviceID string) ([]domain.Target, error) {
+	s.listed = append(s.listed, serviceID)
+	return s.targets, s.err
+}
+
+func (s *targetSpy) CreateTarget(_ context.Context, _ string, input domain.TargetInput) (domain.Target, error) {
+	s.inputs = append(s.inputs, input)
+	return s.target, s.err
+}
+
+func (s *targetSpy) UpdateTarget(_ context.Context, serviceID, targetID string, input domain.TargetInput) (domain.Target, error) {
+	s.updated = append(s.updated, serviceID+"/"+targetID)
+	s.inputs = append(s.inputs, input)
+	return s.target, s.err
+}
+
+func (s *targetSpy) DeleteTarget(_ context.Context, serviceID, targetID string) error {
+	s.deleted = append(s.deleted, serviceID+"/"+targetID)
+	return s.err
+}
+
 type routerOptions struct {
 	settings        handler.SettingsService
 	services        handler.ServiceService
+	targets         handler.TargetService
 	auth            handler.AuthService
 	requireHTTPS    bool
 	logOutput       io.Writer
@@ -122,6 +157,9 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 	if opts.services == nil {
 		opts.services = &serviceSpy{}
 	}
+	if opts.targets == nil {
+		opts.targets = &targetSpy{}
+	}
 	if opts.auth == nil {
 		opts.auth = &authSpy{}
 	}
@@ -136,7 +174,7 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 		opts.clientIPHeader = "X-Forwarded-For"
 	}
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(opts.settings, opts.services, opts.auth, log, opts.requireHTTPS),
+		Server:          handler.NewServer(opts.settings, opts.services, opts.targets, opts.auth, log, opts.requireHTTPS),
 		Sessions:        oneSession{},
 		Log:             log,
 		MaxRequestBytes: opts.maxRequestBytes,
