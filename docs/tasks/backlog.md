@@ -90,13 +90,13 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - `create-service-api`: the handler suite takes about 30 s because `newRouter` parses the contract for every case, in the shared `helpers_test.go`. Matters when: later tasks add more handler cases to the same helper and CI time grows with each.
 - `http-probe`: wall-clock assertions can flake under load (`TestTargetServer_DelayAndRedirect` expects an answer in under 100 ms; several probe tests rely on a 20 ms delay against a 200 ms timeout). Matters when: CI runs the suite on a loaded runner with `-race` and one fails with no code change.
-- `http-probe`: the test target server's `Arrived` closes once per path and never again, so a test cannot wait for a second request to the same path. Matters when: the scheduler task tests a retry against one path and wants to wait for the second attempt.
 
 ## Decisions waiting on the user
 
 Each needs a decision, or to be dropped, by the next milestone.
 
-- Default unhealthy and recovery messages, and the email subject and body. Decide by: the first milestone 2 task is drafted.
+- Default unhealthy and recovery messages, and the email subject and body. Decide by: the task that sends alerts on a status change (FR-21 to FR-25) is drafted.
+- `list-and-delete-services-api`: `ServiceList` has `maxItems: 50` in the contract while `MAX_SERVICES` has no ceiling, so a larger limit can return more items than the contract allows. Raise or remove `maxItems`, or cap the configuration key. Matters when: the admin sets `MAX_SERVICES` above 50, or the frontend client validates responses against the schema. Decide by: the end of milestone 1.
 - `updatePublicViewSettings` with `{}` counts as off, because `enabled` then reads as false. Reject it as `validation_failed`, or keep. Decide by: the milestone 4 settings task is drafted.
 - Where the shared service-input normalization lives. `create-service-api` trims surrounding whitespace from the name, URL, host, query parameter names, header names and values, rule fields and the two messages in a private `normalizeServiceInput` in `usecase/service_validation.go`, before validating, and saves the trimmed text. `updateService` must apply the same rules or an edited name could differ from a created one, so it needs the function shared (a new shared place, which needs your approval); `testServiceCheck` should probably trim the URL and host too, so a test run matches what would be saved. Decide by: the first milestone 3 task that touches `updateService` or `testServiceCheck` is drafted.
 - SMTP provider for production. Decide by: before the first alert task is deployed.
