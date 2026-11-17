@@ -52,16 +52,16 @@ Integration tests: none apply (no `integration`-tagged test in the touched code)
 - `NewScheduler(sequence, clock, log)` argument order; the runner's method is `CheckRunner.Run`, passed as `runner.Run`.
 - The plan items for `Close` tests are split into `TestClose_CancelsRunningAndWaitingAndWaitsForBoth` and `TestClose_ManyServices`. I added `TestScheduler_SchedulesFromTheStartOfTheSequence`, because mutation "schedule from the end" survived the other tests.
 - `make check` needed `npm ci` in `frontend/` first (not installed in the worktree).
-- A paused/invalid-interval `Start` before `startMu` logs outside the lock; fine, it touches nothing shared.
+- The invalid-interval refusal comes before `startMu` is taken, so it never waits behind another `Start`.
 
 ## Mutation checks run
 
-Each failed a named test: schedule from the end (`TestScheduler_SchedulesFromTheStartOfTheSequence`, overrun, late); catch-up (`TestScheduler_OverrunStartsNextAtOnce`); drop cancel of old (`TestStart_ReplacesRunningService` hangs: timeout); drop wait for old (`TestStart_ReplacesRunningService`); no timer stop (`TestStop_DuringWait`); `Close` without waiting (`TestClose_*`, `TestStart_ConcurrentSameID`); start paused services (`TestStartChecks_StartsEveryServiceThatIsNotPaused`). Not run: a second sequence while one runs (the overlap guard is structural: one goroutine, one loop).
+Each failed a named test: schedule from the end (`TestScheduler_SchedulesFromTheStartOfTheSequence`, overrun, late); catch-up (`TestScheduler_OverrunStartsNextAtOnce`); drop cancel of old (`TestStart_ReplacesRunningService` hangs: timeout); drop wait for old (`TestStart_ReplacesRunningService`); no timer stop (`TestStop_DuringWait`); `Close` without waiting (`TestClose_*`, `TestStart_ConcurrentSameID`); start paused services (`TestStartChecks_StartsEveryServiceThatIsNotPaused`). Not run: "let a second sequence start while one runs" (the loop is sequential by construction; there is no line to remove).
 
 ## Run by hand
 
 Built binary, dev `.env` (port 8099, temp DB), local stub on 127.0.0.1:8098 answering 200, signed in, added an HTTP service with createService.
 - Stub up: `GET /api/services` showed `healthy` with `last_checked_at` within 2 s of the add (FR-67).
-- Stub stopped: after the retries (defaults 2 retries x 10 s, as my request left settings at their defaults) the state became `unhealthy`, `could_not_connect`, about 20 s after the sequence began; the next check came on the interval.
+- Stub stopped: after the retries (defaults 2 retries x 10 s, as my request left settings at their defaults) the state became `unhealthy`, `could_not_connect`, about 20 s after the sequence began. I did not watch a second interval check on the live app (covered by the fake-clock tests).
 - Restart with the stub up: `last_checked_at` was updated at the moment of start-up, before the first poll (FR-111).
 - Python's `http.server` answered each request after ~7 s here (reverse DNS), which delayed the first runs; a threaded stub without logging was used for the final runs.
