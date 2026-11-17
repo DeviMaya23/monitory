@@ -2,7 +2,7 @@
 
 Verifier branch: `verify/scheduler` (built on `feat/scheduler` at `f90a2ef`).
 
-Result: **1 Blocking finding** (`make check` fails), 3 Non-blocking. No pull request opened.
+Result: 1 Blocking finding, **resolved on this branch** (a blank line added to the plan file, commit after `f90a2ef`; `make check` then passed in full), 3 Non-blocking. No pull request opened yet.
 
 ## Commands run
 
@@ -40,7 +40,7 @@ Result: **1 Blocking finding** (`make check` fails), 3 Non-blocking. No pull req
 | 20 | No services: nothing started, no error | `TestStartChecks_NoServices` | Weak: also passes if `StartChecks` did nothing at all, which criterion 19 rules out. Fine | Met |
 | 21 | List error returned unchanged, nothing started | `TestStartChecks_ListErrorStartsNothing` | Yes (`ErrorIs`, `started` empty with a service in the repository) | Met |
 | 22 | Existing `CreateService` / `DeleteService` tests pass unchanged | existing `service_test.go` tests | Yes. `git diff` shows only additions to `service_test.go` | Met |
-| 23 | `make check` passes | n/a | n/a | **Not met** (Blocking finding 1) |
+| 23 | `make check` passes | n/a | n/a | Not met on `feat/scheduler`; met on this branch after the plan fix (Blocking finding 1) |
 | 24 | `git diff go.mod go.sum` empty | diff read | n/a | Met |
 | 25 | `grep -r NoopScheduler backend` finds nothing | grep | n/a | Met |
 | 26 | Nothing outside the allowed paths changed | `git diff --name-only main...HEAD` | n/a | Met: only the allowed files plus `docs/tasks/scheduler.plan.md` |
@@ -106,7 +106,7 @@ I built the binary and ran it with a temp database on 127.0.0.1:8096. A threaded
 
 ### Blocking
 
-1. **`make check` fails (acceptance criterion "make check passes").** `make lint-md` reports `docs/tasks/scheduler.plan.md:64 error MD032/blanks-around-lists`. Reproduce: `cd frontend && npm ci`, then `make check`. The plan ticks this item as passed. Fix: a blank line before the list at line 64 of the plan. I did not change it, because the plan is the builder's file. Nothing else in `make check` fails.
+1. **`make check` fails (acceptance criterion "make check passes").** `make lint-md` reports `docs/tasks/scheduler.plan.md:64 error MD032/blanks-around-lists`. Reproduce: `cd frontend && npm ci`, then `make check`. The plan ticks this item as passed. Fix: a blank line before the list at line 64 of the plan. Nothing else in `make check` failed. Resolved on this branch at the user's request: one blank line inserted, `make check` rerun and passed. `feat/scheduler` itself still has the problem until this change is merged into it.
 
 ### Non-blocking
 

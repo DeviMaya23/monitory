@@ -61,6 +61,7 @@ Each failed a named test: schedule from the end (`TestScheduler_SchedulesFromThe
 ## Run by hand
 
 Built binary, dev `.env` (port 8099, temp DB), local stub on 127.0.0.1:8098 answering 200, signed in, added an HTTP service with createService.
+
 - Stub up: `GET /api/services` showed `healthy` with `last_checked_at` within 2 s of the add (FR-67).
 - Stub stopped: after the retries (defaults 2 retries x 10 s, as my request left settings at their defaults) the state became `unhealthy`, `could_not_connect`, about 20 s after the sequence began. I did not watch a second interval check on the live app (covered by the fake-clock tests).
 - Restart with the stub up: `last_checked_at` was updated at the moment of start-up, before the first poll (FR-111).
