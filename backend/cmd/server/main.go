@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"monitory/internal/adaptor/probe"
 	"monitory/internal/domain"
 	"monitory/internal/handler"
 	"monitory/internal/memstore"
@@ -89,7 +90,13 @@ func run(log *slog.Logger) error {
 
 	settings := usecase.NewSettingsService(repository.NewSettingsRepository(db), clock.Real{})
 
-	services := usecase.NewServiceService(repository.NewServiceRepository(db), worker.NoopScheduler{}, clock.Real{}, serviceLimits(cfg.Limits))
+	checkResults := usecase.NewCheckResultService(repository.NewServiceStateRepository(db), clock.Real{})
+	runner := worker.NewCheckRunner(probe.NewHTTPProber(cfg.Limits.MaxRedirects), checkResults, clock.Real{})
+	scheduler := worker.NewScheduler(runner.Run, clock.Real{}, log)
+	// Deferred after the database's, so it runs before the database is closed.
+	defer scheduler.Close()
+
+	services := usecase.NewServiceService(repository.NewServiceRepository(db), scheduler, clock.Real{}, serviceLimits(cfg.Limits))
 	sessions := memstore.NewSessions(clock.Real{})
 	auth := usecase.NewAuthService(cfg.AdminUsername, cfg.AdminPassword, cfg.RequireHTTPS, sessions, clock.Real{})
 	e, err := handler.NewRouter(handler.Deps{
@@ -102,6 +109,10 @@ func run(log *slog.Logger) error {
 		Web:             frontend,
 	})
 	if err != nil {
+		return err
+	}
+
+	if err := services.StartChecks(context.Background()); err != nil {
 		return err
 	}
 
@@ -129,6 +140,9 @@ func run(log *slog.Logger) error {
 		return err
 	case <-ctx.Done():
 	}
+
+	// No sequence writes while requests drain.
+	scheduler.Close()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()

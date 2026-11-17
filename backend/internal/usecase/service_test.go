@@ -321,3 +321,41 @@ func TestDeleteService_SecondDeleteIsNotFoundAndStopsNothing(t *testing.T) {
 	require.ErrorIs(t, second, domain.ErrNotFound)
 	assert.Equal(t, []string{"id-1"}, s.scheduler.stopped)
 }
+
+func TestStartChecks_StartsEveryServiceThatIsNotPaused(t *testing.T) {
+	s := newServiceSetup()
+	s.repo.services = []domain.Service{
+		{ID: "a", CheckIntervalSeconds: 45},
+		{ID: "b", CheckIntervalSeconds: 60, Paused: true},
+		{ID: "c", CheckIntervalSeconds: 90},
+	}
+
+	require.NoError(t, s.svc.StartChecks(t.Context()))
+
+	assert.Equal(t, []domain.Service{s.repo.services[0], s.repo.services[2]}, s.scheduler.started)
+
+	// Baseline: the same service, not paused, is started.
+	s = newServiceSetup()
+	s.repo.services = []domain.Service{{ID: "b", CheckIntervalSeconds: 60}}
+	require.NoError(t, s.svc.StartChecks(t.Context()))
+	assert.Len(t, s.scheduler.started, 1)
+}
+
+func TestStartChecks_NoServices(t *testing.T) {
+	s := newServiceSetup()
+
+	require.NoError(t, s.svc.StartChecks(t.Context()))
+
+	assert.Empty(t, s.scheduler.started)
+}
+
+func TestStartChecks_ListErrorStartsNothing(t *testing.T) {
+	s := newServiceSetup()
+	s.repo.services = []domain.Service{{ID: "a", CheckIntervalSeconds: 45}}
+	s.repo.err = errors.New("list failed")
+
+	err := s.svc.StartChecks(t.Context())
+
+	require.ErrorIs(t, err, s.repo.err)
+	assert.Empty(t, s.scheduler.started)
+}
