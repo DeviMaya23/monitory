@@ -16,7 +16,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-6, FR-12, FR-74 | `createService` (built in `create-service-api`) | Add a service | The screen only: name, method and URL, the `422` field errors on the fields, and the `409` banners. The other form rows are milestone 3. The server trims surrounding whitespace from the name and URL before validating and saving, so a name of only spaces is `required` and `API` with a trailing space is the same name as `API`; the screen shows what the 201 returns |
 | FR-8, FR-72 | `deleteService` (built in `list-and-delete-services-api`) | Dashboard delete dialog | The screen only: the confirmation dialog, the target count from `listServices`, the deleting state, and the failure toasts |
 | Milestone journeys | all of the above | Sign-in, dashboard, add | End-to-end suite set up in `e2e/`; the last task of the milestone |
 
@@ -73,6 +72,10 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - Left out of `dashboard-screen`, to be added by the task that builds what each does: the name as a link to Edit, with the desktop ellipsis and the full-name tooltip (the edit screen); the "view alert list" link on the delivery-failed notice and the row's Alerts button (the alert list); the row's Pause and Resume, Delete, the public-page switch and the "Open public page" link (their own tasks, listed above). The failed-action toasts for row actions come with the row action that causes them.
 
 - Left out of `check-sequence-and-state`: its runner does nothing for a TCP service, so one stays `not_yet_checked`; the `scheduler` task still gives a TCP service a timer, whose every sequence does nothing. The task that builds the TCP probe (FR-49, FR-52, milestone 3) makes the runner call it with the same retry rule.
+
+- Left out of `add-service-screen`: the "Discard unsaved changes?" prompt on the top-bar brand link, the browser's Back and Forward, and Sign out (it covers only the form's Cancel and back link, and the browser's own prompt on closing the tab). Blocking in-app navigation needs react-router's `useBlocker`, which needs a data router instead of `BrowserRouter`. Needs: the user, a decision on the router. Decide by: the edit-form task is drafted, since it builds the same prompt for the edit form.
+
+- Left out of `add-service-screen`: the form has no `Type` control, no test panel and none of the rows below Request. The type switch comes with the TCP form task, the test panel with `testServiceCheck`, and the other rows with the milestone 3 form tasks (all already rows above).
 
 - Left out of `scheduler`: a log line per check outcome with the failure reason (`CONVENTIONS.md`, Logging). The runner returns no result to log. Matters when: the admin needs to see in the log why a service went unhealthy; best added with the first alert task, which handles the status change.
 
