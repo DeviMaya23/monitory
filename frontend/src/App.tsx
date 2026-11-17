@@ -3,6 +3,7 @@ import { ToastProvider } from './components/ui/Toast'
 import { AdminLayout } from './app-shell/AdminLayout'
 import { NotBuilt } from './app-shell/NotBuilt'
 import { SessionProvider } from './app-shell/SessionProvider'
+import AddServicePage from './pages/AddServicePage'
 import DashboardPage from './pages/DashboardPage'
 import SignInPage from './pages/SignInPage'
 
@@ -21,7 +22,7 @@ export default function App() {
           <Route path="/sign-in" element={<SignInPage />} />
           <Route element={<AdminLayout />}>
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/services/new" element={<NotBuilt page="add service" />} />
+            <Route path="/services/new" element={<AddServicePage />} />
             <Route path="/services/:serviceId" element={<NotBuilt page="edit service" />} />
             <Route path="/services/:serviceId/alerts" element={<NotBuilt page="alert list" />} />
             <Route path="*" element={<NotBuilt page="requested" />} />
