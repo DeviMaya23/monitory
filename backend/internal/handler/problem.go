@@ -44,6 +44,8 @@ var domainProblems = []struct {
 	{domain.ErrInvalidCredentials, http.StatusUnauthorized, api.ProblemCodeInvalidCredentials, "Invalid credentials", ""},
 	{domain.ErrServiceNameTaken, http.StatusConflict, api.ProblemCodeServiceNameTaken, "Name already used", ""},
 	{domain.ErrServiceLimitReached, http.StatusConflict, api.ProblemCodeServiceLimitReached, "Service limit reached", ""},
+	{domain.ErrAlertListFull, http.StatusConflict, api.ProblemCodeAlertListFull, "Alert list full", ""},
+	{domain.ErrTargetDuplicate, http.StatusConflict, api.ProblemCodeTargetDuplicate, "Contact already in the list", ""},
 	{domain.ErrHTTPSRequired, http.StatusForbidden, api.ProblemCodeHttpsRequired, "HTTPS required", httpsRequiredDetail},
 }
 

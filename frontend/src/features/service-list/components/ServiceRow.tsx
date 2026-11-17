@@ -1,4 +1,4 @@
-import { Bell, BellOff, CircleAlert, Eye, EyeOff, TriangleAlert } from 'lucide-react'
+import { Bell, BellOff, CircleAlert, Eye, EyeOff, Trash2, TriangleAlert } from 'lucide-react'
 import type { Service } from '../../../lib/api/services'
 import { failureReasonText } from '../lib/failureReason'
 import { formatTime } from '../lib/formatTime'
@@ -12,8 +12,16 @@ function Time({ iso, now }: { iso: string; now: Date }) {
   )
 }
 
-/** One service: data only, no actions (FR-9, FR-62). Server text is rendered as text (NFR-7). */
-export function ServiceRow({ service, now }: { service: Service; now: Date }) {
+/** One service, with its row actions (FR-9, FR-62, FR-8). Server text is rendered as text (NFR-7). */
+export function ServiceRow({
+  service,
+  now,
+  onDelete,
+}: {
+  service: Service
+  now: Date
+  onDelete: (service: Service) => void
+}) {
   const { state } = service
   const reason = !service.paused && state.status === 'unhealthy' ? state.last_failure_reason : null
   const alertsOn = service.alerts_enabled ?? true
@@ -91,6 +99,19 @@ export function ServiceRow({ service, now }: { service: Service; now: Date }) {
             </span>
           )}
         </span>
+      </div>
+      <div className="svc__actions">
+        <button
+          type="button"
+          className="btn btn--ghost-danger btn--icon"
+          aria-label={`Delete ${service.name}`}
+          onClick={() => onDelete(service)}
+        >
+          <Trash2 className="icon icon--sm" aria-hidden="true" />
+          <span className="btn__label" aria-hidden="true">
+            Delete
+          </span>
+        </button>
       </div>
     </li>
   )

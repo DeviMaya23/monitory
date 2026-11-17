@@ -21,4 +21,9 @@ var (
 	ErrServiceNameTaken = errors.New("service name taken")
 	// ErrServiceLimitReached: the service limit is reached (FR-60).
 	ErrServiceLimitReached = errors.New("service limit reached")
+
+	// ErrAlertListFull: the service's alert list holds the most targets allowed (FR-19).
+	ErrAlertListFull = errors.New("alert list full")
+	// ErrTargetDuplicate: the same contact is already in the alert list (FR-88).
+	ErrTargetDuplicate = errors.New("target duplicate")
 )
