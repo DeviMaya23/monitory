@@ -733,3 +733,40 @@ func TestScheduler_SchedulesFromTheStartOfTheSequence(t *testing.T) {
 
 	assert.Equal(t, schedStart.Add(30*time.Second), second.at)
 }
+
+func TestScheduler_IntervalLimits(t *testing.T) {
+	for _, interval := range []int{30, 86400} {
+		t.Run(strconv.Itoa(interval), func(t *testing.T) {
+			s := newSchedSetup(t)
+			d := time.Duration(interval) * time.Second
+
+			s.sched.Start(svc("a", interval))
+			s.seq.wait(t)
+			s.clk.waitTimer(t)
+
+			s.clk.Advance(d - time.Second)
+			assert.Equal(t, 1, s.seq.count("a"))
+			s.clk.Advance(time.Second)
+			second := s.seq.wait(t)
+			assert.Equal(t, schedStart.Add(d), second.at)
+		})
+	}
+}
+
+func TestScheduler_StartStopCloseFromManyGoroutines(t *testing.T) {
+	s := newSchedSetup(t)
+	s.seq.behave = blockOnContext
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(3)
+		id := "svc-" + strconv.Itoa(i%4)
+		go func() { defer wg.Done(); s.sched.Start(svc(id, 30+i)) }()
+		go func() { defer wg.Done(); s.sched.Stop(id) }()
+		go func() { defer wg.Done(); s.sched.Start(svc(id, 40+i)) }()
+	}
+	returnsWithin(t, wg.Wait)
+	returnsWithin(t, s.sched.Close)
+
+	started, ended := s.seq.totals()
+	assert.Equal(t, started, ended)
+}
