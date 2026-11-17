@@ -1,0 +1,40 @@
+/*
+ * Add service screen, from docs/design/service-form.css. Depends on tokens.css and
+ * components.css, which already has .back-link, .page-head, .group and .grid.
+ * The test panel, rows, segmented-control and counter rules are left out: not built yet.
+ */
+.back-link + .page-head { margin-top: 6px; }
+.form-layout {
+  display: grid;
+  grid-template-columns: minmax(0, var(--form-max));
+  gap: var(--space-5);
+  align-items: start;
+}
+.form-main { min-width: 0; }
+.form-banners { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+.form-banners:empty { display: none; }
+.form-summary { margin: var(--space-1) 0 0; padding-left: 18px; list-style: disc; }
+.url-row { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: var(--space-2); align-items: start; }
+
+.form-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+.form-foot__status { flex: 1; min-width: 0; font-size: var(--text-sm); color: var(--color-text-subtle); }
+
+@container app (max-width: 900px) {
+  .form-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@container app (max-width: 640px) {
+  .url-row { grid-template-columns: minmax(0, 1fr); }
+  .form-foot { flex-wrap: wrap; padding: var(--space-2) var(--space-3); }
+  .form-foot__status { width: 100%; flex: none; }
+  .form-foot .btn { flex: 1 1 0; }
+}

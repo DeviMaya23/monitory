@@ -67,6 +67,22 @@ func (s *ServiceService) DeleteService(ctx context.Context, id string) error {
 	return nil
 }
 
+// StartChecks hands every saved service that is not paused to the scheduler, so checks
+// resume at start-up (FR-111, FR-76). A list error is returned and nothing is started.
+func (s *ServiceService) StartChecks(ctx context.Context) error {
+	views, err := s.services.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, v := range views {
+		if v.Service.Paused {
+			continue
+		}
+		s.scheduler.Start(v.Service)
+	}
+	return nil
+}
+
 // buildService makes the row to save from validated input.
 func (s *ServiceService) buildService(in domain.ServiceInput) (domain.Service, error) {
 	id, err := domain.NewID()

@@ -1,12 +1,22 @@
 import { ApiError, type ProblemBody } from '../lib/api/ApiError'
-import type { Service, ServiceList } from '../lib/api/services'
+import type { FieldError, Service, ServiceList } from '../lib/api/services'
 import type { SessionInfo } from '../lib/api/session'
 
 export const sessionInfo: SessionInfo = { csrf_token: 'csrf-1', expires_at: '2026-12-16T10:00:00Z' }
 
 /** An `ApiError` as `apiRequest` throws it for a problem response. */
-export function problem(status: number, code: ProblemBody['code'], detail?: string): ApiError {
-  return new ApiError(status, { title: 'Problem', status, code, detail }, null)
+export function problem(status: number, code: ProblemBody['code'], detail?: string, errors?: FieldError[]): ApiError {
+  return new ApiError(status, { title: 'Problem', status, code, detail, errors }, null)
+}
+
+/** A `422 validation_failed` with the given field errors. */
+export function validationProblem(...errors: FieldError[]): ApiError {
+  return problem(422, 'validation_failed', undefined, errors)
+}
+
+/** One field error; the code defaults to `invalid_value`. */
+export function fieldError(field: string, message: string, code: FieldError['code'] = 'invalid_value'): FieldError {
+  return { field, code, message }
 }
 
 type FailureReason = NonNullable<Service['state']['last_failure_reason']>

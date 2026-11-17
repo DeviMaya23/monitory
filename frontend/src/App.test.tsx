@@ -5,12 +5,17 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { setUnauthenticatedHandler } from './lib/api/request'
-import { listServices } from './lib/api/services'
+import { createService, listServices } from './lib/api/services'
 import { getSession, signIn, signOut, type SessionInfo } from './lib/api/session'
 import { makeService, makeServiceList, problem, sessionInfo } from './test/fixtures'
 
 vi.mock('./lib/api/session')
-vi.mock('./lib/api/services')
+// The real query key is kept (an automock would empty it); only the requests are mocked.
+vi.mock('./lib/api/services', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/api/services')>()),
+  listServices: vi.fn(),
+  createService: vi.fn(),
+}))
 vi.mock('./lib/api/request', () => ({
   setCsrfToken: vi.fn(),
   setUnauthenticatedHandler: vi.fn(),
@@ -59,7 +64,11 @@ const adminRoutes: [string, string][] = [
   ['/nothing/here', 'requested'],
 ]
 
+// The routes that still show a placeholder when signed in: all but the dashboard and the add service form.
+const placeholderRoutes = adminRoutes.filter(([path]) => path !== '/' && path !== '/services/new')
+
 const dashboard = () => screen.findByRole('heading', { name: 'Services' })
+const addServiceForm = () => screen.findByRole('heading', { name: 'Add service' })
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -81,7 +90,19 @@ describe('App routes', () => {
     expect(screen.getByRole('link', { name: 'Monitory' })).toHaveAttribute('href', '/')
   })
 
-  it.each(adminRoutes.filter(([path]) => path !== '/'))('signed in: %s shows the %s placeholder inside the layout', async (path, page) => {
+  it('signed in: /services/new shows the add service form inside the layout instead of the placeholder', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    renderAt('/services/new')
+    await addServiceForm()
+    expect(screen.getByLabelText('Name')).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Save service' })).toBeInTheDocument()
+    expect(screen.queryByText(PLACEHOLDER)).not.toBeInTheDocument()
+    expect(signOutButton()).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Monitory' })).toHaveAttribute('href', '/')
+    expect(listServices).not.toHaveBeenCalled()
+  })
+
+  it.each(placeholderRoutes)('signed in: %s shows the %s placeholder inside the layout', async (path, page) => {
     vi.mocked(getSession).mockResolvedValue(sessionInfo)
     renderAt(path)
     expect(await screen.findByText(`The ${page} page is not built yet.`)).toBeInTheDocument()
@@ -282,5 +303,80 @@ describe('The dashboard and a session that ends (FR-4)', () => {
     expect(screen.getByText('Your session has ended.')).toBeInTheDocument()
     expect(screen.queryByText('Couldn’t refresh.')).not.toBeInTheDocument()
     expect(client.getQueryData(['services'])).toBeUndefined()
+  })
+})
+
+describe('Add service (FR-6, FR-4)', () => {
+  async function fillAndSave() {
+    await addServiceForm()
+    await userEvent.type(screen.getByLabelText('Name'), 'Search API')
+    await userEvent.type(screen.getByLabelText('URL'), 'https://search.example.com/health')
+    await userEvent.click(screen.getByRole('button', { name: 'Save service' }))
+  }
+
+  it('a valid submit ends on the dashboard with the toast and the new service’s row', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    const created = makeService({ name: 'Search API' })
+    vi.mocked(createService).mockImplementation(async () => {
+      // From the 201 on, the list has the new service.
+      vi.mocked(listServices).mockResolvedValue(makeServiceList(created))
+      return created
+    })
+    renderAt('/services/new')
+    await fillAndSave()
+
+    await dashboard()
+    expect(await screen.findByText('Search API')).toBeInTheDocument()
+    expect(screen.getByText('Service “Search API” added.')).toBeInTheDocument()
+    expect(screen.queryByText('No services yet')).not.toBeInTheDocument()
+    expect(createService).toHaveBeenCalledTimes(1)
+    expect(createService).toHaveBeenCalledWith({
+      name: 'Search API',
+      check: { type: 'http', method: 'GET', url: 'https://search.example.com/health' },
+    })
+    expect(signOutButton()).toBeInTheDocument()
+  })
+
+  it('after a visit to the dashboard, the 201 drops the cached list: the new row shows, not the old list', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    renderAt('/')
+    await dashboard()
+    expect(await screen.findByText('No services yet')).toBeInTheDocument()
+    await userEvent.click(screen.getAllByRole('link', { name: 'Add service' })[0])
+
+    const created = makeService({ name: 'Search API' })
+    vi.mocked(createService).mockImplementation(async () => {
+      vi.mocked(listServices).mockResolvedValue(makeServiceList(created))
+      return created
+    })
+    // The old, empty list must never show again once the form is left.
+    let stale = false
+    const watch = new MutationObserver(() => {
+      if (screen.queryByText('No services yet')) stale = true
+    })
+    await addServiceForm()
+    watch.observe(document.body, { childList: true, subtree: true })
+    await fillAndSave()
+    await dashboard()
+    expect(await screen.findByText('Search API')).toBeInTheDocument()
+    watch.disconnect()
+    expect(stale).toBe(false)
+  })
+
+  it('a 401 unauthenticated ends on the sign-in form with the notice and no banner', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    renderAt('/services/new')
+    // As apiRequest does: run the registered handler, then reject.
+    vi.mocked(createService).mockImplementationOnce(async () => {
+      registeredHandler()()
+      throw problem(401, 'unauthenticated')
+    })
+    await fillAndSave()
+    await form()
+    expect(screen.getByText('Your session has ended.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Add service' })).not.toBeInTheDocument()
+    expect(createService).toHaveBeenCalledTimes(1)
   })
 })
