@@ -16,7 +16,7 @@
 .svc-list > ul { margin: 0; padding: 0; list-style: none; }
 .svc-head, .svc {
   display: grid;
-  grid-template-columns: 136px minmax(0, 1fr) 128px 128px 60px 80px;
+  grid-template-columns: 136px minmax(0, 1fr) 128px 128px 60px 80px 132px;
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-2) var(--space-4);
@@ -31,6 +31,7 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.svc-head > span:last-child { text-align: right; }
 .svc { min-height: 48px; }
 .svc + .svc { border-top: 1px solid var(--color-border); }
 .svc:hover { background: var(--color-surface-hover); }
@@ -56,6 +57,8 @@
 .flag--on { color: var(--color-text); }
 .flag--off { color: var(--color-text-subtle); }
 .svc__flags { display: contents; }
+.svc__actions { display: flex; justify-content: flex-end; gap: 2px; }
+.svc__actions .btn__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .loading-row .skeleton { height: 10px; }
 .loading-row .skeleton--badge { width: 96px; height: 20px; border-radius: var(--radius-pill); }
@@ -75,7 +78,8 @@
     grid-template-areas:
       "status flags"
       "main main"
-      "check change";
+      "check change"
+      "actions actions";
     gap: var(--space-2) var(--space-3);
     padding: var(--space-3);
     border: 1px solid var(--color-border);
@@ -89,6 +93,9 @@
   .svc__main { grid-area: main; }
   .svc__check { grid-area: check; }
   .svc__change { grid-area: change; }
+  .svc__actions { grid-area: actions; justify-content: stretch; gap: var(--space-1); padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+  .svc__actions .btn { flex: 1 1 0; width: auto; padding: 0 var(--space-1); gap: 6px; }
+  .svc__actions .btn__label { position: static; width: auto; height: auto; clip-path: none; overflow: visible; }
   .loading-row .skeleton--flags { grid-area: flags; justify-self: end; }
   .svc__label { display: block; }
 }

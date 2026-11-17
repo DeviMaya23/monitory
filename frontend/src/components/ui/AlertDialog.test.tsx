@@ -94,6 +94,13 @@ describe('AlertDialog', () => {
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
   })
 
+  it('goes back to the opener when finalFocus returns null', async () => {
+    render(<Harness finalFocus={() => null} />)
+    const user = await open()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open' })).toHaveFocus())
+  })
+
   it('sends focus to finalFocus on close instead of the opener', async () => {
     render(<Harness finalFocus={() => screen.getByText('Elsewhere', { selector: 'button' })} />)
     const user = await open()

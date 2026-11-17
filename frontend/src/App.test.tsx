@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { setUnauthenticatedHandler } from './lib/api/request'
-import { createService, listServices } from './lib/api/services'
+import { createService, deleteService, listServices } from './lib/api/services'
 import { getSession, signIn, signOut, type SessionInfo } from './lib/api/session'
 import { makeService, makeServiceList, problem, sessionInfo } from './test/fixtures'
 
@@ -15,6 +15,7 @@ vi.mock('./lib/api/services', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./lib/api/services')>()),
   listServices: vi.fn(),
   createService: vi.fn(),
+  deleteService: vi.fn(),
 }))
 vi.mock('./lib/api/request', () => ({
   setCsrfToken: vi.fn(),
@@ -302,6 +303,34 @@ describe('The dashboard and a session that ends (FR-4)', () => {
     await form()
     expect(screen.getByText('Your session has ended.')).toBeInTheDocument()
     expect(screen.queryByText('Couldn’t refresh.')).not.toBeInTheDocument()
+    expect(client.getQueryData(['services'])).toBeUndefined()
+  })
+
+  it('a delete answered 401 ends on the sign-in form with the notice, no toast, and the cached list is gone', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    vi.mocked(listServices).mockResolvedValueOnce(makeServiceList(makeService()))
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/']}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    await screen.findByText('API gateway')
+    // As apiRequest does: run the registered handler, then reject.
+    vi.mocked(deleteService).mockImplementationOnce(async () => {
+      registeredHandler()()
+      throw problem(401, 'unauthenticated')
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete API gateway' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete service' }))
+    await form()
+    expect(screen.getByText('Your session has ended.')).toBeInTheDocument()
+    expect(deleteService).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Service deleted.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Couldn’t delete the service. Try again.')).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('alertdialog', { hidden: true })).toHaveLength(0)
     expect(client.getQueryData(['services'])).toBeUndefined()
   })
 })

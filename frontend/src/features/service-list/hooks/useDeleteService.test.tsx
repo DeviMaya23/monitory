@@ -199,7 +199,7 @@ describe('any other failure', () => {
   it.each<[string, unknown]>([
     ['a 500', problem(500, 'internal_error')],
     ['a network error', new TypeError('Failed to fetch')],
-    ['a 403 with another code', problem(403, 'forbidden')],
+    ['a 403 with another code', problem(403, 'internal_error')],
     ['a 404 with no problem body', new ApiError(404, null, null)],
     ['a 404 with another code', problem(404, 'internal_error')],
   ])('%s gives the generic toast, keeps the list and clears the question', async (_name, error) => {

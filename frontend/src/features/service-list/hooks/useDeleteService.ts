@@ -19,6 +19,9 @@ function toOutcome(error: unknown): Outcome {
   return 'failed'
 }
 
+/** What `useDeleteService` returns, for the components that show the flow. */
+export type DeleteServiceFlow = ReturnType<typeof useDeleteService>
+
 /**
  * The delete flow of one service, from the click to the outcome (FR-8, FR-72): the service the
  * dialog asks about, the request, the change to the cached list and the toasts.

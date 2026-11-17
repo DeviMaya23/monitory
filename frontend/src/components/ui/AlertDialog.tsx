@@ -10,8 +10,8 @@ type Props = {
   busy?: boolean
   /** The element to focus on open; otherwise the first focusable one. */
   initialFocus?: RefObject<HTMLElement | null>
-  /** Where focus goes on close. Return nothing to let it go back to what opened the dialog. */
-  finalFocus?: () => HTMLElement | null | undefined
+  /** Where focus goes on close. Return null to let it go back to what opened the dialog. */
+  finalFocus?: () => HTMLElement | null
   children: ReactNode
   footer?: ReactNode
 }

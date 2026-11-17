@@ -1,8 +1,11 @@
+import { useRef } from 'react'
 import { ListPlus, LoaderCircle, Plus, RefreshCw, TriangleAlert } from 'lucide-react'
 import { Link } from 'react-router'
 import { REFRESH_INTERVAL_MS } from '../../../lib/config'
+import type { DeleteServiceFlow } from '../hooks/useDeleteService'
 import type { ServiceListView } from '../hooks/useServiceList'
 import { formatTime } from '../lib/formatTime'
+import { DeleteServiceDialog } from './DeleteServiceDialog'
 import { ServiceRow } from './ServiceRow'
 import '../service-list.css'
 
@@ -106,13 +109,16 @@ function AddServiceLink() {
 }
 
 /** The admin dashboard: heading, toolbar, and the content of the current state (FR-9, FR-62, FR-95). */
-export function ServiceList({ view }: { view: ServiceListView }) {
+export function ServiceList({ view, deletion }: { view: ServiceListView; deletion: DeleteServiceFlow }) {
   const now = new Date()
+  const heading = useRef<HTMLHeadingElement>(null)
+  // After a removal the opener is gone: focus goes to the heading. Otherwise back to the Delete button.
+  const finalFocus = () => (deletion.closedAs === 'removed' ? heading.current : null)
   return (
     <main className="page">
       <div className="page-head">
         <div className="page-head__titles">
-          <h1 className="page-title">Services</h1>
+          <h1 className="page-title" ref={heading} tabIndex={-1}>Services</h1>
           <p className="page-sub">{headingLine(view)}</p>
         </div>
       </div>
@@ -159,14 +165,22 @@ export function ServiceList({ view }: { view: ServiceListView }) {
             <span>Last change</span>
             <span>Alerts</span>
             <span>Public</span>
+            <span>Actions</span>
           </div>
           <ul aria-label="Services">
             {view.services.map((service) => (
-              <ServiceRow key={service.id} service={service} now={now} />
+              <ServiceRow key={service.id} service={service} now={now} onDelete={deletion.ask} />
             ))}
           </ul>
         </div>
       )}
+      <DeleteServiceDialog
+        service={deletion.asked}
+        deleting={deletion.deleting}
+        onCancel={deletion.cancel}
+        onConfirm={deletion.confirm}
+        finalFocus={finalFocus}
+      />
     </main>
   )
 }
