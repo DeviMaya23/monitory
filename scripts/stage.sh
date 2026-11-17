@@ -23,6 +23,8 @@
 #
 # Stages (see docs/tasks/prompts.md):
 #   builder                                       nothing else needed
+# FOCUS="handoff follows" starts a session for a drafting group that another session
+# planned: paste that session's handoff as the first message (docs/tasks/AUTHORING.md).
 #   verify-1  [BUILDER_BRANCH=...]                found: the branch with <TASK>.plan.md and no report
 #   fix       [VERIFIER_BRANCH=...] [ALREADY_FIXED=...]
 #                                                 found: the branch with <TASK>.report.md

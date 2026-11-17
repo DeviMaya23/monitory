@@ -6,7 +6,7 @@ What has not been turned into a task yet, and the loose ends from verifier repor
 
 **Only items with a trigger.** A non-blocking finding is tracked here only if it has a "matters when" trigger (or the user asks for it). Every other finding stays in its report. A tracked item whose trigger has not happened by the next milestone is dropped.
 
-**Cap.** When "Loose ends" passes about 15 lines, the next drafting session proposes one hardening task per layer that batches them.
+**Cap.** When "Loose ends" passes about 15 lines, the next planning session (`AUTHORING.md`, Phase 0) proposes one hardening task per layer that batches them.
 
 ## Not built yet
 

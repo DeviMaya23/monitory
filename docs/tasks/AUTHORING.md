@@ -6,12 +6,12 @@ A task file is the builder's whole brief and the verifier's whole checklist. Bui
 
 ## The role
 
-Role: **Drafter**. One drafting session runs at a time, and it drafts one task at a time. The user is present and answers questions.
+Role: **Drafter**. Every drafting session is interactive: the user is present and answers questions, so a drafting session is never a subagent. Planning (Phase 0) is done by one session, while no other drafting session is running. The planned tasks may then be divided between sessions by drafting group (Phase 0, steps 4 and 6). Each session drafts one task at a time.
 
 You may create or change these files only:
 
 - `docs/tasks/<slug>.md`, the task file you are drafting.
-- `docs/tasks/backlog.md`: remove the line of each item you draft, in the same change as its task file; add a line for any part you leave out; add the user-approved triage lines (Phase 0).
+- `docs/tasks/backlog.md`: remove the line of each item you draft, in the same change as its task file; add a line for any part you leave out; add the user-approved triage lines (Phase 0). A session that received a handoff touches only the lines of its own group's items.
 
 You may not change anything else: no code, tests, `docs/openapi.yaml`, `docs/requirements.md`, `STACK.md`, `CONVENTIONS.md`, other task files, scripts or the build file. If a task needs one of those changed first, do not draft around it. Tell the user what change is needed and why, and stop. The user makes it and merges it before the task runs. The task file then states it as a **Prerequisite**.
 
@@ -35,7 +35,7 @@ The prompt that started this session has a line `Git mode: local` or `Git mode: 
 
 - **Do not edit a `.md` file while a discussion is open.** Edit only after the user has made clear that the scope is settled, or after you asked and they confirmed.
 - **Scope fully before writing, and ask rather than guess.** If a decision changes what gets built, ask. If it does not (naming, wording, an ordinary default), settle it yourself and list it afterwards.
-- **Do not jump ahead.** Draft only the tasks in the plan the user approved, in that order. Do not fix things you noticed on the way; add a backlog line or tell the user.
+- **Do not jump ahead.** Draft only the tasks in the plan the user approved (after a handoff, only your group's), in that order. Do not fix things you noticed on the way; add a backlog line or tell the user.
 - **When the user asks you to explain first, explain first.**
 - Do not show diffs in the chat (the user reads them in their editor or in the pull request).
 
@@ -52,12 +52,43 @@ Nothing is edited in this phase until the user answers.
    - **New findings:** find the last triage (the newest commit on the default branch whose message starts `backlog: triage findings through`, followed by a commit hash). If none, ask where to start. Read the Non-blocking findings of reports added or changed since then. Skip findings already tracked or fixed in a fix round. Show each remaining one in a line with its task and ask **track** or **drop**. A tracked finding becomes a backlog line (`` - `<task>`: <finding>. Matters when: <trigger>. ``); a dropped one stays in its report. `bash scripts/triage.sh` lists them (Non-blocking sections of the reports since the last marker) and prints the marker message; it only reads, so you may run it in either git mode. <!-- UNTESTED in a real project; tested only on a scratch repository. -->
    - **Decision deadlines:** list "Decisions waiting on the user" whose deadline has passed and ask for each: decide, or drop.
 
-   Report every disagreement in the plan (step 4) with what each source says and a proposed fix. When the user has answered, write the tracked lines (and approved corrections) into the backlog and tell the user to commit them on their own, before any task files, with `bash scripts/triage.sh commit` (it makes the marker commit `backlog: triage findings through <short hash>`, empty if nothing was tracked; the user runs it, never the drafter, and pushes). In remote mode, see "Git mode": a separate pull request with that title.
+   Report every disagreement in the plan (step 5) with what each source says and a proposed fix. When the user has answered, write the tracked lines (and approved corrections) into the backlog and tell the user to commit them on their own, before any task files, with `bash scripts/triage.sh commit` (it makes the marker commit `backlog: triage findings through <short hash>`, empty if nothing was tracked; the user runs it, never the drafter, and pushes). In remote mode, see "Git mode": a separate pull request with that title.
 3. **Work out the order with parallel work in mind.** The user runs a backend and a frontend task together whenever files allow, so the plan is lanes, not one list. For every candidate find prerequisites (what must merge first), conflicts (shared files, see `ROLES.md` "Shared state"), blockers for the user (contract, requirements, `STACK.md`, a migration, secrets), and size (split a task a builder cannot finish in one session, or that mixes back end and front end).
-4. **Propose the plan in chat:** the next few tasks in order, lane for each, which can run together, what each waits for, what is blocked on the user, what you would leave alone. Short; the user approves or overrules.
-5. **Draft in the approved order,** one at a time: steps 1 to 6 for the first before the second, each with its own fresh checker. A task drafted later in the session treats earlier drafts as running tasks when working out conflicts.
+4. **Sort the tasks into drafting groups.** A lane says which tasks can be *built* at the same time. A drafting group says which tasks must be *drafted* by the same session. These are different questions: two tasks whose builders never touch the same file can still need one drafter. Put two tasks in the same group when the second cannot be written correctly without the text of the first draft or the conversation behind it:
+   - They are parts of one backlog item, feature, menu or screen split on the same side. Where the split falls is decided while drafting, and both parts must agree on it.
+   - One names the other as a prerequisite and relies on names, files or behavior that the other introduces and that are not on the default branch yet.
+   - They change the same file listed under `ROLES.md` "Shared state".
+   - They wait on the same question for the user, and this plan does not settle it.
+
+   The back-end and the front-end slice of one feature may go in different groups only when the contract already covers everything the feature needs, because the contract is all the two drafts share. If the feature needs a contract change that is not merged, settle it in this plan or keep both slices in one group. When in doubt, use one group. Often the whole plan is one group and nothing is handed off.
+5. **Propose the plan in chat:** the next few tasks in order, lane for each, which can run together, what each waits for, what is blocked on the user, what you would leave alone. Then the drafting groups, with one line for each pair of related tasks saying why they are together or apart. Short; the user approves or overrules.
+6. **Draft in the approved order,** one at a time: steps 1 to 6 of the procedure below for the first before the second, each with its own fresh checker. With more than one group, this session drafts one group (ask the user which) and prints a handoff for each of the others (below). When working out conflicts, a task drafted later treats as running tasks both the earlier drafts and the task files another group's session has written.
 
 The plan is not stored in a file; it would become a second home for backlog items.
+
+### Handing a group to another session
+
+<!-- UNTESTED: written after project 1's drafting became the bottleneck; not yet run. -->
+
+Print the handoffs only after the user has approved the plan and the triage lines and corrections are written to the backlog. The user starts a new drafting session for each (`bash scripts/stage.sh draft FOCUS="handoff follows"`) and pastes the block as its first message. A handoff holds everything the new session cannot find in the repository:
+
+- A first line `Drafting handoff, planned at <short hash of the default branch>`.
+- The group's tasks in order: for each, the backlog line it comes from, its lane, and what it waits for.
+- The decisions the user made during planning that affect these tasks. They are written nowhere else.
+- The other groups: the slugs their task files will have, their lanes, and the shared files they change.
+- What is blocked on the user.
+
+If you are the session that received a handoff:
+
+- **Phase 0 is done.** Read what step 1 lists, for context. Do not triage, reconcile or plan again, and draft nothing outside your group. If the checkout disagrees with the handoff (the default branch has moved past the hash, a backlog line it names is gone), tell the user and wait.
+- **Backlog:** change only the lines of your own items, and read the file again immediately before each edit, because another session may have changed it.
+- **Files you did not write.** In local mode the sessions share one working tree, so task files and backlog changes from another group will appear. They are not stray: do not edit, revert or report them. Read them as running tasks.
+- **A question that reaches another group** (a contract change, a shared file the plan missed, moving work between groups) is not yours to settle. Stop, and tell the user what to take to the other session.
+- **Report** on your own group only.
+
+In remote mode each group's session has its own branch and pull request. Two of them can conflict in `backlog.md` when they remove neighbouring lines; the user resolves that when merging.
+
+No new planning session starts while a handed-off group is still being drafted or its files are uncommitted: Phase 0 would reconcile against half-finished work.
 
 ## Procedure (per task)
 
@@ -155,7 +186,8 @@ The checker brief uses this list as its checklist. Add a line whenever a checker
 
 ## Before you finish
 
-- [ ] The task files and approved backlog changes are the only files changed (in remote mode, only those were committed, and nothing went to the default branch).
+- [ ] The task files and approved backlog changes are the only files changed (in remote mode, only those were committed, and nothing went to the default branch). Files written by another drafting group's session in the same working tree are not yours and do not count.
+- [ ] If the plan had more than one drafting group, a handoff was printed for each group this session did not draft.
 - [ ] Each drafted item is gone from the backlog; any left-out part is named there with its source task.
 - [ ] The closing summary lists the tasks in run order, lanes, what can run together, what each waits for, and what the user must do first.
 - [ ] Nothing was announced as ready before its checker finished; mechanical fixes are listed; design questions are answered or shown to the user.
