@@ -453,6 +453,8 @@
 }
 .menu__item { display: flex; align-items: center; gap: var(--space-2); height: 28px; padding: 0 var(--space-2); border-radius: var(--radius-sm); }
 .menu__item[data-highlighted] { background: var(--color-accent-soft); color: var(--color-accent); }
+/* The positioner of a select's popup: above a sticky footer, below a dialog. */
+.menu-layer { z-index: 10; }
 
 /* ---------- Dialog (Base UI Dialog / AlertDialog) ---------- */
 .dialog-layer {
