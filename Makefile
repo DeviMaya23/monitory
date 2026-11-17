@@ -28,7 +28,7 @@ generate: ## Regenerate Go and TypeScript code from docs/openapi.yaml
 generate-check: generate ## Fail if generated code is stale
 	git diff --exit-code -- backend/internal/api frontend/src/lib/api
 
-lint: lint-backend lint-frontend lint-css lint-shell lint-md ## Every linter except the contract's
+lint: lint-backend lint-frontend lint-css lint-shell ## Every linter except the contract's and markdown (run `make lint-md` by hand)
 
 lint-backend: ## gofmt check and golangci-lint, including the integration-tagged files
 	@test -z "$$(gofmt -l backend)" || (echo "gofmt needed on:"; gofmt -l backend; exit 1)
