@@ -222,3 +222,30 @@ describe('a 401 unauthenticated', () => {
     expect(cached(view.client)).toEqual([a, b, c])
   })
 })
+
+describe('verifier edge cases', () => {
+  it('two failures in a row give two toasts, and the row can be asked about again', async () => {
+    const view = setup()
+    await deleteWith(view, { reject: problem(500, 'internal_error') })
+    await deleteWith(view, { reject: new TypeError('Failed to fetch') })
+    expect(view.show).toHaveBeenCalledTimes(2)
+    expect(cached(view.client)).toEqual([a, b, c])
+    await deleteWith(view, { resolve: true })
+    expect(cached(view.client)).toEqual([a, c])
+    expect(view.result.current.closedAs).toBe('removed')
+  })
+
+  it('a cancel after a removal puts closedAs back to kept, so focus returns to the opener', async () => {
+    const view = setup()
+    await deleteWith(view, { resolve: true })
+    act(() => view.result.current.ask(a))
+    act(() => view.result.current.cancel())
+    expect(view.result.current.closedAs).toBe('kept')
+  })
+
+  it('a 204 for a service that a refresh already dropped leaves the others alone', async () => {
+    const view = setup(makeServiceList(a, c))
+    await deleteWith(view, { resolve: true }, b)
+    expect(cached(view.client)).toEqual([a, c])
+  })
+})

@@ -537,6 +537,18 @@ describe('Delete (FR-8, FR-72)', () => {
     await gone()
   })
 
+  it.each([0, 1, 2, 5])('verifier: a 100-character name without spaces and %i targets goes into the title as text', async (count) => {
+    const long = 'n'.repeat(100)
+    await loaded(makeServiceList(makeService({ name: long, target_count: count })))
+    openFor(long)
+    const dlg = await dialog()
+    expect(dlg).toHaveAccessibleName(`Delete “${long}”?`)
+    const word = count === 1 ? '1 notification target' : `${count} notification targets`
+    if (count === 0) expect(dlg).toHaveTextContent('It has no notification targets.')
+    else expect(dlg).toHaveTextContent(`Its alert list goes with it: ${word}.`)
+    expect(dlg.querySelector('strong')?.textContent ?? '').toBe(count === 0 ? '' : word)
+  })
+
   it('keeps the time of the last real response after a removal', async () => {
     const settle = pendingDelete()
     await loaded(makeServiceList(x, y))
