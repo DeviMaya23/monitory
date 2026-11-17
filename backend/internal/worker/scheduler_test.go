@@ -651,7 +651,7 @@ func TestScheduler_ContextWinsOverFiredTimer(t *testing.T) {
 func TestClose_CancelsRunningAndWaitingAndWaitsForBoth(t *testing.T) {
 	s := newSchedSetup(t)
 	release := make(chan struct{})
-	s.seq.behave = func(ctx context.Context, service domain.Service, c call) error {
+	s.seq.behave = func(ctx context.Context, service domain.Service, _ call) error {
 		if service.ID == "a" {
 			<-ctx.Done()
 			<-release
