@@ -89,6 +89,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - `create-service-api`: the handler suite takes about 30 s because `newRouter` parses the contract for every case, in the shared `helpers_test.go`. Matters when: later tasks add more handler cases to the same helper and CI time grows with each.
 - `targets-api`: `TargetList` has `maxItems: 5` in the contract while `MAX_TARGETS_PER_SERVICE` has no ceiling, so a larger limit can return more items than the contract allows (the same mismatch as `ServiceList`, under "Decisions waiting on the user"). Matters when: the admin sets `MAX_TARGETS_PER_SERVICE` above 5, or the frontend client validates responses against the schema.
+- `targets-api`: a webhook target's header names and values are checked for length only, so a name or value with CR or LF, or two headers with the same name, is saved. Matters when: the webhook sender (FR-90, FR-91) sends the saved headers; it decides whether to reject them on save or refuse to send.
 - `http-probe`: wall-clock assertions can flake under load (`TestTargetServer_DelayAndRedirect` expects an answer in under 100 ms; several probe tests rely on a 20 ms delay against a 200 ms timeout). Matters when: CI runs the suite on a loaded runner with `-race` and one fails with no code change.
 
 ## Decisions waiting on the user
