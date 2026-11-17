@@ -16,14 +16,13 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-8, FR-72 | `deleteService` (built in `list-and-delete-services-api`) | Dashboard delete dialog | The screen only: the confirmation dialog, the target count from `listServices`, the deleting state, and the failure toasts |
 | Milestone journeys | all of the above | Sign-in, dashboard, add | End-to-end suite set up in `e2e/`; the last task of the milestone |
 
 ### Milestone 2: alerting
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-14 to FR-19, FR-80, FR-81, FR-82, FR-87, FR-88, FR-89, FR-92, FR-100, FR-110 | `listTargets`, `createTarget`, `updateTarget`, `deleteTarget` | Alert list | Cap and duplicate rule under concurrent requests |
+| FR-14 to FR-19, FR-80, FR-81, FR-87, FR-88, FR-100 | `listTargets`, `createTarget`, `updateTarget`, `deleteTarget` (built in `targets-api`) | Alert list | The screen only: the list, the add and edit dialog with field errors, the inline remove confirm, the full-list and duplicate states, and the "sent unencrypted" notice for an `http://` URL (FR-100). Left out of `targets-api` |
 | FR-20, FR-65 | `createService`, `updateService` | Service form | Alerts switch and the two messages |
 | FR-21, FR-22, FR-23, FR-24, FR-25, FR-93, NFR-5 | none | none | The status change decides the alerts; delivery loop. Needs the default message wording (see decisions) |
 | FR-83, FR-84, FR-85, FR-86 | `listServices`, `listTargets` | Dashboard notice, alert list notice | Mailer, per-target retries, the "last delivery failed" notice and `alert_delivery_failed` |
@@ -89,6 +88,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `sign-in-screen`: the three focus effects and four refs sit in `SignInForm` rather than a hook, against the hook-per-concern rule in `CONVENTIONS.md` ("Component and hook granularity"). Matters when: a second screen needs the same focus-follows-outcome logic, or the convention is read as strict.
 
 - `create-service-api`: the handler suite takes about 30 s because `newRouter` parses the contract for every case, in the shared `helpers_test.go`. Matters when: later tasks add more handler cases to the same helper and CI time grows with each.
+- `targets-api`: `TargetList` has `maxItems: 5` in the contract while `MAX_TARGETS_PER_SERVICE` has no ceiling, so a larger limit can return more items than the contract allows (the same mismatch as `ServiceList`, under "Decisions waiting on the user"). Matters when: the admin sets `MAX_TARGETS_PER_SERVICE` above 5, or the frontend client validates responses against the schema.
 - `http-probe`: wall-clock assertions can flake under load (`TestTargetServer_DelayAndRedirect` expects an answer in under 100 ms; several probe tests rely on a 20 ms delay against a 200 ms timeout). Matters when: CI runs the suite on a loaded runner with `-race` and one fails with no code change.
 
 ## Decisions waiting on the user
