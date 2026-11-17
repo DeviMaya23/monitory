@@ -20,3 +20,8 @@ export function listServices(): Promise<ServiceList> {
 export function createService(input: ServiceInput): Promise<Service> {
   return apiRequest<Service>('POST', '/api/services', input)
 }
+
+/** `deleteService`: removes a service, its alert list and its state. Resolves when the server answers 204. */
+export function deleteService(id: string): Promise<void> {
+  return apiRequest<void>('DELETE', `/api/services/${encodeURIComponent(id)}`)
+}
