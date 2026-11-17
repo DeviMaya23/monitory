@@ -1,0 +1,88 @@
+name: Full end-to-end
+
+# The full journey suite in Chromium, Firefox and WebKit, one job per browser so they run in
+# parallel. It is too slow for every pull request (pr-ci.yml runs the Chromium smoke subset
+# there), so it runs on merge to main, every night, and on demand: for a milestone, open
+# Actions > Full end-to-end > Run workflow on the milestone's commit.
+#
+# WebKit runs here, not on a Mac: Playwright no longer updates its macOS 14 WebKit build.
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+# A new run does not cancel one in progress, so a run started for a milestone is not lost.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: End-to-end (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # One browser failing must not hide the result of the others.
+      fail-fast: false
+      matrix:
+        browser:
+          - chromium
+          - firefox
+          - webkit
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Install end-to-end dependencies and ${{ matrix.browser }}
+        run: npm ci && npx playwright install --with-deps ${{ matrix.browser }}
+        working-directory: e2e
+
+      # `make test-e2e` runs all three browsers in one job; these two steps are its
+      # prerequisites (Mailpit, the frontend built into the binary) with one browser.
+      - name: Build and start Mailpit
+        run: make mailpit-up build
+
+      - name: Journeys
+        run: npx playwright test --project=${{ matrix.browser }}
+        working-directory: e2e
+
+      - name: Upload report and traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-${{ matrix.browser }}
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7
+          if-no-files-found: ignore

@@ -14,7 +14,7 @@ Once, before the next front-end task is drafted.
 
 ## At each milestone
 
-- [ ] `make test-e2e` passes in Chromium, Firefox and WebKit.
+- [ ] The `Full end-to-end` workflow is green in Chromium, Firefox and WebKit on the milestone's commit (Actions, `Full end-to-end`, Run workflow, if the last run on `main` is not that commit).
 - [ ] Each screen the milestone added matches its board, in the light and the dark theme.
 - [ ] Times on the dashboards are in this computer's local time (FR-94).
 - [ ] Milestone 2: an email alert arrives in a real mailbox through the production SMTP provider, as plain text, with the time in UTC (FR-23, FR-93, NFR-7). Needs the SMTP provider.

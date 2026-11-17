@@ -18,7 +18,7 @@ From `docs/requirements.md` section 8.
 |---|---|---|---|---|
 | Per task | every task | the builder | builder, verifier, CI | unit, repository and integration tests matched to the task's risk |
 | Contract conformance | every task that adds or changes an operation | the builder | builder, verifier, CI | responses and frontend mocks validated against `docs/openapi.yaml` |
-| End-to-end | the last task of each milestone | that task's builder | agents and CI: the Chromium smoke subset. The user: the full suite in three browsers | the milestone's journeys through the real binary |
+| End-to-end | the last task of each milestone | that task's builder | agents and CI: the Chromium smoke subset on pull requests. CI: the full suite in three browsers on `main`, nightly and on demand (`e2e-full.yml`) | the milestone's journeys through the real binary |
 | Manual | at each milestone and before release | the user | the user | `docs/manual-checks.md` |
 
 Feature tasks write no end-to-end tests. Every bug found by hand leaves a trap behind: a test that fails without the fix, in the existing test file for that code.
@@ -32,7 +32,7 @@ Never weaken a test to make it pass: fix the cause, or stop and report.
 | `make check` | nothing extra | lint, unit and repository tests with the race detector, builds, contract lint. The definition of done |
 | `make test-integration` | Docker (Mailpit) | Go tests tagged `integration` |
 | `make test-e2e-smoke` | Docker (Mailpit), Playwright's Chromium | the smoke subset |
-| `make test-e2e` | Docker, three Playwright browsers | the full suite. The user runs this |
+| `make test-e2e` | Docker, three Playwright browsers | the full suite. CI runs it (`e2e-full.yml`); locally it is optional, and WebKit does not work on macOS 14 (Playwright's build there is frozen) |
 
 Agents report each as "run, passed", "run, failed", or "not run: <reason>"; never "written, not run" when a runnable path exists.
 
