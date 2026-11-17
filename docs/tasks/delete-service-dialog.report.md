@@ -6,7 +6,7 @@ Verdict: **no Blocking findings.** Two Non-blocking findings, both report-only o
 
 ## `make check`
 
-- `make check` as run on this branch: **fails** at `lint-md`. `docs/tasks/delete-service-dialog.md:80` has MD038 (spaces inside code spans). That is the task file, which the builder may not edit. Everything else in `make check` passes: gofmt and golangci-lint (0 issues), ESLint, Stylelint, shellcheck, `openapi-lint`, Go tests, 317 frontend tests (now 328 with the verifier's additions), the Go and Vite builds.
+- `make check` as run on this branch: **fails** at `lint-md`. `docs/tasks/delete-service-dialog.md:80` has MD038 (spaces inside code spans). That is the task file, which the builder may not edit. Everything else in `make check` passes: gofmt and golangci-lint (0 issues), ESLint, Stylelint, shellcheck, `openapi-lint`, Go tests, 317 frontend tests (324 with the verifier's additions), the Go and Vite builds.
 - `make check -o lint-md`: exit 0.
 - `origin/main` (`c915a04`, PR #11) has already taken markdown lint out of `make check`. This branch merges cleanly with it, so the criterion holds on the merged result. See Non-blocking N1.
 
