@@ -10,11 +10,36 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [method, setMethod] = useState('GET')
-  const guard = useLeaveGuard({ name, method, url, saving, saved, onLeave })
+  const [alertsEnabled, setAlertsEnabled] = useState(true)
+  const [unhealthyMessage, setUnhealthyMessage] = useState('')
+  const [recoveryMessage, setRecoveryMessage] = useState('')
+  const guard = useLeaveGuard({
+    name,
+    method,
+    url,
+    alertsEnabled,
+    unhealthyMessage,
+    recoveryMessage,
+    saving,
+    saved,
+    onLeave,
+  })
   return (
     <>
       <input aria-label="name" value={name} onChange={(event) => setName(event.target.value)} />
       <input aria-label="url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} />
+      <input
+        aria-label="unhealthy"
+        value={unhealthyMessage}
+        onChange={(event) => setUnhealthyMessage(event.target.value)}
+      />
+      <input
+        aria-label="recovery"
+        value={recoveryMessage}
+        onChange={(event) => setRecoveryMessage(event.target.value)}
+      />
+      <button onClick={() => setAlertsEnabled(false)}>alerts off</button>
+      <button onClick={() => setAlertsEnabled(true)}>alerts on</button>
       <button onClick={() => setMethod('HEAD')}>method HEAD</button>
       <button onClick={() => setMethod('GET')}>method GET</button>
       <button onClick={guard.cancel}>cancel</button>
@@ -81,6 +106,26 @@ describe('changed', () => {
     click('method HEAD')
     expect(changed()).toBe('true')
     click('method GET')
+    expect(changed()).toBe('false')
+  })
+})
+
+describe('changed by the alert settings (FR-20, FR-65)', () => {
+  it('is true with alerts off, and false again with alerts on', () => {
+    render(<Harness />)
+    click('alerts off')
+    expect(changed()).toBe('true')
+    click('alerts on')
+    expect(changed()).toBe('false')
+  })
+
+  it.each(['unhealthy', 'recovery'])('is true by a %s message of one space or of text, false once emptied', (label) => {
+    render(<Harness />)
+    type(label, ' ')
+    expect(changed()).toBe('true')
+    type(label, 'down')
+    expect(changed()).toBe('true')
+    type(label, '')
     expect(changed()).toBe('false')
   })
 })

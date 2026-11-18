@@ -1,5 +1,5 @@
 import { useEffect, useRef, type BaseSyntheticEvent } from 'react'
-import { ArrowLeft, CircleAlert, LoaderCircle } from 'lucide-react'
+import { ArrowLeft, LoaderCircle } from 'lucide-react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router'
 import { Select } from '../../../components/ui/Select'
@@ -8,9 +8,11 @@ import type { HttpMethod } from '../../../lib/api/services'
 import { useCreateService, type ServiceFormValues } from '../hooks/useCreateService'
 import { DEFAULT_METHOD, useLeaveGuard } from '../hooks/useLeaveGuard'
 import { useServerErrors } from '../hooks/useServerErrors'
-import { FIELD_IDS, focusField } from '../lib/fieldIds'
+import { errorId, FIELD_IDS, focusField } from '../lib/fieldIds'
+import { AlertsGroup } from './AlertsGroup'
 import { DiscardDialog } from './DiscardDialog'
 import { ErrorSummary } from './ErrorSummary'
+import { FieldErrorText } from './FieldErrorText'
 import { FormBanners } from './FormBanners'
 import '../service-form.css'
 
@@ -22,17 +24,7 @@ const SAVING = 'Saving…'
 const NAME_TAKEN = 'Another service already uses this name (names ignore case).'
 const URL_HINT_ID = 'service-url-hint'
 
-const errorId = (fieldId: string) => `${fieldId}-error`
 const filled = (value: string) => value.trim() !== ''
-
-function FieldErrorText({ id, message }: { id: string; message: string }) {
-  return (
-    <p className="error-text" id={id}>
-      <CircleAlert className="icon icon--sm" aria-hidden="true" />
-      <span>{message}</span>
-    </p>
-  )
-}
 
 /** The Add service screen: name, method and URL of an HTTP(S) check, saved through `createService` (FR-6). */
 export function AddServiceForm() {
@@ -45,7 +37,14 @@ export function AddServiceForm() {
     clearErrors,
     formState: { errors: clientErrors },
   } = useForm<ServiceFormValues>({
-    defaultValues: { name: '', method: DEFAULT_METHOD, url: '' },
+    defaultValues: {
+      name: '',
+      method: DEFAULT_METHOD,
+      url: '',
+      alerts_enabled: true,
+      unhealthy_message: '',
+      recovery_message: '',
+    },
     // A client error goes when its field is edited, not when it becomes valid.
     reValidateMode: 'onSubmit',
   })
@@ -54,8 +53,21 @@ export function AddServiceForm() {
     void navigate('/')
   })
   const serverErrors = useServerErrors(failure?.kind === 'field-errors' ? failure.errors : null)
-  const [name, method, url] = useWatch({ control, name: ['name', 'method', 'url'] })
-  const guard = useLeaveGuard({ name, method, url, saving, saved, onLeave: () => void navigate('/') })
+  const [name, method, url, alertsEnabled, unhealthyMessage, recoveryMessage] = useWatch({
+    control,
+    name: ['name', 'method', 'url', 'alerts_enabled', 'unhealthy_message', 'recovery_message'],
+  })
+  const guard = useLeaveGuard({
+    name,
+    method,
+    url,
+    alertsEnabled,
+    unhealthyMessage,
+    recoveryMessage,
+    saving,
+    saved,
+    onLeave: () => void navigate('/'),
+  })
   const summaryRef = useRef<HTMLDivElement>(null)
   const saveRef = useRef<HTMLButtonElement>(null)
 
@@ -194,6 +206,15 @@ export function AddServiceForm() {
                 </div>
               </div>
             </fieldset>
+
+            <AlertsGroup
+              control={control}
+              register={register}
+              saving={saving}
+              unhealthyError={serverErrors.errorFor('unhealthy_message')}
+              recoveryError={serverErrors.errorFor('recovery_message')}
+              clearField={serverErrors.clearField}
+            />
           </div>
         </div>
 

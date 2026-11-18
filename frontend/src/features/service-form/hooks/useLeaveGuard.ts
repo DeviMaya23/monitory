@@ -9,6 +9,9 @@ type Options = {
   name: string
   method: string
   url: string
+  alertsEnabled: boolean
+  unhealthyMessage: string
+  recoveryMessage: string
   /** A save is in flight. */
   saving: boolean
   /** The save succeeded; the page is about to go. */
@@ -21,9 +24,25 @@ type Options = {
  * Guards the form's own exits: whether the form is changed, the "Discard unsaved changes?"
  * dialog for Cancel and the back link, and the browser's prompt on closing or reloading the tab.
  */
-export function useLeaveGuard({ name, method, url, saving, saved, onLeave }: Options) {
+export function useLeaveGuard({
+  name,
+  method,
+  url,
+  alertsEnabled,
+  unhealthyMessage,
+  recoveryMessage,
+  saving,
+  saved,
+  onLeave,
+}: Options) {
   const [dialogOpen, setDialogOpen] = useState(false)
-  const changed = name !== '' || url !== '' || method !== DEFAULT_METHOD
+  const changed =
+    name !== '' ||
+    url !== '' ||
+    method !== DEFAULT_METHOD ||
+    !alertsEnabled ||
+    unhealthyMessage !== '' ||
+    recoveryMessage !== ''
   // While saving the form is left at once: the request is not cancelled.
   const asks = changed && !saving
   const armed = changed && !saving && !saved

@@ -11,7 +11,14 @@ vi.mock('../../../lib/api/services', async (importOriginal) => ({
   createService: vi.fn(),
 }))
 
-const VALUES: ServiceFormValues = { name: 'Search API', method: 'POST', url: 'https://search.example.com/health' }
+const VALUES: ServiceFormValues = {
+  name: 'Search API',
+  method: 'POST',
+  url: 'https://search.example.com/health',
+  alerts_enabled: true,
+  unhealthy_message: '',
+  recovery_message: '',
+}
 
 function setup() {
   const client = new QueryClient()
@@ -23,7 +30,10 @@ function setup() {
   return { ...view, client, onCreated }
 }
 
-type Settle = { resolve: (service: Service) => void; reject: (error: unknown) => void }
+type Settle = {
+  resolve: (service: Service) => void
+  reject: (error: unknown) => void
+}
 function pending(): Settle {
   const settle: Settle = { resolve: () => {}, reject: () => {} }
   vi.mocked(createService).mockReturnValueOnce(
@@ -40,7 +50,7 @@ beforeEach(() => {
 })
 
 describe('a 201', () => {
-  it('is a success with the returned service, and the request has only the name and the HTTP check (FR-6)', async () => {
+  it('is a success with the returned service, and the request has the name, the HTTP check and the alert settings (FR-6)', async () => {
     const service = makeService({ name: 'Search API' })
     vi.mocked(createService).mockResolvedValue(service)
     const { result, onCreated } = setup()
@@ -53,8 +63,32 @@ describe('a 201', () => {
     // toStrictEqual: no other property, so every default stays the server's.
     expect(vi.mocked(createService).mock.calls[0][0]).toStrictEqual({
       name: 'Search API',
-      check: { type: 'http', method: 'POST', url: 'https://search.example.com/health' },
+      check: {
+        type: 'http',
+        method: 'POST',
+        url: 'https://search.example.com/health',
+      },
+      alerts_enabled: true,
+      unhealthy_message: '',
+      recovery_message: '',
     })
+  })
+
+  it('sends alerts off and both messages exactly as given, untrimmed (FR-20, FR-65)', async () => {
+    vi.mocked(createService).mockResolvedValue(makeService())
+    const { result } = setup()
+    await act(() =>
+      result.current.submit({
+        ...VALUES,
+        alerts_enabled: false,
+        unhealthy_message: '  text ',
+        recovery_message: ' <b>x</b>',
+      }),
+    )
+    const body = vi.mocked(createService).mock.calls[0][0]
+    expect(body.alerts_enabled).toBe(false)
+    expect(body.unhealthy_message).toBe('  text ')
+    expect(body.recovery_message).toBe(' <b>x</b>')
   })
 
   it('drops the cached service list', async () => {
