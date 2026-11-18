@@ -517,6 +517,10 @@ func TestCheckHTTP_Headers(t *testing.T) {
 		got := send(t, domain.HTTPCheck{Method: "POST", BodyType: domain.BodyTypeText, BodyContent: "x", Headers: nv("Content-Type", "a/b", "content-type", "c/d")})
 		assert.Equal(t, []string{"a/b", "c/d"}, got.Header.Values("Content-Type"))
 	})
+	t.Run("authorization and Authorization together arrive as two values in order", func(t *testing.T) {
+		got := send(t, domain.HTTPCheck{Headers: nv("authorization", "one", "Authorization", "two")})
+		assert.Equal(t, []string{"one", "two"}, got.Header.Values("Authorization"))
+	})
 	t.Run("a long value and twenty headers arrive whole", func(t *testing.T) {
 		long := strings.Repeat("v", 4096)
 		var hs []domain.NameValue
@@ -688,6 +692,35 @@ func TestCheckHTTP_RedirectsCarrySavedRequest(t *testing.T) {
 		assert.Equal(t, `{"a":1}`, reqs[1].Body)
 		assert.Equal(t, []string{"application/json"}, reqs[1].Header.Values("Content-Type"))
 		requireSaved(t, reqs[1])
+	})
+	t.Run("308 after POST repeats a 64 KB body and the saved headers", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/start", testutil.Route{Status: 308, RedirectTo: "/end"})
+		ts.Script("/end", testutil.Route{})
+		body := strings.Repeat("y", 65536)
+		check := domain.HTTPCheck{
+			Method: "POST", URL: ts.URL() + "/start", Timeout: longTimeout,
+			BodyType: domain.BodyTypeText, BodyContent: body, Headers: saved,
+		}
+		requireHealthy(t, run(t, 3, check))
+		reqs := ts.Requests()
+		require.Len(t, reqs, 2)
+		assert.Equal(t, "POST", reqs[1].Method)
+		assert.Equal(t, body, reqs[1].Body)
+		requireSaved(t, reqs[1])
+	})
+	t.Run("a POST chain of four 307 hops with the limit 3 fails", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/end", testutil.Route{})
+		for i := range 4 {
+			next := "/end"
+			if i < 3 {
+				next = fmt.Sprintf("/r%d", i+1)
+			}
+			ts.Script(fmt.Sprintf("/r%d", i), testutil.Route{Status: 307, RedirectTo: next})
+		}
+		check := domain.HTTPCheck{Method: "POST", URL: ts.URL() + "/r0", Timeout: longTimeout, BodyType: domain.BodyTypeJSON, BodyContent: "{}", Headers: saved}
+		requireFailed(t, run(t, 3, check), domain.FailureTooManyRedirects)
 	})
 	t.Run("a saved User-Agent is on every hop", func(t *testing.T) {
 		ts := testutil.NewTargetServer(t)
