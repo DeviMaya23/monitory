@@ -16,7 +16,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-84, FR-85, FR-86 | `listServices`, `listTargets` | Dashboard notice, alert list notice | Mailer, per-target retries, the "last delivery failed" notice and `alert_delivery_failed` |
+| FR-84, FR-85, FR-86 | none | none | Per-target retries and the delivery outcome written to `targets.last_delivery_failed`. The mailer, `alert_delivery_failed` in `listServices` and the dashboard notice (`ServiceRow`) exist |
 | FR-90, FR-91, FR-115 | webhook `receiveAlert` | none | Webhook sender: custom headers, timeout, no redirects |
 | FR-107, FR-108 | `testTarget` | Target form | One attempt, no saved state touched |
 | Milestone journeys | all of the above | Alert list | Down to alert received in Mailpit and at the stub receiver; failed-delivery cases |
