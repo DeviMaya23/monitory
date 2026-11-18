@@ -9,8 +9,15 @@ import {
   type Service,
 } from '../../../lib/api/services'
 
-/** What the form sends: the three values on this screen. */
-export type ServiceFormValues = { name: string; method: HttpMethod; url: string }
+/** What the form sends: the values on this screen. The two messages are sent as typed. */
+export type ServiceFormValues = {
+  name: string
+  method: HttpMethod
+  url: string
+  alerts_enabled: boolean
+  unhealthy_message: string
+  recovery_message: string
+}
 
 /** How the last save failed. A new object for every failure, so a repeat of the same kind is still a change. */
 export type CreateFailure =
@@ -57,13 +64,26 @@ export function useCreateService(onCreated: (service: Service) => void) {
     }
   }, [])
 
-  const submit = async ({ name, method, url }: ServiceFormValues) => {
+  const submit = async ({
+    name,
+    method,
+    url,
+    alerts_enabled,
+    unhealthy_message,
+    recovery_message,
+  }: ServiceFormValues) => {
     if (inFlight.current) return
     inFlight.current = true
     setFailure(null)
     setSaving(true)
     try {
-      const service = await createService({ name, check: { type: 'http', method, url } })
+      const service = await createService({
+        name,
+        check: { type: 'http', method, url },
+        alerts_enabled,
+        unhealthy_message,
+        recovery_message,
+      })
       // The dashboard is not mounted here: without the entry it loads the fresh list.
       queryClient.removeQueries({ queryKey: servicesQueryKey })
       if (onScreen.current) {
