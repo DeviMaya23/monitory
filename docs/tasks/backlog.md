@@ -92,6 +92,9 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `portal-into-app`: the toast viewport is `position: fixed` inside `.app`, which has `container-type: inline-size` and so contains fixed descendants; it is positioned against `#root`'s box, not the viewport. Not checked in a browser. Matters when: a toast shows on a page taller than the window (the dashboard with many services) and sits at the bottom of the page instead of the window, or the milestone check of the toasts is run.
 - `scheduler`: `Stop` followed by `Start` for the same id can run two sequences at once, because `Stop` does not wait and the next `Start` finds no entry to wait for; there is no test for it. Also, `Start` itself ignores `Paused`; only `StartChecks` filters paused services. Matters when: the first task that calls `Stop` then `Start` for one service (edit, pause, resume, milestone 3) is drafted; it decides whether `Stop` waits and where the paused check lives.
 
+- `portal-into-app`: the dialog host has `z-index: 40`, above the toast viewport (30), so a toast fired while a dialog or alert dialog is open sits under the backdrop and cannot be read. Today's order before the task had the toast above. A host value below 30 (for example 25) keeps the old order. Matters when: a toast fires while a dialog is open (a failed removal in the alert list, a save result while a dialog is still closing).
+- `portal-into-app`: the `Select` tests "lists every option" and "picks with the arrow keys" fail about half the time in single-file runs, because they query `listbox` synchronously. Matters when: CI shows a red `Select.test.tsx` on an unrelated change.
+
 ## Decisions waiting on the user
 
 Each needs a decision, or to be dropped, by the next milestone.
