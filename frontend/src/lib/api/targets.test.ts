@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { problem } from '../../test/fixtures'
 import { apiRequest } from './request'
-import { createTarget, deleteTarget, listTargets, targetsQueryKey, updateTarget, type TargetInput } from './targets'
+import { createTarget, deleteTarget, listTargets, targetsQueryKey, testTarget, updateTarget, type TargetInput } from './targets'
 import { servicesQueryKey } from './services'
 
 vi.mock('./request', () => ({ apiRequest: vi.fn() }))
@@ -101,5 +101,27 @@ describe('updateTarget', () => {
     const error = problem(409, 'target_duplicate')
     vi.mocked(apiRequest).mockRejectedValue(error)
     await expect(updateTarget('s1', 't1', input)).rejects.toBe(error)
+  })
+})
+
+describe('testTarget', () => {
+  it('calls POST once with the body and returns the result', async () => {
+    const result = { delivered: true }
+    vi.mocked(apiRequest).mockResolvedValue(result)
+    await expect(testTarget('s1', input)).resolves.toBe(result)
+    expect(apiRequest).toHaveBeenCalledOnce()
+    expect(apiRequest).toHaveBeenCalledWith('POST', '/api/services/s1/target-tests', input)
+  })
+
+  it('encodes the service id', async () => {
+    vi.mocked(apiRequest).mockResolvedValue({ delivered: true })
+    await testTarget('a b/c', input)
+    expect(apiRequest).toHaveBeenCalledWith('POST', '/api/services/a%20b%2Fc/target-tests', input)
+  })
+
+  it('lets a rejection reach the caller unchanged (NFR-8)', async () => {
+    const error = problem(403, 'csrf_failed')
+    vi.mocked(apiRequest).mockRejectedValue(error)
+    await expect(testTarget('s1', input)).rejects.toBe(error)
   })
 })

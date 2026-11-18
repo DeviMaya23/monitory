@@ -6,6 +6,7 @@ export type EmailTarget = components['schemas']['EmailTarget']
 export type WebhookTarget = components['schemas']['WebhookTarget']
 export type TargetList = components['schemas']['TargetList']
 export type TargetInput = components['schemas']['TargetInput']
+export type TargetTestResult = components['schemas']['TargetTestResult']
 
 /**
  * The query key of one service's cached alert list. It does not start with `'services'`, so a refresh
@@ -40,4 +41,9 @@ export function updateTarget(serviceId: string, targetId: string, input: TargetI
     `/api/services/${encodeURIComponent(serviceId)}/targets/${encodeURIComponent(targetId)}`,
     input,
   )
+}
+
+/** `testTarget`: sends one test alert with the given settings and saves nothing. Delivered or failed, the answer is a 200. */
+export function testTarget(serviceId: string, input: TargetInput): Promise<TargetTestResult> {
+  return apiRequest<TargetTestResult>('POST', `/api/services/${encodeURIComponent(serviceId)}/target-tests`, input)
 }
