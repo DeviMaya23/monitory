@@ -6,6 +6,7 @@ import { SessionProvider } from './app-shell/SessionProvider'
 import AlertListPage from './pages/AlertListPage'
 import AddServicePage from './pages/AddServicePage'
 import DashboardPage from './pages/DashboardPage'
+import PublicDashboardPage from './pages/PublicDashboardPage'
 import SignInPage from './pages/SignInPage'
 
 /** The route table (ARCHITECTURE.md). Each page replaces its placeholder when its task builds it. */
@@ -29,7 +30,7 @@ export default function App() {
             <Route path="*" element={<NotBuilt page="requested" />} />
           </Route>
         </Route>
-        <Route path="/status" element={<NotBuilt page="public status" />} />
+        <Route path="/status" element={<PublicDashboardPage />} />
       </Routes>
     </ToastProvider>
   )
