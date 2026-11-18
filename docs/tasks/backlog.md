@@ -23,13 +23,12 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
 | FR-7, FR-39, FR-66 | `getService`, `updateService` | Edit a service | State kept, no check at save, schedule restarted |
-| FR-37, FR-38 | `createService`, `updateService` | Service form rows | Query parameters, headers, body; every limit from the configuration; the 1 MB request limit |
-| FR-44 to FR-48, FR-69, FR-73 | `createService`, `updateService` | JSON rules | Rule evaluation, any-or-all, body read limit. Left out of `http-probe`: the JSON-rule half of FR-42, and reading the body inside the timeout (FR-41) |
-| FR-34, FR-50, FR-64 | `createService`, `updateService` | Certificate options | Expiry check, ignore certificate errors. Left out of `http-probe`, which fails a check on an invalid certificate with no way to turn that off |
-| FR-58 | none | none | Left out of `http-probe`, which has the redirect limit: the saved headers re-sent with each redirect |
+| FR-37, FR-38 | `createService`, `updateService` | Service form rows | Query parameters, headers, body; every limit from the configuration; the 1 MB request limit. The check sending the saved values is `http-request-send` |
+| FR-44 to FR-48, FR-69, FR-73 | `createService`, `updateService` | JSON rules | The rows in the service form. Rule evaluation, any-or-all and the body read limit are `http-json-rules` |
+| FR-34, FR-50, FR-64 | `createService`, `updateService` | Certificate options | The switches and the days field in the service form. The probe's expiry check and "ignore certificate errors" are `http-certificate-options` |
 | FR-33, FR-49, FR-52 | `createService`, `updateService` | Type switch, TCP fields | TCP probe |
 | FR-74 | `createService`, `updateService` | Field errors | The remaining validation cases |
-| FR-61 | `listServices`, `getService` | Failure reason wording | All seven reasons and the JSON-rule precedence. Left out of `http-probe`, which produces five: `json_rule_matched` and `invalid_or_missing_json` |
+| FR-61 | `listServices`, `getService` | Failure reason wording | All seven reasons and the JSON-rule precedence, as the screens word them. The probe produces `json_rule_matched` and `invalid_or_missing_json` after `http-json-rules` |
 | FR-75 to FR-79 | `pauseService`, `resumeService` | Dashboard row actions | Cancels a running check |
 | FR-104, FR-105, FR-106, NFR-7 | `testServiceCheck` | Test result area | Takes no repository that can write |
 | Milestone journeys | all of the above | Service form | Each failure reason produced on purpose; limits and validation |
