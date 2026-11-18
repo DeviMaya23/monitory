@@ -88,4 +88,14 @@ describe('Select', () => {
     expect(trigger()).toHaveAttribute('aria-invalid', 'true')
     expect(trigger()).toHaveAttribute('aria-describedby', 'letter-error')
   })
+
+  it('renders its list inside the app-scoped portal host, outside the page content', async () => {
+    const { container } = render(<Harness />)
+    await userEvent.click(trigger())
+
+    const host = (await screen.findByRole('listbox')).closest('.app.portal-host')
+    expect(host).not.toBeNull()
+    expect(host?.parentElement).toBe(document.body)
+    expect(container.contains(host)).toBe(false)
+  })
 })

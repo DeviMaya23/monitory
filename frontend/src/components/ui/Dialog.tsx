@@ -1,5 +1,6 @@
 import type { ReactNode, RefObject } from 'react'
 import { Dialog as BaseDialog } from '@base-ui/react/dialog'
+import { getPortalHost } from './portalHost'
 
 type Props = {
   open: boolean
@@ -28,7 +29,7 @@ export function Dialog({ open, title, onClose, busy = false, initialFocus, wide 
         if (!next && !busy) onClose()
       }}
     >
-      <BaseDialog.Portal>
+      <BaseDialog.Portal container={getPortalHost()}>
         <BaseDialog.Backdrop className="dialog-backdrop" />
         <BaseDialog.Viewport className="dialog-layer">
           <BaseDialog.Popup className={wide ? 'dialog dialog--wide' : 'dialog'} initialFocus={initialFocus}>

@@ -81,4 +81,44 @@ describe('Dialog', () => {
     expect(onClose).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
+
+  it('renders inside the app-scoped portal host, outside the page content', async () => {
+    const { container } = render(<Harness />)
+    await open()
+
+    const host = screen.getByRole('dialog').closest('.app.portal-host')
+    expect(host).not.toBeNull()
+    expect(host?.parentElement).toBe(document.body)
+    expect(container.contains(host)).toBe(false)
+  })
+
+  it('keeps the same host, with the dialog in it, when the parent rerenders and when it opens again', async () => {
+    const { rerender } = render(
+      <Dialog open title="Delete service" onClose={vi.fn()}>
+        <p>body</p>
+      </Dialog>,
+    )
+    const host = (await screen.findByRole('dialog')).closest('[data-portal-host]')
+    rerender(
+      <Dialog open title="Delete service" onClose={vi.fn()}>
+        <p>changed</p>
+      </Dialog>,
+    )
+    expect(await screen.findByText('changed')).toBeInTheDocument()
+    expect(screen.getByRole('dialog').closest('[data-portal-host]')).toBe(host)
+
+    rerender(
+      <Dialog open={false} title="Delete service" onClose={vi.fn()}>
+        <p>changed</p>
+      </Dialog>,
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    rerender(
+      <Dialog open title="Delete service" onClose={vi.fn()}>
+        <p>again</p>
+      </Dialog>,
+    )
+    expect((await screen.findByRole('dialog')).closest('[data-portal-host]')).toBe(host)
+    expect(document.querySelectorAll('[data-portal-host]')).toHaveLength(1)
+  })
 })
