@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -22,7 +23,7 @@ const longTimeout = 2 * time.Second
 
 func run(t *testing.T, maxRedirects int, check domain.HTTPCheck) domain.CheckResult {
 	t.Helper()
-	res, err := NewHTTPProber(maxRedirects).CheckHTTP(context.Background(), check)
+	res, err := NewHTTPProber(maxRedirects, 65536).CheckHTTP(context.Background(), check)
 	require.NoError(t, err)
 	return res
 }
@@ -300,7 +301,7 @@ func TestCheckHTTP_CertificateProblem(t *testing.T) {
 func TestCheckHTTP_TrustedRoots(t *testing.T) {
 	secure := testutil.NewTargetServer(t, testutil.TargetTLS())
 	secure.Script("/", testutil.Route{})
-	p := NewHTTPProber(3)
+	p := NewHTTPProber(3, 65536)
 	p.roots = secure.Pool()
 
 	// The certificate names 127.0.0.1, so the address it is reached by is accepted.
@@ -325,7 +326,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 	check := get(ts.URL()+"/slow", 500*time.Millisecond)
 
 	t.Run("baseline returns a result", func(t *testing.T) {
-		res, err := NewHTTPProber(3).CheckHTTP(context.Background(), check)
+		res, err := NewHTTPProber(3, 65536).CheckHTTP(context.Background(), check)
 		require.NoError(t, err)
 		requireHealthy(t, res)
 	})
@@ -340,7 +341,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 		}
 		done := make(chan outcome, 1)
 		go func() {
-			res, err := NewHTTPProber(3).CheckHTTP(ctx, get(ts.URL()+"/slow-cancel", 500*time.Millisecond))
+			res, err := NewHTTPProber(3, 65536).CheckHTTP(ctx, get(ts.URL()+"/slow-cancel", 500*time.Millisecond))
 			done <- outcome{res, err}
 		}()
 		<-ts.Arrived("/slow-cancel")
@@ -354,7 +355,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 	t.Run("caller deadline shorter than the timeout", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 		defer cancel()
-		res, err := NewHTTPProber(3).CheckHTTP(ctx, check)
+		res, err := NewHTTPProber(3, 65536).CheckHTTP(ctx, check)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.Equal(t, domain.CheckResult{}, res)
 	})
@@ -362,7 +363,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 	t.Run("already cancelled context", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := NewHTTPProber(3).CheckHTTP(ctx, check)
+		_, err := NewHTTPProber(3, 65536).CheckHTTP(ctx, check)
 		require.ErrorIs(t, err, context.Canceled)
 	})
 }
@@ -371,7 +372,7 @@ func TestCheckHTTP_Concurrent(t *testing.T) {
 	ts := testutil.NewTargetServer(t)
 	ts.Script("/slow", testutil.Route{Delay: 100 * time.Millisecond})
 	ts.Script("/fast500", testutil.Route{Status: 500})
-	p := NewHTTPProber(3)
+	p := NewHTTPProber(3, 65536)
 
 	var wg sync.WaitGroup
 	results := make([]domain.CheckResult, 20)
@@ -402,7 +403,7 @@ func TestCheckHTTP_Concurrent(t *testing.T) {
 func TestCheckHTTP_NewConnectionPerAttempt(t *testing.T) {
 	ts := testutil.NewTargetServer(t)
 	ts.Script("/", testutil.Route{})
-	p := NewHTTPProber(3)
+	p := NewHTTPProber(3, 65536)
 	for range 2 {
 		res, err := p.CheckHTTP(context.Background(), get(ts.URL()+"/", longTimeout))
 		require.NoError(t, err)
@@ -740,7 +741,7 @@ func TestCheckHTTP_RedirectsCarrySavedRequest(t *testing.T) {
 }
 
 func TestCheckHTTP_ConcurrentHeaders(t *testing.T) {
-	p := NewHTTPProber(3)
+	p := NewHTTPProber(3, 65536)
 	var wg sync.WaitGroup
 	servers := make([]*testutil.TargetServer, 2)
 	for i := range servers {
@@ -774,4 +775,225 @@ func TestCheckHTTP_ConcurrentHeaders(t *testing.T) {
 			assert.Equal(t, []string{fmt.Sprint("tok", s)}, r.Header.Values("Authorization"))
 		}
 	}
+}
+
+// --- JSON rules ---
+
+func withRules(check domain.HTTPCheck, mode domain.JSONRuleMode, rules ...domain.JSONRule) domain.HTTPCheck {
+	check.JSONRules = rules
+	check.JSONRuleMode = mode
+	return check
+}
+
+func runLimit(t *testing.T, limit int, check domain.HTTPCheck) domain.CheckResult {
+	t.Helper()
+	res, err := NewHTTPProber(3, limit).CheckHTTP(context.Background(), check)
+	require.NoError(t, err)
+	return res
+}
+
+func requireRuleMatched(t *testing.T, res domain.CheckResult, field string) {
+	t.Helper()
+	assert.False(t, res.Healthy)
+	require.NotNil(t, res.Failure)
+	assert.Equal(t, domain.FailureJSONRuleMatched, res.Failure.Code)
+	require.NotNil(t, res.Failure.JSONRuleField)
+	assert.Equal(t, field, *res.Failure.JSONRuleField)
+	assert.Nil(t, res.Failure.HTTPStatus)
+}
+
+func TestCheckHTTP_JSONRules(t *testing.T) {
+	statusDown := domain.JSONRule{Field: "status", FailingValue: "down"}
+	serve := func(status int, body string) string {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/", testutil.Route{Status: status, Body: body})
+		return ts.URL() + "/"
+	}
+	check := func(url string) domain.HTTPCheck {
+		return withRules(get(url, longTimeout), "", statusDown)
+	}
+
+	t.Run("200 with a non-matching body is healthy", func(t *testing.T) {
+		requireHealthy(t, run(t, 3, check(serve(200, `{"status":"ok"}`))))
+	})
+	t.Run("200 with a matching body", func(t *testing.T) {
+		requireRuleMatched(t, run(t, 3, check(serve(200, `{"status":"down"}`))), "status")
+	})
+	t.Run("nested field", func(t *testing.T) {
+		c := withRules(get(serve(200, `{"checks":{"db":{"status":"down"}}}`), longTimeout), "",
+			domain.JSONRule{Field: "checks.db.status", FailingValue: "down"})
+		requireRuleMatched(t, run(t, 3, c), "checks.db.status")
+	})
+	t.Run("500 with a matching body: the rule beats the status", func(t *testing.T) {
+		requireRuleMatched(t, run(t, 3, check(serve(500, `{"status":"down"}`))), "status")
+	})
+	t.Run("500 with a non-matching body", func(t *testing.T) {
+		requireStatus(t, run(t, 3, check(serve(500, `{"status":"ok"}`))), 500)
+	})
+	t.Run("500 with no JSON body", func(t *testing.T) {
+		requireStatus(t, run(t, 3, check(serve(500, `<html>oops</html>`))), 500)
+	})
+	t.Run("200 with no JSON body", func(t *testing.T) {
+		requireFailed(t, run(t, 3, check(serve(200, `<html>ok</html>`))), domain.FailureInvalidOrMissingJSON)
+	})
+	t.Run("200 with an empty body", func(t *testing.T) {
+		requireFailed(t, run(t, 3, check(serve(200, ``))), domain.FailureInvalidOrMissingJSON)
+	})
+	t.Run("204 with rules", func(t *testing.T) {
+		requireFailed(t, run(t, 3, check(serve(204, ``))), domain.FailureInvalidOrMissingJSON)
+	})
+	t.Run("200 lacking the field", func(t *testing.T) {
+		requireFailed(t, run(t, 3, check(serve(200, `{"other":"down"}`))), domain.FailureInvalidOrMissingJSON)
+	})
+	t.Run("HEAD with rules and 2xx", func(t *testing.T) {
+		c := check(serve(200, `{"status":"down"}`))
+		c.Method = http.MethodHead
+		requireFailed(t, run(t, 3, c), domain.FailureInvalidOrMissingJSON)
+	})
+	t.Run("rules judge the final response after a redirect", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/start", testutil.Route{Status: 302, RedirectTo: "/end", Body: `{"status":"ok"}`})
+		ts.Script("/end", testutil.Route{Body: `{"status":"down"}`})
+		requireRuleMatched(t, run(t, 3, check(ts.URL()+"/start")), "status")
+
+		ts.Script("/start2", testutil.Route{Status: 302, RedirectTo: "/fine", Body: `{"status":"down"}`})
+		ts.Script("/fine", testutil.Route{Body: `{"status":"ok"}`})
+		requireHealthy(t, run(t, 3, check(ts.URL()+"/start2")))
+	})
+}
+
+func TestCheckHTTP_JSONRuleModes(t *testing.T) {
+	ts := testutil.NewTargetServer(t)
+	ts.Script("/", testutil.Route{Body: `{"a":"1","b":"0"}`})
+	ts.Script("/both", testutil.Route{Body: `{"a":"1","b":"2"}`})
+	ra := domain.JSONRule{Field: "a", FailingValue: "1"}
+	rb := domain.JSONRule{Field: "b", FailingValue: "2"}
+
+	requireRuleMatched(t, run(t, 3, withRules(get(ts.URL()+"/", longTimeout), domain.JSONRuleModeAny, ra, rb)), "a")
+	requireHealthy(t, run(t, 3, withRules(get(ts.URL()+"/", longTimeout), domain.JSONRuleModeAll, ra, rb)))
+	requireRuleMatched(t, run(t, 3, withRules(get(ts.URL()+"/both", longTimeout), domain.JSONRuleModeAll, ra, rb)), "a")
+}
+
+func TestCheckHTTP_JSONBodyLimit(t *testing.T) {
+	rules := []domain.JSONRule{{Field: "status", FailingValue: "down"}}
+	// jsonOfSize is a valid object of exactly n bytes that does not match the rule.
+	jsonOfSize := func(n int) string {
+		const frame = `{"status":"ok","pad":""}`
+		return `{"status":"ok","pad":"` + strings.Repeat("a", n-len(frame)) + `"}`
+	}
+
+	for _, limit := range []int{64, 1024} {
+		t.Run(fmt.Sprintf("limit %d", limit), func(t *testing.T) {
+			ts := testutil.NewTargetServer(t)
+			ts.Script("/exact", testutil.Route{Body: jsonOfSize(limit)})
+			ts.Script("/over", testutil.Route{Body: jsonOfSize(limit + 1)})
+			// A valid JSON value in its first limit bytes, then more.
+			ts.Script("/prefix", testutil.Route{Body: jsonOfSize(limit) + " "})
+			c := func(path string) domain.HTTPCheck {
+				return withRules(get(ts.URL()+path, longTimeout), "", rules...)
+			}
+			requireHealthy(t, runLimit(t, limit, c("/exact")))
+			requireFailed(t, runLimit(t, limit, c("/over")), domain.FailureInvalidOrMissingJSON)
+			requireFailed(t, runLimit(t, limit, c("/prefix")), domain.FailureInvalidOrMissingJSON)
+		})
+	}
+
+	t.Run("an endless body is not read past the limit", func(t *testing.T) {
+		url := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+			chunk := []byte(strings.Repeat("a", 512))
+			for r.Context().Err() == nil {
+				if _, err := w.Write(chunk); err != nil {
+					return
+				}
+				w.(http.Flusher).Flush()
+			}
+		})
+		requireFailed(t, runLimit(t, 64, withRules(get(url, longTimeout), "", rules...)), domain.FailureInvalidOrMissingJSON)
+	})
+	t.Run("large body: rules fail it, no rules do not", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/", testutil.Route{Body: jsonOfSize(1 << 20)})
+		c := get(ts.URL()+"/", longTimeout)
+		c.JSONRules = []domain.JSONRule{}
+		requireHealthy(t, run(t, 3, c))
+		requireFailed(t, run(t, 3, withRules(c, "", rules...)), domain.FailureInvalidOrMissingJSON)
+	})
+}
+
+// rawServer starts a server whose handler runs fn, and returns its URL.
+func rawServer(t *testing.T, fn http.HandlerFunc) string {
+	t.Helper()
+	srv := httptest.NewServer(fn)
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestCheckHTTP_JSONBodyReadInsideTimeout(t *testing.T) {
+	rules := []domain.JSONRule{{Field: "status", FailingValue: "down"}}
+	const timeout = 150 * time.Millisecond
+
+	// slow sends headers and the start of a body at once, the rest after the timeout.
+	slow := func(status int) string {
+		return rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"status":`))
+			w.(http.Flusher).Flush()
+			select {
+			case <-time.After(3 * timeout):
+				_, _ = w.Write([]byte(`"down"}`))
+			case <-r.Context().Done():
+			}
+		})
+	}
+	// cutOff declares a length (or chunks) and closes the connection mid-body.
+	cutOff := func(status int, chunked bool) string {
+		return rawServer(t, func(w http.ResponseWriter, _ *http.Request) {
+			if !chunked {
+				w.Header().Set("Content-Length", "100")
+			}
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"status":`))
+			w.(http.Flusher).Flush()
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+		})
+	}
+
+	t.Run("slow 2xx body times out with rules, healthy without", func(t *testing.T) {
+		url := slow(200)
+		requireFailed(t, run(t, 3, withRules(get(url, timeout), "", rules...)), domain.FailureTimedOut)
+		requireHealthy(t, run(t, 3, get(url, timeout)))
+	})
+	t.Run("slow 500 body times out", func(t *testing.T) {
+		requireFailed(t, run(t, 3, withRules(get(slow(500), timeout), "", rules...)), domain.FailureTimedOut)
+	})
+	t.Run("cut-off body with a declared length", func(t *testing.T) {
+		requireFailed(t, run(t, 3, withRules(get(cutOff(200, false), longTimeout), "", rules...)), domain.FailureCouldNotConnect)
+		requireStatus(t, run(t, 3, withRules(get(cutOff(500, false), longTimeout), "", rules...)), 500)
+	})
+	t.Run("cut-off chunked body", func(t *testing.T) {
+		requireFailed(t, run(t, 3, withRules(get(cutOff(200, true), longTimeout), "", rules...)), domain.FailureCouldNotConnect)
+		requireStatus(t, run(t, 3, withRules(get(cutOff(500, true), longTimeout), "", rules...)), 500)
+	})
+	t.Run("caller cancelled during the read", func(t *testing.T) {
+		started := make(chan struct{})
+		url := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte(`{"status":`))
+			w.(http.Flusher).Flush()
+			close(started)
+			<-r.Context().Done()
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			<-started
+			cancel()
+		}()
+		res, err := NewHTTPProber(3, 65536).CheckHTTP(ctx, withRules(get(url, longTimeout), "", rules...))
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Equal(t, domain.CheckResult{}, res)
+	})
 }

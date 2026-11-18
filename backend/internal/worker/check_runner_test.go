@@ -573,3 +573,62 @@ func TestRun_NoSavedRequestStaysEmpty(t *testing.T) {
 	assert.Empty(t, c.BodyType)
 	assert.Empty(t, c.BodyContent)
 }
+
+func TestRun_PassesJSONRules(t *testing.T) {
+	svc := httpService(2, 5)
+	svc.JSONRules = []domain.JSONRule{{Field: "a.b", FailingValue: "down"}, {Field: "ok", FailingValue: false}}
+	svc.JSONRuleMode = domain.JSONRuleModeAll
+	r := newRig(failed(domain.FailureCouldNotConnect), failed(domain.FailureCouldNotConnect), healthy())
+	done := r.run(t.Context(), svc)
+	for range 2 {
+		r.prober.waitForCall(t)
+		r.clock.waitForTimer(t)
+		r.clock.Advance(5 * time.Second)
+	}
+	r.prober.waitForCall(t)
+	require.NoError(t, r.finish(t, done))
+
+	require.Len(t, r.prober.checks, 3)
+	for _, c := range r.prober.checks {
+		assert.Equal(t, svc.JSONRules, c.JSONRules)
+		assert.Equal(t, domain.JSONRuleModeAll, c.JSONRuleMode)
+	}
+}
+
+func TestRun_NoJSONRulesStayEmpty(t *testing.T) {
+	r := newRig(healthy())
+	require.NoError(t, r.finish(t, r.run(t.Context(), httpService(0, 0))))
+	require.Len(t, r.prober.checks, 1)
+	assert.Nil(t, r.prober.checks[0].JSONRules)
+	assert.Empty(t, r.prober.checks[0].JSONRuleMode)
+}
+
+func TestRun_RecordsJSONRuleField(t *testing.T) {
+	matched := step{result: domain.CheckResult{Failure: &domain.CheckFailure{
+		Code: domain.FailureJSONRuleMatched, JSONRuleField: ptr("checks.db.status"),
+	}}}
+	t.Run("recorded as given after the last attempt", func(t *testing.T) {
+		r := newRig(matched, matched)
+		done := r.run(t.Context(), httpService(1, 4))
+		r.clock.waitForTimer(t)
+		r.clock.Advance(4 * time.Second)
+		require.NoError(t, r.finish(t, done))
+
+		require.Len(t, r.recorder.list(), 1)
+		f := r.recorder.list()[0].result.Failure
+		require.NotNil(t, f)
+		assert.Equal(t, domain.FailureJSONRuleMatched, f.Code)
+		require.NotNil(t, f.JSONRuleField)
+		assert.Equal(t, "checks.db.status", *f.JSONRuleField)
+	})
+	t.Run("a failing first attempt then a healthy one is healthy", func(t *testing.T) {
+		r := newRig(matched, healthy())
+		done := r.run(t.Context(), httpService(1, 4))
+		r.clock.waitForTimer(t)
+		r.clock.Advance(4 * time.Second)
+		require.NoError(t, r.finish(t, done))
+
+		require.Len(t, r.recorder.list(), 1)
+		assert.True(t, r.recorder.list()[0].result.Healthy)
+	})
+}

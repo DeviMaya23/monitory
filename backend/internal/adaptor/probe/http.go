@@ -82,6 +82,9 @@ var errTooManyRedirects = errors.New("too many redirects")
 // HTTPProber makes one HTTP(S) check attempt at a time. It is safe for concurrent use.
 type HTTPProber struct {
 	maxRedirects int
+	// maxBodyBytes caps how much of a response body is read when a check has JSON
+	// rules (FR-73).
+	maxBodyBytes int
 	// roots are the trusted roots; nil means the system's roots. Tests set it.
 	roots *x509.CertPool
 
@@ -89,9 +92,10 @@ type HTTPProber struct {
 	client *http.Client
 }
 
-// NewHTTPProber returns a prober that follows up to maxRedirects redirects.
-func NewHTTPProber(maxRedirects int) *HTTPProber {
-	return &HTTPProber{maxRedirects: maxRedirects}
+// NewHTTPProber returns a prober that follows up to maxRedirects redirects and reads
+// at most maxBodyBytes of a body for a check with JSON rules.
+func NewHTTPProber(maxRedirects, maxBodyBytes int) *HTTPProber {
+	return &HTTPProber{maxRedirects: maxRedirects, maxBodyBytes: maxBodyBytes}
 }
 
 // CheckHTTP makes one request and judges the final response. The only error it returns
@@ -128,16 +132,56 @@ func (p *HTTPProber) CheckHTTP(ctx context.Context, check domain.HTTPCheck) (dom
 	if err != nil {
 		return p.classify(ctx, probeCtx, err)
 	}
-	// A close error does not change a status already in hand.
-	_ = resp.Body.Close()
-	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
-		return domain.CheckResult{Healthy: true}, nil
-	}
+	defer func() {
+		// A close error does not change a result already in hand.
+		_ = resp.Body.Close()
+	}()
 	status := resp.StatusCode
-	return domain.CheckResult{Failure: &domain.CheckFailure{
+	ok2xx := status >= 200 && status <= 299
+	statusFailure := domain.CheckResult{Failure: &domain.CheckFailure{
 		Code:       domain.FailureNon2xxStatus,
 		HTTPStatus: &status,
-	}}, nil
+	}}
+
+	if len(check.JSONRules) == 0 {
+		if ok2xx {
+			return domain.CheckResult{Healthy: true}, nil
+		}
+		return statusFailure, nil
+	}
+
+	// The body is read under the same deadline as the request, at most one byte past
+	// the limit: seeing that byte is enough to know the body is too large.
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, int64(p.maxBodyBytes)+1))
+	if readErr != nil {
+		if err := ctx.Err(); err != nil {
+			return domain.CheckResult{}, err
+		}
+		switch {
+		case errors.Is(probeCtx.Err(), context.DeadlineExceeded):
+			return failure(domain.FailureTimedOut), nil
+		case !ok2xx:
+			return statusFailure, nil
+		default:
+			return failure(domain.FailureCouldNotConnect), nil
+		}
+	}
+	tooLarge := len(data) > p.maxBodyBytes
+	verdict := evaluateJSONRules(data, tooLarge, check.JSONRules, check.JSONRuleMode)
+	switch {
+	case verdict.Failed:
+		field := verdict.Field
+		return domain.CheckResult{Failure: &domain.CheckFailure{
+			Code:          domain.FailureJSONRuleMatched,
+			JSONRuleField: &field,
+		}}, nil
+	case !ok2xx:
+		return statusFailure, nil
+	case verdict.Unjudgeable:
+		return failure(domain.FailureInvalidOrMissingJSON), nil
+	default:
+		return domain.CheckResult{Healthy: true}, nil
+	}
 }
 
 // httpClient returns the prober's client, built on first use: no proxy, no keep-alive,
