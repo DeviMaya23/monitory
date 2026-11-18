@@ -23,7 +23,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
 | FR-7, FR-39, FR-66 | `getService`, `updateService` | Edit a service | State kept, no check at save, schedule restarted |
-| FR-37, FR-38 | `createService`, `updateService` | Service form rows | Query parameters, headers, body; every limit from the configuration; the 1 MB request limit. The check sending the saved values is `http-request-send` |
+| FR-37, FR-38 | `createService`, `updateService` | Service form rows | Query parameters, headers, body; every limit from the configuration; the 1 MB request limit. The check sends the saved values (`http-request-send`) |
 | FR-44 to FR-48, FR-69, FR-73 | `createService`, `updateService` | JSON rules | The rows in the service form. Rule evaluation, any-or-all and the body read limit are `http-json-rules` |
 | FR-34, FR-50, FR-64 | `createService`, `updateService` | Certificate options | The switches and the days field in the service form. The probe's expiry check and "ignore certificate errors" are `http-certificate-options` |
 | FR-33, FR-49, FR-52 | `createService`, `updateService` | Type switch, TCP fields | TCP probe |
