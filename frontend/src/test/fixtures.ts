@@ -1,6 +1,7 @@
 import { ApiError, type ProblemBody } from '../lib/api/ApiError'
 import type { FieldError, Service, ServiceList } from '../lib/api/services'
 import type { SessionInfo } from '../lib/api/session'
+import type { EmailTarget, TargetList, WebhookTarget } from '../lib/api/targets'
 
 export const sessionInfo: SessionInfo = { csrf_token: 'csrf-1', expires_at: '2026-12-16T10:00:00Z' }
 
@@ -78,4 +79,20 @@ export function makePaused(overrides: Partial<Service> = {}): Service {
 
 export function makeServiceList(...services: Service[]): ServiceList {
   return services
+}
+
+/** An email target; pass overrides for any field. The id follows the address. */
+export function makeEmailTarget(overrides: Partial<EmailTarget> = {}): EmailTarget {
+  const address = overrides.address ?? 'ops@example.com'
+  return { id: `t-${address}`, type: 'email', name: 'Ops mailbox', address, last_delivery_failed: false, ...overrides }
+}
+
+/** A webhook target; pass overrides for any field. The id follows the URL. */
+export function makeWebhookTarget(overrides: Partial<WebhookTarget> = {}): WebhookTarget {
+  const url = overrides.url ?? 'https://hooks.example.com/alerts'
+  return { id: `t-${url}`, type: 'webhook', name: 'Chat hook', url, last_delivery_failed: false, ...overrides }
+}
+
+export function makeTargetList(...targets: TargetList): TargetList {
+  return targets
 }

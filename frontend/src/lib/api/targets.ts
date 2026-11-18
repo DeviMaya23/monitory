@@ -1,0 +1,28 @@
+import { apiRequest } from './request'
+import type { components } from './schema'
+
+export type Target = components['schemas']['Target']
+export type EmailTarget = components['schemas']['EmailTarget']
+export type WebhookTarget = components['schemas']['WebhookTarget']
+export type TargetList = components['schemas']['TargetList']
+
+/**
+ * The query key of one service's cached alert list. It does not start with `'services'`, so a refresh
+ * or removal of the service list never touches it.
+ */
+export function targetsQueryKey(serviceId: string) {
+  return ['alert-targets', serviceId] as const
+}
+
+/** `listTargets`: a service's notification targets, at most 5, in the order added. */
+export function listTargets(serviceId: string): Promise<TargetList> {
+  return apiRequest<TargetList>('GET', `/api/services/${encodeURIComponent(serviceId)}/targets`)
+}
+
+/** `deleteTarget`: removes one target from a service's alert list. Resolves when the server answers 204. */
+export function deleteTarget(serviceId: string, targetId: string): Promise<void> {
+  return apiRequest<void>(
+    'DELETE',
+    `/api/services/${encodeURIComponent(serviceId)}/targets/${encodeURIComponent(targetId)}`,
+  )
+}
