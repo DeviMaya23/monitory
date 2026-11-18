@@ -1,3 +1,4 @@
+import { Link } from 'react-router'
 import { Bell, BellOff, CircleAlert, Eye, EyeOff, Trash2, TriangleAlert } from 'lucide-react'
 import type { Service } from '../../../lib/api/services'
 import { failureReasonText } from '../lib/failureReason'
@@ -25,6 +26,7 @@ export function ServiceRow({
   const { state } = service
   const reason = !service.paused && state.status === 'unhealthy' ? state.last_failure_reason : null
   const alertsOn = service.alerts_enabled ?? true
+  const alertsPath = `/services/${encodeURIComponent(service.id)}/alerts`
   const shown = service.shown_on_public_view ?? false
 
   return (
@@ -44,10 +46,10 @@ export function ServiceRow({
           </p>
         )}
         {service.alert_delivery_failed && (
-          <p className="svc__delivery">
+          <Link className="svc__delivery" to={alertsPath}>
             <TriangleAlert className="icon icon--sm" aria-hidden="true" />
-            <span>Alert delivery failed</span>
-          </p>
+            <span>Alert delivery failed – view alert list</span>
+          </Link>
         )}
       </div>
       <div className="svc__cell svc__check">
@@ -101,6 +103,12 @@ export function ServiceRow({
         </span>
       </div>
       <div className="svc__actions">
+        <Link className="btn btn--ghost btn--icon" to={alertsPath} aria-label={`Alerts ${service.name}`}>
+          <Bell className="icon icon--sm" aria-hidden="true" />
+          <span className="btn__label" aria-hidden="true">
+            Alerts
+          </span>
+        </Link>
         <button
           type="button"
           className="btn btn--ghost-danger btn--icon"
