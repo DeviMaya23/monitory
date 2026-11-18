@@ -17,7 +17,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
 | FR-84, FR-85, FR-86 | none | none | Per-target retries and the delivery outcome written to `targets.last_delivery_failed`. The mailer, `alert_delivery_failed` in `listServices` and the dashboard notice (`ServiceRow`) exist |
-| FR-90, FR-91, FR-115 | webhook `receiveAlert` | none | Webhook sender: custom headers, timeout, no redirects |
 | FR-107, FR-108 | `testTarget` | Target form | One attempt, no saved state touched |
 | Milestone journeys | all of the above | Alert list | Down to alert received in Mailpit and at the stub receiver; failed-delivery cases |
 
@@ -71,7 +70,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - Left out of `scheduler`: a log line per check outcome with the failure reason (`CONVENTIONS.md`, Logging). The runner returns no result to log. Matters when: the admin needs to see in the log why a service went unhealthy; best added with `delivery-outcome`, which writes what the alert pipeline learned (`alert-dispatch` did not add it).
 
-- Left out of `alert-dispatch`: `worker.AlertDispatcher` skips a webhook target and only logs `alert not delivered`; it makes one email attempt with no retry and writes no delivery outcome (`last_delivery_failed` is never set). The webhook sender task replaces the skip (FR-90, FR-91, FR-92, FR-115); the retry task uses `ALERT_DELIVERY_RETRIES` and `ALERT_DELIVERY_RETRY_INTERVAL_SECONDS`, which exist and are unused; the outcome task writes the notice (FR-86). The mailer's two reasons (`no SMTP account configured`, `the SMTP server did not accept the message`) may get finer ones then. The test-alert wording (FR-107) belongs to `test-target`. Matters when: an admin has only webhook targets, or an email is refused, before those tasks merge.
+- Left out of `alert-dispatch`: `worker.AlertDispatcher` makes one attempt per target with no retry and writes no delivery outcome (`last_delivery_failed` is never set); `webhook-sender` replaces its skip of a webhook target. The retry task uses `ALERT_DELIVERY_RETRIES` and `ALERT_DELIVERY_RETRY_INTERVAL_SECONDS`, which exist and are unused; the outcome task writes the notice (FR-86). The mailer's two reasons (`no SMTP account configured`, `the SMTP server did not accept the message`) may get finer ones then. The test-alert wording (FR-107) belongs to `test-target`. Matters when: an admin has only webhook targets, or an email is refused, before those tasks merge.
 
 - Left out of `target-form-dialog` (by the user's decision, the alert-list feature keeps its own copies): the discard dialog, the `422` error summary with its server-error hook, and the failure banners exist twice, in `service-form` and in `alert-list`. Promote them to shared places (`components/`, `lib/`). Matters when: a third form needs them, or the wording or behaviour of one copy changes and the other is forgotten. Needs: the user's approval of the shared components (`CONVENTIONS.md`, "Matching existing shapes").
 
