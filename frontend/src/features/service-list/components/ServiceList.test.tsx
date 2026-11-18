@@ -157,7 +157,7 @@ describe('List', () => {
     expect(line()).toBe(`${text} · times in your local time`)
   })
 
-  it('has one Delete button per row, no other row button, no switch, Open link or row links; only the Add service link is a link', async () => {
+  it('has one Delete button per row, no other row button, no switch, Open link or name link; the only links are Add service and one Alerts link per row', async () => {
     await loaded(makeServiceList(makeService(), makeUnhealthy({ code: 'timed_out' })))
     for (const name of [/Pause/, /Resume/, /Alerts/, /Edit/]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
@@ -165,10 +165,13 @@ describe('List', () => {
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Open/ })).not.toBeInTheDocument()
     const list = screen.getByRole('list', { name: 'Services' })
-    expect(within(list).queryByRole('link')).not.toBeInTheDocument()
+    expect(within(list).getAllByRole('link').map((l) => l.getAttribute('aria-label'))).toEqual([
+      'Alerts API gateway',
+      'Alerts Billing webhook',
+    ])
     const buttons = within(list).getAllByRole('button')
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['Delete API gateway', 'Delete Billing webhook'])
-    expect(screen.getAllByRole('link')).toHaveLength(1)
+    expect(screen.getAllByRole('link')).toHaveLength(1 + 2)
   })
 
   it('lists the six column header words and Actions', async () => {
@@ -213,7 +216,7 @@ describe('A row', () => {
     expect(row('noreason').querySelector('.svc__reason')).toBeNull()
   })
 
-  it('shows Alert delivery failed, paused or not, as plain text; otherwise nothing (FR-86)', async () => {
+  it('shows Alert delivery failed – view alert list as a link, paused or not; otherwise nothing (FR-86)', async () => {
     await loaded(
       makeServiceList(
         makeService({ name: 'a', alert_delivery_failed: true }),
@@ -221,10 +224,29 @@ describe('A row', () => {
         makeService({ name: 'c' }),
       ),
     )
-    expect(row('a')).toHaveTextContent('Alert delivery failed')
-    expect(row('b')).toHaveTextContent('Alert delivery failed')
+    const delivery = 'Alert delivery failed – view alert list'
+    expect(within(row('a')).getByRole('link', { name: delivery })).toHaveAttribute('href', '/services/id-a/alerts')
+    expect(within(row('b')).getByRole('link', { name: delivery })).toHaveAttribute('href', '/services/id-b/alerts')
     expect(row('c')).not.toHaveTextContent('Alert delivery failed')
-    expect(within(row('a')).queryByRole('link')).not.toBeInTheDocument()
+    expect(within(row('c')).queryByRole('link', { name: delivery })).not.toBeInTheDocument()
+    // Only the Alerts link and the delivery link.
+    expect(within(row('a')).getAllByRole('link').map((l) => l.getAttribute('aria-label') ?? l.textContent)).toEqual([
+      delivery,
+      'Alerts a',
+    ])
+  })
+
+  it('every row has an Alerts link to its alert list, before the Delete button, paused, TCP or not (FR-17)', async () => {
+    await loaded(makeServiceList(makeService({ name: 'web' }), makePaused(), makeTcp(), makeService({ id: 'x/y', name: 'slash' })))
+    for (const [name, id] of [['web', 'id-web'], ['Paused one', 'id-Paused%20one'], ['Postgres', 'id-Postgres'], ['slash', 'x%2Fy']]) {
+      const link = within(row(name)).getByRole('link', { name: `Alerts ${name}` })
+      expect(link).toHaveAttribute('href', `/services/${id}/alerts`)
+      expect(link.querySelector('.btn__label')).toHaveAttribute('aria-hidden', 'true')
+      expect(link.querySelector('.btn__label')).toHaveTextContent('Alerts')
+      expect(within(row(name)).queryByRole('button', { name: /Alerts/ })).not.toBeInTheDocument()
+      const del = within(row(name)).getByRole('button', { name: `Delete ${name}` })
+      expect(link.compareDocumentPosition(del) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
   })
 
   it('shows Never and — for null times, and a time element with the received ISO string otherwise (FR-62, FR-94)', async () => {

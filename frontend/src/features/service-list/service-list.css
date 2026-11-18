@@ -47,7 +47,8 @@
 }
 .svc__reason { display: flex; align-items: flex-start; gap: var(--space-1); font-size: var(--text-sm); color: var(--color-bad); }
 .svc__reason .icon { margin-top: 1px; }
-.svc__delivery { font-size: var(--text-sm); color: var(--color-warn); font-weight: var(--weight-medium); display: inline-flex; align-items: flex-start; gap: var(--space-1); align-self: flex-start; }
+.svc__delivery { font-size: var(--text-sm); color: var(--color-warn) !important; font-weight: var(--weight-medium); text-decoration: none; display: inline-flex; align-items: flex-start; gap: var(--space-1); align-self: flex-start; }
+.svc__delivery:hover { text-decoration: underline; }
 .svc__delivery .icon { margin-top: 1px; }
 .svc__cell { display: flex; flex-direction: column; min-width: 0; }
 .svc__label { display: none; font-size: var(--text-xs); color: var(--color-text-subtle); }
