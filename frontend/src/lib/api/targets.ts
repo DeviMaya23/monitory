@@ -5,6 +5,7 @@ export type Target = components['schemas']['Target']
 export type EmailTarget = components['schemas']['EmailTarget']
 export type WebhookTarget = components['schemas']['WebhookTarget']
 export type TargetList = components['schemas']['TargetList']
+export type TargetInput = components['schemas']['TargetInput']
 
 /**
  * The query key of one service's cached alert list. It does not start with `'services'`, so a refresh
@@ -24,5 +25,19 @@ export function deleteTarget(serviceId: string, targetId: string): Promise<void>
   return apiRequest<void>(
     'DELETE',
     `/api/services/${encodeURIComponent(serviceId)}/targets/${encodeURIComponent(targetId)}`,
+  )
+}
+
+/** `createTarget`: adds a target to a service's alert list; resolves with the saved target (201). */
+export function createTarget(serviceId: string, input: TargetInput): Promise<Target> {
+  return apiRequest<Target>('POST', `/api/services/${encodeURIComponent(serviceId)}/targets`, input)
+}
+
+/** `updateTarget`: replaces a target's editable fields; resolves with the saved target (200). */
+export function updateTarget(serviceId: string, targetId: string, input: TargetInput): Promise<Target> {
+  return apiRequest<Target>(
+    'PUT',
+    `/api/services/${encodeURIComponent(serviceId)}/targets/${encodeURIComponent(targetId)}`,
+    input,
   )
 }

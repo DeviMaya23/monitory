@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react'
-import { LoaderCircle, Mail, Trash2, Webhook } from 'lucide-react'
+import { LoaderCircle, Mail, Pencil, Trash2, Webhook } from 'lucide-react'
 import type { Target } from '../../../lib/api/targets'
 
 /** What names a target: its name, or when that is absent, empty or only spaces, its address or URL. */
@@ -15,6 +15,8 @@ export function TargetRow({
   asking,
   removing,
   removeRef,
+  editRef,
+  onEdit,
   onAsk,
   onCancel,
   onConfirm,
@@ -26,6 +28,10 @@ export function TargetRow({
   removing: boolean
   /** Receives this row's `Remove` button, so the screen can move focus to it. */
   removeRef: (button: HTMLButtonElement | null) => void
+  /** Receives this row's `Edit` button, so the screen can move focus to it. */
+  editRef: (button: HTMLButtonElement | null) => void
+  /** Opens the dialog for this target; receives the button, where focus returns. */
+  onEdit: (opener: HTMLButtonElement) => void
   onAsk: () => void
   onCancel: () => void
   onConfirm: () => void
@@ -88,6 +94,17 @@ export function TargetRow({
         </div>
       ) : (
         <div className="target__actions">
+          <button
+            type="button"
+            ref={editRef}
+            className="btn btn--ghost"
+            aria-label={`Edit ${label}`}
+            disabled={removing}
+            onClick={(event) => onEdit(event.currentTarget)}
+          >
+            <Pencil className="icon icon--sm" aria-hidden="true" />
+            <span>Edit</span>
+          </button>
           <button
             type="button"
             ref={removeRef}
