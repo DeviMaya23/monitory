@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { TIMING_DEFAULTS, TIMING_NAMES, type TimingTexts } from '../lib/timingGroup'
 import { useLeaveGuard } from './useLeaveGuard'
 
 type Props = { saving?: boolean; saved?: boolean; onLeave?: () => void }
@@ -13,6 +14,7 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
   const [alertsEnabled, setAlertsEnabled] = useState(true)
   const [unhealthyMessage, setUnhealthyMessage] = useState('')
   const [recoveryMessage, setRecoveryMessage] = useState('')
+  const [timing, setTiming] = useState<TimingTexts>(TIMING_DEFAULTS)
   const guard = useLeaveGuard({
     name,
     method,
@@ -20,6 +22,7 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
     alertsEnabled,
     unhealthyMessage,
     recoveryMessage,
+    timing,
     saving,
     saved,
     onLeave,
@@ -38,6 +41,14 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
         value={recoveryMessage}
         onChange={(event) => setRecoveryMessage(event.target.value)}
       />
+      {TIMING_NAMES.map((key) => (
+        <input
+          key={key}
+          aria-label={key}
+          value={timing[key]}
+          onChange={(event) => setTiming({ ...timing, [key]: event.target.value })}
+        />
+      ))}
       <button onClick={() => setAlertsEnabled(false)}>alerts off</button>
       <button onClick={() => setAlertsEnabled(true)}>alerts on</button>
       <button onClick={() => setMethod('HEAD')}>method HEAD</button>
@@ -74,6 +85,21 @@ function backLinkNavigates(): boolean {
 describe('changed', () => {
   it('is false with an empty name and URL and the method GET', () => {
     render(<Harness />)
+    expect(changed()).toBe('false')
+  })
+
+  it.each([
+    ['check_interval', '61'],
+    ['timeout', '11'],
+    ['retries', '3'],
+    ['retry_interval', '11'],
+    ['timeout', '10 '],
+  ])('is true when %s holds %j (even a trailing space), and false again when put back', (label, value) => {
+    render(<Harness />)
+    const start = (screen.getByLabelText(label) as HTMLInputElement).value
+    type(label, value)
+    expect(changed()).toBe('true')
+    type(label, start)
     expect(changed()).toBe('false')
   })
 

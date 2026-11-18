@@ -34,10 +34,20 @@ describe('useServerErrors', () => {
   it('lists the entries in the order sent, with labels and targets', () => {
     const { result } = setup(THREE)
     expect(result.current.count).toBe(3)
-    expect(result.current.entries.map(({ label, message, target }) => ({ label, message, target }))).toEqual([
+    expect(
+      result.current.entries.map(({ label, message, target }) => ({
+        label,
+        message,
+        target,
+      })),
+    ).toEqual([
       { label: 'Name', message: 'Name is too long here.', target: 'name' },
       { label: 'URL', message: 'URL needs a scheme.', target: 'check.url' },
-      { label: 'Method', message: 'Method is not allowed.', target: 'check.method' },
+      {
+        label: 'Method',
+        message: 'Method is not allowed.',
+        target: 'check.method',
+      },
     ])
   })
 
@@ -71,15 +81,51 @@ describe('useServerErrors', () => {
   })
 
   it('lists a path with no field in the summary with no target, and editing does not remove it', () => {
-    const { result } = setup([fieldError('settings', 'The timing does not fit.'), fieldError('name', 'Needed.')])
+    const { result } = setup([fieldError('check.headers[0].value', 'Not a value.'), fieldError('name', 'Needed.')])
     expect(result.current.entries[0]).toMatchObject({
-      label: 'settings',
-      message: 'The timing does not fit.',
+      label: 'check.headers[0].value',
+      message: 'Not a value.',
       target: null,
     })
     act(() => result.current.clearField('name'))
-    expect(result.current.entries.map((entry) => entry.label)).toEqual(['settings'])
+    expect(result.current.entries.map((entry) => entry.label)).toEqual(['check.headers[0].value'])
     expect(result.current.count).toBe(1)
+  })
+
+  it('gives the four timing paths to their fields, and the bare settings to the group as Timing with no target', () => {
+    const { result } = setup([
+      fieldError('settings.timeout_seconds', 'Timeout range.', 'out_of_range'),
+      fieldError('settings.retry_count', 'Retries range.', 'out_of_range'),
+      fieldError('settings', 'Too long.', 'check_budget_exceeded'),
+    ])
+    expect(result.current.errorFor('settings.timeout_seconds')).toBe('Timeout range.')
+    expect(result.current.errorFor('settings.retry_count')).toBe('Retries range.')
+    expect(result.current.errorFor('settings.check_interval_seconds')).toBeNull()
+    expect(result.current.groupError()).toBe('Too long.')
+    expect(result.current.entries.map(({ label, target }) => ({ label, target }))).toEqual([
+      { label: 'Timeout', target: 'settings.timeout_seconds' },
+      { label: 'Retries', target: 'settings.retry_count' },
+      { label: 'Timing', target: null },
+    ])
+  })
+
+  it('editing a timing field removes its entry and the group error; editing another field removes only its own', () => {
+    const { result } = setup([
+      fieldError('settings.timeout_seconds', 'Timeout range.', 'out_of_range'),
+      fieldError('settings', 'Too long.', 'check_budget_exceeded'),
+      fieldError('name', 'Needed.'),
+    ])
+    act(() => result.current.clearField('name'))
+    expect(result.current.groupError()).toBe('Too long.')
+    act(() => result.current.clearTiming('settings.timeout_seconds'))
+    expect(result.current.groupError()).toBeNull()
+    expect(result.current.errorFor('settings.timeout_seconds')).toBeNull()
+    expect(result.current.count).toBe(0)
+  })
+
+  it('has no group error without one', () => {
+    const { result } = setup([fieldError('name', 'Needed.')])
+    expect(result.current.groupError()).toBeNull()
   })
 
   it('a new response starts with nothing cleared, even with the same errors', () => {
