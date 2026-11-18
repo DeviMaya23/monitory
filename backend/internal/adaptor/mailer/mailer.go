@@ -195,8 +195,11 @@ func oneLine(s string) string {
 
 func subject(a domain.Alert) string {
 	name := oneLine(a.ServiceName)
-	if a.Status == domain.AlertHealthy {
+	switch a.Status {
+	case domain.AlertHealthy:
 		return name + " is healthy again"
+	case domain.AlertTest:
+		return "Test alert for " + name
 	}
 	return name + " is unhealthy"
 }
@@ -205,8 +208,11 @@ func subject(a domain.Alert) string {
 // seconds dropped (FR-93) and the message (FR-23).
 func body(a domain.Alert) string {
 	status := "Unhealthy"
-	if a.Status == domain.AlertHealthy {
+	switch a.Status {
+	case domain.AlertHealthy:
 		status = "Healthy"
+	case domain.AlertTest:
+		status = "Test"
 	}
 	return "Service: " + oneLine(a.ServiceName) + "\n" +
 		"Status: " + status + "\n" +
