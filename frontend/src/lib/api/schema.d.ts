@@ -638,13 +638,27 @@ export interface components {
         };
         /** @description A notification target (FR-81). */
         TargetInput: components["schemas"]["EmailTargetInput"] | components["schemas"]["WebhookTargetInput"];
-        Target: {
-            type: "Target";
-        } & (Omit<components["schemas"]["TargetInput"], "type"> & {
+        TargetServerFields: {
             readonly id: string;
             /** @description True after all delivery attempts failed, until a later real delivery succeeds (FR-86). */
             readonly last_delivery_failed: boolean;
-        });
+        };
+        EmailTarget: components["schemas"]["EmailTargetInput"] & components["schemas"]["TargetServerFields"] & {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "email";
+        };
+        WebhookTarget: components["schemas"]["WebhookTargetInput"] & components["schemas"]["TargetServerFields"] & {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "webhook";
+        };
+        /** @description A notification target as returned by the API (FR-81). */
+        Target: components["schemas"]["EmailTarget"] | components["schemas"]["WebhookTarget"];
         TargetList: components["schemas"]["Target"][];
         TargetTestResult: {
             delivered: boolean;

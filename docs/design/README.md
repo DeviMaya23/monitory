@@ -42,6 +42,7 @@ Read-only. The files in this directory are the design reference for the five scr
 - Dark theme, following the operating system setting, from the tokens.
 - Removing a notification target: inline two-step confirm in the row.
 - "Discard unsaved changes?" dialog on both forms, and the browser's own prompt on tab close or reload.
+- Notification target dialog: an error summary above the form after a `422`, titled `1 field needs fixing before this can be saved.` or `{n} fields need fixing before this can be saved.`, with one entry per error that links to its input. The board draws only the message under each field.
 
 ## Pages
 

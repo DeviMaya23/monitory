@@ -53,7 +53,7 @@ func toTargetInput(body api.TargetInput) (domain.TargetInput, error) {
 // toAPITarget maps a stored target to the contract's Target. The name is always there,
 // empty when none was given, and a webhook's headers are always there.
 func toAPITarget(t domain.Target) (api.Target, error) {
-	out := api.Target{Id: &t.ID, LastDeliveryFailed: &t.LastDeliveryFailed}
+	var out api.Target
 	name := t.Name
 	switch t.Type {
 	case domain.TargetTypeWebhook:
@@ -61,12 +61,16 @@ func toAPITarget(t domain.Target) (api.Target, error) {
 		for i, h := range t.Headers {
 			headers[i] = api.HttpHeader{Name: h.Name, Value: h.Value}
 		}
-		err := out.FromWebhookTargetInput(api.WebhookTargetInput{
-			Type: api.Webhook, Name: &name, Url: t.Value, Headers: &headers,
+		err := out.FromWebhookTarget(api.WebhookTarget{
+			Id: &t.ID, LastDeliveryFailed: &t.LastDeliveryFailed,
+			Type: api.WebhookTargetTypeWebhook, Name: &name, Url: t.Value, Headers: &headers,
 		})
 		return out, err
 	default:
-		err := out.FromEmailTargetInput(api.EmailTargetInput{Type: api.Email, Name: &name, Address: t.Value})
+		err := out.FromEmailTarget(api.EmailTarget{
+			Id: &t.ID, LastDeliveryFailed: &t.LastDeliveryFailed,
+			Type: api.EmailTargetTypeEmail, Name: &name, Address: t.Value,
+		})
 		return out, err
 	}
 }
