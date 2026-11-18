@@ -157,6 +157,38 @@ func TestSendEmail_LineBreaksInTheNameCannotInjectAHeader(t *testing.T) {
 	assert.Empty(t, got.headers.Get("Bcc"))
 }
 
+const testMessage = "This is a test alert from Monitory. No service has changed status."
+
+func testAlertFor(name string) domain.Alert {
+	return domain.Alert{ServiceID: "svc-id-9f3a", ServiceName: name, Status: domain.AlertTest, ChangedAt: changedAt, Message: testMessage}
+}
+
+func TestSendEmail_TestAlert(t *testing.T) {
+	got := sendOne(t, testAlertFor("API"))
+
+	assert.Equal(t, "Test alert for API", got.subject)
+	assert.Equal(t, "Service: API\nStatus: Test\nTime: 2026-11-18 14:05 UTC\n"+testMessage+"\n", got.body)
+}
+
+func TestSendEmail_TestAlertNameIsPlainText(t *testing.T) {
+	name := `<b>x</b> "quoted"`
+
+	got := sendOne(t, testAlertFor(name))
+
+	assert.Equal(t, "Test alert for "+name, got.subject)
+	assert.Equal(t, "Service: "+name, strings.Split(got.body, "\n")[0])
+}
+
+func TestSendEmail_TestAlertNameIsOneLine(t *testing.T) {
+	got := sendOne(t, testAlertFor("A\r\nBcc: evil@example.com\nB"))
+
+	assert.Equal(t, "Test alert for A  Bcc: evil@example.com B", got.subject)
+	lines := strings.Split(got.body, "\n")
+	require.Len(t, lines, 5)
+	assert.Equal(t, "Service: A  Bcc: evil@example.com B", lines[0])
+	assert.Empty(t, got.headers.Get("Bcc"))
+}
+
 func TestSendEmail_NonASCIIArrivesIntact(t *testing.T) {
 	alert := alertFor(domain.AlertUnhealthy)
 	alert.ServiceName = "Café – 監視 ✓"
