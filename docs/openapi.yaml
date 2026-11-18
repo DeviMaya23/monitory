@@ -1134,17 +1134,36 @@ components:
           email: '#/components/schemas/EmailTargetInput'
           webhook: '#/components/schemas/WebhookTargetInput'
 
-    Target:
+    TargetServerFields:
+      type: object
+      required: [id, last_delivery_failed]
+      properties:
+        id: { type: string, readOnly: true }
+        last_delivery_failed:
+          type: boolean
+          readOnly: true
+          description: True after all delivery attempts failed, until a later real delivery succeeds (FR-86).
+
+    EmailTarget:
       allOf:
-        - $ref: '#/components/schemas/TargetInput'
-        - type: object
-          required: [id, last_delivery_failed]
-          properties:
-            id: { type: string, readOnly: true }
-            last_delivery_failed:
-              type: boolean
-              readOnly: true
-              description: True after all delivery attempts failed, until a later real delivery succeeds (FR-86).
+        - $ref: '#/components/schemas/EmailTargetInput'
+        - $ref: '#/components/schemas/TargetServerFields'
+
+    WebhookTarget:
+      allOf:
+        - $ref: '#/components/schemas/WebhookTargetInput'
+        - $ref: '#/components/schemas/TargetServerFields'
+
+    Target:
+      description: A notification target as returned by the API (FR-81).
+      oneOf:
+        - $ref: '#/components/schemas/EmailTarget'
+        - $ref: '#/components/schemas/WebhookTarget'
+      discriminator:
+        propertyName: type
+        mapping:
+          email: '#/components/schemas/EmailTarget'
+          webhook: '#/components/schemas/WebhookTarget'
 
     TargetList:
       type: array
