@@ -42,4 +42,29 @@ describe('Switch', () => {
     await userEvent.click(screen.getByText('Public page'))
     expect(onCheckedChange).not.toHaveBeenCalled()
   })
+
+  describe('with a description', () => {
+    const HINT = 'Shown under the label.'
+
+    it('names the switch by the label alone and describes it by the hint', () => {
+      render(<Switch label="Public page" description={HINT} checked={false} onCheckedChange={() => {}} />)
+      const control = screen.getByRole('switch', { name: 'Public page' })
+      expect(screen.getByText(HINT)).toBeInTheDocument()
+      expect(control).toHaveAccessibleName('Public page')
+      expect(control).toHaveAccessibleDescription(HINT)
+    })
+
+    it('toggles when the hint text is clicked', async () => {
+      const onCheckedChange = vi.fn()
+      render(<Switch label="Public page" description={HINT} checked={false} onCheckedChange={onCheckedChange} />)
+      await userEvent.click(screen.getByText(HINT))
+      expect(onCheckedChange).toHaveBeenLastCalledWith(true)
+    })
+
+    it('renders no hint and no description without the prop', () => {
+      render(<Switch label="Public page" checked={false} onCheckedChange={() => {}} />)
+      expect(document.querySelector('.hint')).toBeNull()
+      expect(screen.getByRole('switch')).not.toHaveAttribute('aria-describedby')
+    })
+  })
 })
