@@ -58,6 +58,12 @@ func (r *CheckRunner) Run(ctx context.Context, service domain.Service) error {
 
 		JSONRules:    service.JSONRules,
 		JSONRuleMode: service.JSONRuleMode,
+
+		CertificateCheck:        service.CertCheck,
+		IgnoreCertificateErrors: service.IgnoreCertErrs,
+	}
+	if service.CertCheck && service.CertMinDaysLeft != nil {
+		check.CertMinDaysLeft = *service.CertMinDaysLeft
 	}
 	wait := time.Duration(service.RetryIntervalSeconds) * time.Second
 	retries := max(service.RetryCount, 0)
