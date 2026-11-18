@@ -62,10 +62,12 @@ func withQueryParams(rawURL string, params []domain.NameValue) string {
 // the saved headers. Whatever the request already holds under a saved name (a default,
 // or a copy the library made on a redirect) is replaced by the saved values, in order.
 func applyHeaders(h http.Header, saved []domain.NameValue) {
+	savedUA := false
 	for _, kv := range saved {
 		h.Del(kv.Name)
+		savedUA = savedUA || http.CanonicalHeaderKey(kv.Name) == "User-Agent"
 	}
-	if _, ok := h["User-Agent"]; !ok {
+	if !savedUA {
 		h.Set("User-Agent", userAgent)
 	}
 	for _, kv := range saved {

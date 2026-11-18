@@ -24,3 +24,15 @@ Files: `domain/check.go`, `adaptor/probe/http.go` + `http_test.go`, `worker/chec
 ## Integration tests
 
 No integration test applies (no Mailpit-backed code is touched): not run: no code with integration tests is touched.
+
+Outcome: `make check` run, passed. Integration tests: not run: nothing this task touches has integration tests.
+
+## Judgment calls
+
+- **Two saved `User-Agent` headers cannot both be sent.** The task asks for two values and no default; `net/http` writes a single `User-Agent` line, the first value. The test `two saved User-Agents...` pins what is sent (`A` only, no `Monitory`). This is a deviation from the criterion, not fixable without a custom transport; the user should decide whether to relax the task text.
+- Saved headers reach redirected requests through the request context (a value read by the shared client's redirect policy), so no state is shared between checks.
+- On every request and hop, any value held under a saved header's name (library copy or default) is deleted before the saved values are added, so `Authorization` is never doubled on a same-host redirect.
+- Query parameters are only touched when at least one is given; the fragment is cut only in that case (the library drops it anyway).
+- Extra tests beyond the list: empty parameter name (`=v`), CR in a header name, a saved `User-Agent` on every hop, a 302 after POST without a saved `Content-Type`.
+- Ran `npm ci` in `frontend/` so `make check` could lint; no tracked file changed.
+- Mutation checks were not run by the builder.
