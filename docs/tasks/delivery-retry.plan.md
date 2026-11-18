@@ -36,7 +36,7 @@ Integration tests (`make test-integration`): not run: the task touches no code w
 
 ## Wiring and repo-wide
 - [x] `main.go` passes `clock.Real{}` and `RetryPolicy` from config
-- [x] `make check` passes (see the report); no change outside allowed paths. `make test-integration`: not run: no integration tests cover this code
+- [x] `make check` passes (exit 0; a first run had one unrelated frontend test fail, a rerun passed all 584); no change outside allowed paths. `make test-integration`: not run: no integration tests cover this code
 
 ## Judgment calls
 - The two "once, without retry" tests (`TestDispatch_EmailTargetIsSentOnceWithoutRetry`, `TestDispatch_WebhookTargetIsSentOnceWithoutRetry`) already run with `Retries` 0 through `newDispatcher`'s default; their assertions are unchanged and the names were kept.
