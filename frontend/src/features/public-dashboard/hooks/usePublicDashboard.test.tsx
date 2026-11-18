@@ -330,6 +330,39 @@ describe('too many requests (FR-32)', () => {
     expect(result.current.state).toBe('list')
   })
 
+  it('fires the refetch at zero once per answer, even while it is still in flight', async () => {
+    vi.useFakeTimers()
+    // With rows on screen a repeated refetch cancels and restarts the request, so a second call would show.
+    vi.mocked(getPublicDashboard).mockResolvedValueOnce(dashboard())
+    const { result } = setup()
+    await advance(0)
+    vi.mocked(getPublicDashboard).mockRejectedValueOnce(rateLimited(3))
+    act(() => result.current.refresh())
+    await advance(0)
+    vi.mocked(getPublicDashboard).mockReturnValue(new Promise(() => {}))
+    await advance(3000)
+    expect(calls()).toBe(3)
+    await advance(10_000)
+    expect(calls()).toBe(3)
+  })
+
+  it('a refresh failing twice and then succeeding keeps the rows, then clears the flag', async () => {
+    vi.useFakeTimers()
+    vi.mocked(getPublicDashboard).mockResolvedValueOnce(dashboard())
+    const { result } = setup()
+    await advance(0)
+    vi.mocked(getPublicDashboard).mockRejectedValue(problem(500, 'internal_error'))
+    act(() => result.current.refresh())
+    await advance(0)
+    act(() => result.current.refresh())
+    await advance(0)
+    expect(result.current).toMatchObject({ state: 'list', refreshFailed: true, rateLimit: null })
+    vi.mocked(getPublicDashboard).mockResolvedValue(dashboard())
+    act(() => result.current.refresh())
+    await advance(0)
+    expect(result.current.refreshFailed).toBe(false)
+  })
+
   it('remembers a 429 with no usable header while a manual retry is in flight', async () => {
     vi.useFakeTimers()
     vi.mocked(getPublicDashboard).mockRejectedValueOnce(rateLimited(null))

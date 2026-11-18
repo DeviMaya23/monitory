@@ -354,6 +354,45 @@ describe('Too many requests (FR-32)', () => {
   })
 })
 
+describe('Beyond the listed cases', () => {
+  it('shows 50 services with 100-character names in full, in order', async () => {
+    const services = Array.from({ length: 50 }, (_, i) =>
+      makePublicService({ name: `${String(i).padStart(2, '0')}${'y'.repeat(98)}`, status: i % 2 ? 'unhealthy' : 'healthy' }),
+    )
+    vi.mocked(getPublicDashboard).mockResolvedValue(makePublicDashboard(...services))
+    renderPage()
+    const list = await screen.findByRole('list', { name: 'Services' })
+    const names = within(list).getAllByRole('listitem').map((r) => r.querySelector('.pub-row__name')?.textContent)
+    expect(names).toEqual(services.map((s) => s.name))
+    expect(screen.getByText('25 of 50 services unhealthy')).toBeInTheDocument()
+  })
+
+  it('an empty answer after a list shows the empty block and no rows or summary', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getPublicDashboard).mockResolvedValueOnce(makePublicDashboard(makePublicService({ status: 'unhealthy' })))
+    renderPage()
+    await screen.findByRole('list', { name: 'Services' })
+    vi.mocked(getPublicDashboard).mockResolvedValueOnce(makePublicDashboard())
+    await user.click(refreshButton())
+    expect(await screen.findByText('No services to show')).toBeInTheDocument()
+    expect(screen.queryByRole('list')).toBeNull()
+    expect(document.querySelector('.pub-summary')).toBeNull()
+  })
+
+  it('a failed refresh over the empty state shows the banner above the empty block and the foot line', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getPublicDashboard).mockResolvedValueOnce(makePublicDashboard())
+    renderPage()
+    await screen.findByText('No services to show')
+    vi.mocked(getPublicDashboard).mockRejectedValueOnce(problem(500, 'internal_error'))
+    await user.click(refreshButton())
+    const alert = banner('Couldn’t refresh.')
+    expect(screen.getByText('No services to show')).toBeInTheDocument()
+    expect(screen.getByText('Times are shown in your local time.')).toBeInTheDocument()
+    expect(alert.compareDocumentPosition(screen.getByText('No services to show')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
 describe('No admin chrome', () => {
   it.each([
     ['loading', () => vi.mocked(getPublicDashboard).mockReturnValue(new Promise(() => {}))],
