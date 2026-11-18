@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -410,4 +411,367 @@ func TestCheckHTTP_NewConnectionPerAttempt(t *testing.T) {
 	reqs := ts.Requests()
 	require.Len(t, reqs, 2)
 	assert.NotEqual(t, reqs[0].RemoteAddr, reqs[1].RemoteAddr)
+}
+
+// send runs a check against a fresh receiver that answers 200 at /p and returns the
+// only request it saw.
+func send(t *testing.T, check domain.HTTPCheck) testutil.RecordedRequest {
+	t.Helper()
+	ts := testutil.NewTargetServer(t)
+	ts.Script("/p", testutil.Route{})
+	if check.URL == "" {
+		check.URL = ts.URL() + "/p"
+	} else {
+		check.URL = ts.URL() + check.URL
+	}
+	if check.Method == "" {
+		check.Method = http.MethodGet
+	}
+	check.Timeout = longTimeout
+	requireHealthy(t, run(t, 3, check))
+	reqs := ts.Requests()
+	require.Len(t, reqs, 1)
+	return reqs[0]
+}
+
+func nv(pairs ...string) []domain.NameValue {
+	var out []domain.NameValue
+	for i := 0; i < len(pairs); i += 2 {
+		out = append(out, domain.NameValue{Name: pairs[i], Value: pairs[i+1]})
+	}
+	return out
+}
+
+func TestCheckHTTP_QueryParams(t *testing.T) {
+	twenty := make([]domain.NameValue, 20)
+	var want []string
+	for i := range twenty {
+		twenty[i] = domain.NameValue{Name: fmt.Sprintf("k%02d", 19-i), Value: fmt.Sprint(i)}
+		want = append(want, fmt.Sprintf("k%02d=%d", 19-i, i))
+	}
+	cases := []struct {
+		name   string
+		url    string
+		params []domain.NameValue
+		query  string
+	}{
+		{"two in order", "/p", nv("a", "1", "b", "2"), "a=1&b=2"},
+		{"not sorted", "/p", nv("b", "2", "a", "1"), "b=2&a=1"},
+		{"after the URL's own query", "/p?x=1", nv("a", "1"), "x=1&a=1"},
+		{"bare question mark", "/p?", nv("a", "1"), "a=1"},
+		{"query ending in ampersand", "/p?x=1&", nv("a", "1"), "x=1&a=1"},
+		{"twenty whole and in order", "/p", twenty, strings.Join(want, "&")},
+		{"same name twice", "/p", nv("a", "1", "a", "2"), "a=1&a=2"},
+		{"empty value", "/p", nv("a", ""), "a="},
+		{"empty name", "/p", nv("", "v"), "=v"},
+		{"none given keeps the query", "/p?x=1&y=%20", nil, "x=1&y=%20"},
+		{"fragment dropped", "/p?x=1#frag", nv("a", "1"), "x=1&a=1"},
+		{"fragment dropped, no query", "/p#frag", nv("a", "1"), "a=1"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := send(t, domain.HTTPCheck{URL: c.url, QueryParams: c.params})
+			assert.Equal(t, c.query, got.RawQuery)
+		})
+	}
+	t.Run("special characters stay inside one parameter", func(t *testing.T) {
+		name, value := "a&b=c d é", "x&y=z w ü"
+		got := send(t, domain.HTTPCheck{QueryParams: nv(name, value)})
+		parsed, err := url.ParseQuery(got.RawQuery)
+		require.NoError(t, err)
+		assert.Equal(t, url.Values{name: {value}}, parsed)
+	})
+}
+
+func TestCheckHTTP_Headers(t *testing.T) {
+	t.Run("none given leaves only the User-Agent", func(t *testing.T) {
+		got := send(t, domain.HTTPCheck{})
+		assert.Equal(t, []string{"Monitory"}, got.Header.Values("User-Agent"))
+		assert.Empty(t, got.Header.Values("Content-Type"))
+	})
+	t.Run("values as saved, name in canonical form", func(t *testing.T) {
+		got := send(t, domain.HTTPCheck{Headers: nv("x-api-key", "k1", "Authorization", "Bearer t")})
+		assert.Equal(t, []string{"k1"}, got.Header.Values("X-Api-Key"))
+		assert.Equal(t, []string{"Bearer t"}, got.Header.Values("Authorization"))
+		assert.Equal(t, []string{"Monitory"}, got.Header.Values("User-Agent"))
+	})
+	t.Run("two with one name arrive in order", func(t *testing.T) {
+		got := send(t, domain.HTTPCheck{Headers: nv("X-A", "1", "x-a", "2")})
+		assert.Equal(t, []string{"1", "2"}, got.Header.Values("X-A"))
+	})
+	t.Run("saved User-Agent replaces the default", func(t *testing.T) {
+		got := send(t, domain.HTTPCheck{Headers: nv("user-agent", "Mine")})
+		assert.Equal(t, []string{"Mine"}, got.Header.Values("User-Agent"))
+	})
+	t.Run("two saved User-Agents, no default; the library writes only the first", func(t *testing.T) {
+		// The task asks for both values; net/http writes a single User-Agent line
+		// (the first), so this pins what can be sent. Reported as a deviation.
+		got := send(t, domain.HTTPCheck{Headers: nv("User-Agent", "A", "User-Agent", "B")})
+		assert.Equal(t, []string{"A"}, got.Header.Values("User-Agent"))
+	})
+	t.Run("saved Content-Type replaces the default of a body", func(t *testing.T) {
+		got := send(t, domain.HTTPCheck{Method: "POST", BodyType: domain.BodyTypeJSON, BodyContent: "{}", Headers: nv("Content-Type", "application/vnd.x+json")})
+		assert.Equal(t, []string{"application/vnd.x+json"}, got.Header.Values("Content-Type"))
+	})
+	t.Run("two saved Content-Types, no default", func(t *testing.T) {
+		got := send(t, domain.HTTPCheck{Method: "POST", BodyType: domain.BodyTypeText, BodyContent: "x", Headers: nv("Content-Type", "a/b", "content-type", "c/d")})
+		assert.Equal(t, []string{"a/b", "c/d"}, got.Header.Values("Content-Type"))
+	})
+	t.Run("authorization and Authorization together arrive as two values in order", func(t *testing.T) {
+		got := send(t, domain.HTTPCheck{Headers: nv("authorization", "one", "Authorization", "two")})
+		assert.Equal(t, []string{"one", "two"}, got.Header.Values("Authorization"))
+	})
+	t.Run("a long value and twenty headers arrive whole", func(t *testing.T) {
+		long := strings.Repeat("v", 4096)
+		var hs []domain.NameValue
+		for i := range 20 {
+			hs = append(hs, domain.NameValue{Name: fmt.Sprintf("X-H%02d", i), Value: long})
+		}
+		got := send(t, domain.HTTPCheck{Headers: hs})
+		for _, h := range hs {
+			assert.Equal(t, []string{long}, got.Header.Values(h.Name), h.Name)
+		}
+	})
+}
+
+func TestCheckHTTP_Body(t *testing.T) {
+	types := []struct {
+		bodyType    domain.BodyType
+		contentType string
+	}{
+		{domain.BodyTypeJSON, "application/json"},
+		{domain.BodyTypeText, "text/plain"},
+		{domain.BodyTypeForm, "application/x-www-form-urlencoded"},
+	}
+	for _, c := range types {
+		t.Run(string(c.bodyType), func(t *testing.T) {
+			got := send(t, domain.HTTPCheck{Method: "POST", BodyType: c.bodyType, BodyContent: `{"a":1}`})
+			assert.Equal(t, `{"a":1}`, got.Body)
+			assert.Equal(t, []string{c.contentType}, got.Header.Values("Content-Type"))
+		})
+	}
+	for _, bt := range []domain.BodyType{domain.BodyTypeNone, "", "xml"} {
+		t.Run("no body for type "+string(bt), func(t *testing.T) {
+			got := send(t, domain.HTTPCheck{Method: "POST", BodyType: bt, BodyContent: "ignored"})
+			assert.Empty(t, got.Body)
+			assert.Empty(t, got.Header.Values("Content-Type"))
+		})
+	}
+	t.Run("json with empty content is an empty body with its content type", func(t *testing.T) {
+		got := send(t, domain.HTTPCheck{Method: "POST", BodyType: domain.BodyTypeJSON})
+		assert.Empty(t, got.Body)
+		assert.Equal(t, []string{"application/json"}, got.Header.Values("Content-Type"))
+	})
+	t.Run("64 KB arrives whole", func(t *testing.T) {
+		body := strings.Repeat("x", 65536)
+		got := send(t, domain.HTTPCheck{Method: "POST", BodyType: domain.BodyTypeText, BodyContent: body})
+		assert.Equal(t, body, got.Body)
+	})
+	t.Run("non-ASCII and a line break byte for byte", func(t *testing.T) {
+		body := "héllo\r\nwörld ✓\n"
+		got := send(t, domain.HTTPCheck{Method: "POST", BodyType: domain.BodyTypeText, BodyContent: body})
+		assert.Equal(t, body, got.Body)
+	})
+	for _, m := range []string{"POST", "PUT", "PATCH", "DELETE", "GET"} {
+		t.Run("body with "+m, func(t *testing.T) {
+			got := send(t, domain.HTTPCheck{Method: m, BodyType: domain.BodyTypeJSON, BodyContent: `{"m":"` + m + `"}`})
+			assert.Equal(t, m, got.Method)
+			assert.Equal(t, `{"m":"`+m+`"}`, got.Body)
+		})
+	}
+}
+
+func TestCheckHTTP_RequestOutcome(t *testing.T) {
+	full := func(url string, timeout time.Duration) domain.HTTPCheck {
+		return domain.HTTPCheck{
+			Method: "POST", URL: url, Timeout: timeout,
+			QueryParams: nv("a", "1"), Headers: nv("X-K", "v"),
+			BodyType: domain.BodyTypeJSON, BodyContent: `{}`,
+		}
+	}
+	ts := testutil.NewTargetServer(t)
+	ts.Script("/ok", testutil.Route{})
+	ts.Script("/err", testutil.Route{Status: 500})
+	ts.Script("/slow", testutil.Route{Delay: 2 * time.Second})
+	requireHealthy(t, run(t, 3, full(ts.URL()+"/ok", longTimeout)))
+	requireStatus(t, run(t, 3, full(ts.URL()+"/err", longTimeout)), 500)
+	requireFailed(t, run(t, 3, full(ts.URL()+"/slow", 100*time.Millisecond)), domain.FailureTimedOut)
+}
+
+func TestCheckHTTP_RefusedHeader(t *testing.T) {
+	for name, h := range map[string][]domain.NameValue{
+		"CR in value":   nv("X-A", "a\rb"),
+		"LF in value":   nv("X-A", "a\nb"),
+		"empty name":    nv("", "v"),
+		"CR in a name":  nv("X-A\r", "v"),
+		"after a valid": nv("X-Ok", "1", "X-Bad", "a\r\nb"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			ts := testutil.NewTargetServer(t)
+			ts.Script("/p", testutil.Route{})
+			check := get(ts.URL()+"/p", longTimeout)
+			requireHealthy(t, run(t, 3, check)) // baseline: the same check without the header sends
+			before := len(ts.Requests())
+			check.Headers = h
+			requireFailed(t, run(t, 3, check), domain.FailureCouldNotConnect)
+			assert.Len(t, ts.Requests(), before)
+		})
+	}
+}
+
+func TestCheckHTTP_RedirectsCarrySavedRequest(t *testing.T) {
+	saved := nv("Authorization", "Bearer t", "Cookie", "s=1", "X-Api-Key", "k")
+	requireSaved := func(t *testing.T, r testutil.RecordedRequest) {
+		t.Helper()
+		assert.Equal(t, []string{"Bearer t"}, r.Header.Values("Authorization"), r.Path)
+		assert.Equal(t, []string{"s=1"}, r.Header.Values("Cookie"), r.Path)
+		assert.Equal(t, []string{"k"}, r.Header.Values("X-Api-Key"), r.Path)
+		assert.Equal(t, []string{"Monitory"}, r.Header.Values("User-Agent"), r.Path)
+	}
+	t.Run("two 302 hops on one host", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		check := get(chain(ts, 2), longTimeout)
+		check.Headers = saved
+		requireHealthy(t, run(t, 3, check))
+		reqs := ts.Requests()
+		require.Len(t, reqs, 3)
+		for _, r := range reqs {
+			requireSaved(t, r)
+		}
+	})
+	t.Run("a different host name still gets them", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		_, port, found := strings.Cut(strings.TrimPrefix(ts.URL(), "http://"), ":")
+		require.True(t, found)
+		ts.Script("/start", testutil.Route{RedirectTo: "http://localhost:" + port + "/end"})
+		ts.Script("/end", testutil.Route{})
+		check := get("http://127.0.0.1:"+port+"/start", longTimeout)
+		check.Headers = saved
+		requireHealthy(t, run(t, 3, check))
+		reqs := ts.Requests()
+		require.Len(t, reqs, 2)
+		requireSaved(t, reqs[1])
+	})
+	t.Run("302 after POST is a GET with no body and the saved Content-Type", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/start", testutil.Route{RedirectTo: "/end"})
+		ts.Script("/end", testutil.Route{})
+		check := domain.HTTPCheck{
+			Method: "POST", URL: ts.URL() + "/start", Timeout: longTimeout,
+			BodyType: domain.BodyTypeJSON, BodyContent: `{"a":1}`,
+			Headers: append(nv("Content-Type", "application/x-saved"), saved...),
+		}
+		requireHealthy(t, run(t, 3, check))
+		reqs := ts.Requests()
+		require.Len(t, reqs, 2)
+		assert.Equal(t, "GET", reqs[1].Method)
+		assert.Empty(t, reqs[1].Body)
+		assert.Equal(t, []string{"application/x-saved"}, reqs[1].Header.Values("Content-Type"))
+		requireSaved(t, reqs[1])
+	})
+	t.Run("302 after POST without a saved Content-Type sends none", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/start", testutil.Route{RedirectTo: "/end"})
+		ts.Script("/end", testutil.Route{})
+		check := domain.HTTPCheck{Method: "POST", URL: ts.URL() + "/start", Timeout: longTimeout, BodyType: domain.BodyTypeJSON, BodyContent: "{}"}
+		requireHealthy(t, run(t, 3, check))
+		assert.Empty(t, ts.Requests()[1].Header.Values("Content-Type"))
+	})
+	t.Run("307 after POST repeats method, body and saved headers", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/start", testutil.Route{Status: 307, RedirectTo: "/end"})
+		ts.Script("/end", testutil.Route{})
+		check := domain.HTTPCheck{
+			Method: "POST", URL: ts.URL() + "/start", Timeout: longTimeout,
+			BodyType: domain.BodyTypeJSON, BodyContent: `{"a":1}`, Headers: saved,
+		}
+		requireHealthy(t, run(t, 3, check))
+		reqs := ts.Requests()
+		require.Len(t, reqs, 2)
+		assert.Equal(t, "POST", reqs[1].Method)
+		assert.Equal(t, `{"a":1}`, reqs[1].Body)
+		assert.Equal(t, []string{"application/json"}, reqs[1].Header.Values("Content-Type"))
+		requireSaved(t, reqs[1])
+	})
+	t.Run("308 after POST repeats a 64 KB body and the saved headers", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/start", testutil.Route{Status: 308, RedirectTo: "/end"})
+		ts.Script("/end", testutil.Route{})
+		body := strings.Repeat("y", 65536)
+		check := domain.HTTPCheck{
+			Method: "POST", URL: ts.URL() + "/start", Timeout: longTimeout,
+			BodyType: domain.BodyTypeText, BodyContent: body, Headers: saved,
+		}
+		requireHealthy(t, run(t, 3, check))
+		reqs := ts.Requests()
+		require.Len(t, reqs, 2)
+		assert.Equal(t, "POST", reqs[1].Method)
+		assert.Equal(t, body, reqs[1].Body)
+		requireSaved(t, reqs[1])
+	})
+	t.Run("a POST chain of four 307 hops with the limit 3 fails", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		ts.Script("/end", testutil.Route{})
+		for i := range 4 {
+			next := "/end"
+			if i < 3 {
+				next = fmt.Sprintf("/r%d", i+1)
+			}
+			ts.Script(fmt.Sprintf("/r%d", i), testutil.Route{Status: 307, RedirectTo: next})
+		}
+		check := domain.HTTPCheck{Method: "POST", URL: ts.URL() + "/r0", Timeout: longTimeout, BodyType: domain.BodyTypeJSON, BodyContent: "{}", Headers: saved}
+		requireFailed(t, run(t, 3, check), domain.FailureTooManyRedirects)
+	})
+	t.Run("a saved User-Agent is on every hop", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		check := get(chain(ts, 2), longTimeout)
+		check.Headers = nv("User-Agent", "Mine")
+		requireHealthy(t, run(t, 3, check))
+		for _, r := range ts.Requests() {
+			assert.Equal(t, []string{"Mine"}, r.Header.Values("User-Agent"), r.Path)
+		}
+	})
+	t.Run("a chain over the limit still fails", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t)
+		check := get(chain(ts, 4), longTimeout)
+		check.Headers = saved
+		requireFailed(t, run(t, 3, check), domain.FailureTooManyRedirects)
+	})
+}
+
+func TestCheckHTTP_ConcurrentHeaders(t *testing.T) {
+	p := NewHTTPProber(3)
+	var wg sync.WaitGroup
+	servers := make([]*testutil.TargetServer, 2)
+	for i := range servers {
+		servers[i] = testutil.NewTargetServer(t)
+		servers[i].Script("/start", testutil.Route{RedirectTo: "/end"})
+		servers[i].Script("/end", testutil.Route{})
+	}
+	errs := make([]error, 20)
+	results := make([]domain.CheckResult, 20)
+	for i := range results {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s := i % 2
+			results[i], errs[i] = p.CheckHTTP(context.Background(), domain.HTTPCheck{
+				Method: "GET", URL: servers[s].URL() + "/start", Timeout: longTimeout,
+				Headers: nv("X-Who", fmt.Sprint(s), "Authorization", fmt.Sprint("tok", s)),
+			})
+		}()
+	}
+	wg.Wait()
+	for i := range results {
+		require.NoError(t, errs[i])
+		requireHealthy(t, results[i])
+	}
+	for s, ts := range servers {
+		reqs := ts.Requests()
+		require.Len(t, reqs, 20)
+		for _, r := range reqs {
+			assert.Equal(t, []string{fmt.Sprint(s)}, r.Header.Values("X-Who"))
+			assert.Equal(t, []string{fmt.Sprint("tok", s)}, r.Header.Values("Authorization"))
+		}
+	}
 }

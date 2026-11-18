@@ -50,6 +50,11 @@ func (r *CheckRunner) Run(ctx context.Context, service domain.Service) error {
 		Method:  *service.HTTPMethod,
 		URL:     *service.HTTPURL,
 		Timeout: time.Duration(service.TimeoutSeconds) * time.Second,
+
+		QueryParams: service.HTTPQueryParams,
+		Headers:     service.HTTPHeaders,
+		BodyType:    service.HTTPBodyType,
+		BodyContent: service.HTTPBodyContent,
 	}
 	wait := time.Duration(service.RetryIntervalSeconds) * time.Second
 	retries := max(service.RetryCount, 0)

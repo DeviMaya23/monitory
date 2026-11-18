@@ -535,3 +535,41 @@ func (p *urlProber) CheckHTTP(_ context.Context, check domain.HTTPCheck) (domain
 	<-p.both
 	return p.results[check.URL], nil
 }
+
+func TestRun_PassesSavedRequest(t *testing.T) {
+	svc := httpService(2, 5)
+	svc.HTTPQueryParams = []domain.NameValue{{Name: "a", Value: "1"}, {Name: "a", Value: "2"}}
+	svc.HTTPHeaders = []domain.NameValue{{Name: "Authorization", Value: "Bearer t"}}
+	svc.HTTPBodyType = domain.BodyTypeJSON
+	svc.HTTPBodyContent = `{"x":1}`
+	r := newRig(failed(domain.FailureCouldNotConnect), failed(domain.FailureCouldNotConnect), healthy())
+	done := r.run(t.Context(), svc)
+	for i := 1; i <= 2; i++ {
+		r.prober.waitForCall(t)
+		assert.Equal(t, 5*time.Second, r.clock.waitForTimer(t))
+		r.clock.Advance(5 * time.Second)
+	}
+	r.prober.waitForCall(t)
+	require.NoError(t, r.finish(t, done))
+
+	want := domain.HTTPCheck{
+		Method: "HEAD", URL: "https://example.test/health", Timeout: 7 * time.Second,
+		QueryParams: svc.HTTPQueryParams, Headers: svc.HTTPHeaders,
+		BodyType: domain.BodyTypeJSON, BodyContent: `{"x":1}`,
+	}
+	require.Len(t, r.prober.checks, 3)
+	for _, c := range r.prober.checks {
+		assert.Equal(t, want, c)
+	}
+}
+
+func TestRun_NoSavedRequestStaysEmpty(t *testing.T) {
+	r := newRig(healthy())
+	require.NoError(t, r.finish(t, r.run(t.Context(), httpService(0, 0))))
+	require.Len(t, r.prober.checks, 1)
+	c := r.prober.checks[0]
+	assert.Nil(t, c.QueryParams)
+	assert.Nil(t, c.Headers)
+	assert.Empty(t, c.BodyType)
+	assert.Empty(t, c.BodyContent)
+}
