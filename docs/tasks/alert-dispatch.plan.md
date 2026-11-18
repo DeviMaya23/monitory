@@ -45,7 +45,7 @@ Branch: `feat/alert-dispatch`. Paths are under `backend/internal/` unless noted.
 - [x] Malformed recipient: `ErrNotAccepted`, nothing reaches server — `TestSendEmail_MalformedRecipient`
 - [x] Failures (reject RCPT, close at connect, nothing listening, greeting delay beyond timeout, starttls not offered): exact text, no leak — `TestSendEmail_Failures`
 - [x] Ctx cancelled during greeting delay: `context.Canceled`, not `ErrNotAccepted` — `TestSendEmail_ContextCancelled`
-- [ ] Auth: right password accepted, wrong rejected, empty username sends no AUTH — `TestSendEmail_Authentication`. **Not met:** go-mail v0.8.1 refuses PLAIN/LOGIN on an unencrypted connection, so the authenticated send cannot succeed against the fake (mode `none`). The test as first written fails; replacing it with one that pins the refusal was blocked by the auto-mode classifier, so it is left failing (see Judgment calls)
+- [x] Auth: an authenticated send cannot be tested (go-mail v0.8.1 negotiates PLAIN/LOGIN only on an encrypted connection; the fake server has no TLS). `TestSendEmail_Authentication` pins instead that a username over `none` is refused as `ErrNotAccepted` with no AUTH command sent, and that an empty username sends none. The authenticated send is **untested**.
 - [x] Unknown TLS: `New` errors — `TestNew_UnknownTLS`
 - [x] Two concurrent sends succeed — `TestSendEmail_Concurrent`
 
@@ -59,22 +59,22 @@ Branch: `feat/alert-dispatch`. Paths are under `backend/internal/` unless noted.
 
 ### Wiring (`cmd/server/main.go`)
 
-- [x] Constructors, shutdown order, idempotent closes (read only: `cmd/server` does not compile on this branch, see Judgment calls)
+- [x] Constructors, shutdown order, idempotent closes (no test of `main`; it compiles after merging `main`)
 
 ### Repo-wide
 
-- [ ] `make check` passes. Outcome: run, failed (`lint-backend`: `internal/handler` and `cmd/server` do not compile because `internal/api` is stale against `docs/openapi.yaml`; not caused by this task. Packages of this task pass `go test -race` except the authentication test above)
+- [x] `make check` passes. Outcome: run, passed (after merging `main` with #16, the handler fix)
 - [x] `git diff go.mod go.sum` shows only go-mail `v0.8.1` (listed `// indirect` by `go get`; go-mail has no further dependencies; `go` line unchanged)
 - [x] Nothing outside the allowed paths changed; no configuration key added
 
 ## Integration tests
 
-- `make test-integration`: run, failed. Mailpit test: run, passed (Mailpit v1.33.1). The run failed on the same two things as `make check`: the stale-generated-code build failure in `handler` and the authentication test.
+- `make test-integration`: run, passed (Mailpit v1.33.1)
 
 ## Judgment calls
 
-- **Blocker, not mine:** commit 9002110 ("update openapi target shape") changed `docs/openapi.yaml` without regenerating `backend/internal/api`, so `internal/handler` and `cmd/server` do not compile. The fix is `make generate` plus handler changes, all outside my paths, so I stopped. `main.go` is written and reviewed but never compiled.
-- **Authentication test:** go-mail's autodiscover allows PLAIN/LOGIN only on an encrypted connection; the fake server offers only PLAIN and no TLS. The task allows reporting the authenticated send as untested. I did not use the `-NOENC` variants (that would send the password in clear). My edit to turn the failing subtests into one that pins the refusal was denied, so `TestSendEmail_Authentication/the_right_password_is_accepted` still fails and the user must decide.
+- Merged `main` (#16) into the branch to get the handler fix for the new `api.Target` shape; no handler file was changed by this task.
+- **Authentication test:** replaced, on the user's instruction, by one that checks the refusal (no `-NOENC` variants, which would send the password in clear). The authenticated send stays untested.
 - A CR or LF in a service name becomes one space per character (CRLF gives two spaces).
 - `usecase.DefaultUnhealthyMessage` and `DefaultRecoveryMessage` are exported constants; `buildAlert` is unexported and tested through `RecordCheckResult`.
 - A target that is not an email is treated as a webhook (skipped and logged).

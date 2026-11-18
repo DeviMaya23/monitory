@@ -266,28 +266,27 @@ func TestSendEmail_ContextCancelledWhileTheGreetingIsDelayed(t *testing.T) {
 	}
 }
 
+// go-mail v0.8.1 negotiates PLAIN and LOGIN only on an encrypted connection, and the
+// fake server offers only PLAIN and makes no TLS, so an authenticated send that succeeds
+// cannot be tested here (it is listed as untested in the report). What can be pinned is
+// that the mailer does not send credentials in the clear to get around it.
 func TestSendEmail_Authentication(t *testing.T) {
-	opts := testutil.SMTPOptions{Username: "user", Password: "secret"}
-	with := func(user, pass string) func(*mailer.Config) {
-		return func(c *mailer.Config) { c.Username, c.Password = user, pass }
-	}
+	t.Run("a username on an unencrypted connection is refused before any credential is sent", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{Username: "user", Password: "secret"})
+		m := newMailer(t, s, func(c *mailer.Config) { c.Username, c.Password = "user", "secret" })
 
-	t.Run("the right password is accepted", func(t *testing.T) {
-		s := testutil.NewSMTPServer(t, opts)
-		require.NoError(t, newMailer(t, s, with("user", "secret")).SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy)))
-		assert.Len(t, s.Messages(), 1)
-		assert.Equal(t, 1, s.AuthCommands())
-	})
-	t.Run("a wrong password is rejected", func(t *testing.T) {
-		s := testutil.NewSMTPServer(t, opts)
-		err := newMailer(t, s, with("user", "wrong")).SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy))
+		err := m.SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy))
+
 		require.ErrorIs(t, err, mailer.ErrNotAccepted)
+		assert.Equal(t, notAcceptedText, err.Error())
+		assert.Zero(t, s.AuthCommands())
 		assert.Empty(t, s.Messages())
 	})
 	t.Run("an empty username sends no AUTH", func(t *testing.T) {
 		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{})
 		require.NoError(t, newMailer(t, s, nil).SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy)))
 		assert.Zero(t, s.AuthCommands())
+		assert.Len(t, s.Messages(), 1)
 	})
 }
 
