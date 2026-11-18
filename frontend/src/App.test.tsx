@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { setUnauthenticatedHandler } from './lib/api/request'
 import { createService, deleteService, listServices } from './lib/api/services'
+import { listTargets } from './lib/api/targets'
 import { getSession, signIn, signOut, type SessionInfo } from './lib/api/session'
-import { makeService, makeServiceList, problem, sessionInfo } from './test/fixtures'
+import { makeEmailTarget, makeService, makeServiceList, problem, sessionInfo } from './test/fixtures'
 
 vi.mock('./lib/api/session')
 // The real query key is kept (an automock would empty it); only the requests are mocked.
@@ -16,6 +17,11 @@ vi.mock('./lib/api/services', async (importOriginal) => ({
   listServices: vi.fn(),
   createService: vi.fn(),
   deleteService: vi.fn(),
+}))
+vi.mock('./lib/api/targets', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/api/targets')>()),
+  listTargets: vi.fn(),
+  deleteTarget: vi.fn(),
 }))
 vi.mock('./lib/api/request', () => ({
   setCsrfToken: vi.fn(),
@@ -65,8 +71,9 @@ const adminRoutes: [string, string][] = [
   ['/nothing/here', 'requested'],
 ]
 
-// The routes that still show a placeholder when signed in: all but the dashboard and the add service form.
-const placeholderRoutes = adminRoutes.filter(([path]) => path !== '/' && path !== '/services/new')
+// The routes that still show a placeholder when signed in: all but the pages that are built.
+const builtRoutes = ['/', '/services/new', '/services/0190-abc/alerts']
+const placeholderRoutes = adminRoutes.filter(([path]) => !builtRoutes.includes(path))
 
 const dashboard = () => screen.findByRole('heading', { name: 'Services' })
 const addServiceForm = () => screen.findByRole('heading', { name: 'Add service' })
@@ -101,6 +108,27 @@ describe('App routes', () => {
     expect(signOutButton()).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Monitory' })).toHaveAttribute('href', '/')
     expect(listServices).not.toHaveBeenCalled()
+  })
+
+  it('signed in: /services/:id/alerts shows the alert list page inside the layout instead of the placeholder', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    vi.mocked(listTargets).mockResolvedValue([makeEmailTarget()])
+    renderAt('/services/0190-abc/alerts')
+    expect(await screen.findByRole('heading', { name: 'Alert list' })).toBeInTheDocument()
+    expect(await screen.findByText('Ops mailbox')).toBeInTheDocument()
+    expect(listTargets).toHaveBeenCalledWith('0190-abc')
+    expect(screen.queryByText(PLACEHOLDER)).not.toBeInTheDocument()
+    expect(signOutButton()).toBeInTheDocument()
+  })
+
+  it('signed in: the Alerts link on the dashboard opens the alert list', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    vi.mocked(listServices).mockResolvedValue(makeServiceList(makeService()))
+    vi.mocked(listTargets).mockResolvedValue([])
+    renderAt('/')
+    await userEvent.click(await screen.findByRole('link', { name: 'Alerts API gateway' }))
+    expect(await screen.findByRole('heading', { name: 'No notification targets' })).toBeInTheDocument()
+    expect(listTargets).toHaveBeenCalledWith('id-API gateway')
   })
 
   it.each(placeholderRoutes)('signed in: %s shows the %s placeholder inside the layout', async (path, page) => {
