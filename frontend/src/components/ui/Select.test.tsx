@@ -51,6 +51,7 @@ describe('Select', () => {
     const onValueChange = vi.fn()
     render(<Harness onValueChange={onValueChange} />)
     await userEvent.click(trigger())
+    await screen.findByRole('listbox')
     expect(optionNames()).toEqual(['Alpha', 'Beta', 'Gamma'])
     expect(screen.getByRole('option', { name: 'Alpha' })).toHaveAttribute('aria-selected', 'true')
 
