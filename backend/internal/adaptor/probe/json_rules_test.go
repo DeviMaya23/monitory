@@ -60,6 +60,7 @@ func TestEvaluateJSONRules_StringMatching(t *testing.T) {
 		{name: "prefix", body: `{"s":"downtime"}`, rules: []domain.JSONRule{rule("s", "down")}, want: judgedOK},
 		{name: "surrounding spaces", body: `{"s":" down "}`, rules: []domain.JSONRule{rule("s", "down")}, want: judgedOK},
 		{name: "escape decoded", body: `{"s":"down"}`, rules: []domain.JSONRule{rule("s", "down")}, want: matched, field: "s"},
+		{name: "unicode escape in the body is decoded before comparing", body: `{"s":"\u0064own"}`, rules: []domain.JSONRule{rule("s", "down")}, want: matched, field: "s"},
 		{name: "invalid utf-8 does not invalidate", body: "{\"s\":\"a\xffb\",\"t\":\"x\"}", rules: []domain.JSONRule{rule("t", "x")}, want: matched, field: "t"},
 	})
 }

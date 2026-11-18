@@ -898,6 +898,18 @@ func TestCheckHTTP_JSONBodyLimit(t *testing.T) {
 		})
 	}
 
+	t.Run("an endless body is not read past the limit", func(t *testing.T) {
+		url := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+			chunk := []byte(strings.Repeat("a", 512))
+			for r.Context().Err() == nil {
+				if _, err := w.Write(chunk); err != nil {
+					return
+				}
+				w.(http.Flusher).Flush()
+			}
+		})
+		requireFailed(t, runLimit(t, 64, withRules(get(url, longTimeout), "", rules...)), domain.FailureInvalidOrMissingJSON)
+	})
 	t.Run("large body: rules fail it, no rules do not", func(t *testing.T) {
 		ts := testutil.NewTargetServer(t)
 		ts.Script("/", testutil.Route{Body: jsonOfSize(1 << 20)})
