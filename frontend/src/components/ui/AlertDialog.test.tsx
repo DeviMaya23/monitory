@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { AlertDialog } from './AlertDialog'
+import { Dialog } from './Dialog'
 
 function Harness({
   busy = false,
@@ -106,5 +107,34 @@ describe('AlertDialog', () => {
     const user = await open()
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Elsewhere' })).toHaveFocus())
+  })
+
+  it('renders inside the app-scoped portal host, outside the page content', async () => {
+    const { container } = render(<Harness />)
+    await open()
+
+    const host = screen.getByRole('alertdialog').closest('.app.portal-host')
+    expect(host).not.toBeNull()
+    expect(host?.parentElement).toBe(document.body)
+    expect(container.contains(host)).toBe(false)
+  })
+
+  it('shares the one host with a Dialog open beside it', async () => {
+    render(
+      <>
+        <Dialog open title="First" onClose={vi.fn()}>
+          <p>body</p>
+        </Dialog>
+        <AlertDialog open title="Second" onClose={vi.fn()}>
+          <p>body</p>
+        </AlertDialog>
+      </>,
+    )
+    const dialog = await screen.findByRole('dialog', { name: 'First', hidden: true })
+    const alert = await screen.findByRole('alertdialog', { name: 'Second', hidden: true })
+    const host = dialog.closest('.app.portal-host')
+    expect(host).not.toBeNull()
+    expect(alert.closest('.app.portal-host')).toBe(host)
+    expect(document.querySelectorAll('[data-portal-host]')).toHaveLength(1)
   })
 })

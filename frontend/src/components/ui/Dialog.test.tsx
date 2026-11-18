@@ -81,4 +81,14 @@ describe('Dialog', () => {
     expect(onClose).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
+
+  it('renders inside the app-scoped portal host, outside the page content', async () => {
+    const { container } = render(<Harness />)
+    await open()
+
+    const host = screen.getByRole('dialog').closest('.app.portal-host')
+    expect(host).not.toBeNull()
+    expect(host?.parentElement).toBe(document.body)
+    expect(container.contains(host)).toBe(false)
+  })
 })

@@ -1,5 +1,6 @@
 import { Select as BaseSelect } from '@base-ui/react/select'
 import { Check, ChevronDown } from 'lucide-react'
+import { getPortalHost } from './portalHost'
 
 export type SelectOption = { value: string; label: string }
 
@@ -52,7 +53,7 @@ export function Select({
             <ChevronDown className="icon icon--sm" aria-hidden="true" />
           </BaseSelect.Icon>
         </BaseSelect.Trigger>
-        <BaseSelect.Portal>
+        <BaseSelect.Portal container={getPortalHost()}>
           <BaseSelect.Positioner className="menu-layer" alignItemWithTrigger={false} sideOffset={4}>
             <BaseSelect.Popup className="menu">
               <BaseSelect.List>

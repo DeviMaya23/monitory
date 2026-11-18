@@ -1,5 +1,6 @@
 import type { ReactNode, RefObject } from 'react'
 import { AlertDialog as BaseAlertDialog } from '@base-ui/react/alert-dialog'
+import { getPortalHost } from './portalHost'
 
 type Props = {
   open: boolean
@@ -28,7 +29,7 @@ export function AlertDialog({ open, title, onClose, busy = false, initialFocus, 
         if (!next && !busy) onClose()
       }}
     >
-      <BaseAlertDialog.Portal>
+      <BaseAlertDialog.Portal container={getPortalHost()}>
         <BaseAlertDialog.Backdrop className="dialog-backdrop" />
         <BaseAlertDialog.Viewport className="dialog-layer">
           <BaseAlertDialog.Popup className="dialog" initialFocus={initialFocus} finalFocus={finalFocus}>
