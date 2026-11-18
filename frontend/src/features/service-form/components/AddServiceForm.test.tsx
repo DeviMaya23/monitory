@@ -913,3 +913,74 @@ describe('the Alerts group (FR-20, FR-65)', () => {
     })
   })
 })
+
+describe('the Alerts group: boundaries and keyboard (FR-20, FR-65, NFR-4)', () => {
+  const unhealthyArea = () => screen.getByLabelText('Unhealthy message (optional)')
+  const recoveryArea = () => screen.getByLabelText('Recovery message (optional)')
+  const alertsSwitch = () => screen.getByRole('switch', { name: 'Send alerts' })
+  const counters = () => Array.from(document.querySelectorAll('.counter')).map((counter) => counter.textContent)
+
+  it('is reached by Tab in the order URL, switch, Unhealthy message, Recovery message, Cancel, Save; Space toggles the switch', async () => {
+    const { user } = setup()
+    await user.click(urlInput())
+    await user.tab()
+    expect(alertsSwitch()).toHaveFocus()
+    await user.keyboard(' ')
+    expect(alertsSwitch()).toHaveAttribute('aria-checked', 'false')
+    await user.keyboard(' ')
+    expect(alertsSwitch()).toHaveAttribute('aria-checked', 'true')
+    await user.tab()
+    expect(unhealthyArea()).toHaveFocus()
+    await user.tab()
+    expect(recoveryArea()).toHaveFocus()
+    await user.tab()
+    expect(cancelButton()).toHaveFocus()
+  })
+
+  it('counts exactly 500 as 500/500 and 500 plus three trailing spaces as 503/500, with no error, and sends them untrimmed', async () => {
+    vi.mocked(createService).mockResolvedValueOnce(makeService())
+    const { user } = setup()
+    await fill(user)
+    await user.click(unhealthyArea())
+    await user.paste('a'.repeat(500))
+    await user.click(recoveryArea())
+    await user.paste(`${'b'.repeat(500)}   `)
+    expect(counters()).toEqual(['500/500', '503/500'])
+    expect(document.querySelector('.error-text')).toBeNull()
+    await user.click(saveButton())
+    await marker()
+    expect(sentInput().unhealthy_message).toBe('a'.repeat(500))
+    expect(sentInput().recovery_message).toBe(`${'b'.repeat(500)}   `)
+  })
+
+  it('keeps a line break in a message, counts it as one character and sends it', async () => {
+    vi.mocked(createService).mockResolvedValueOnce(makeService())
+    const { user } = setup()
+    await fill(user)
+    await user.type(unhealthyArea(), 'a{Enter}b')
+    expect(counters()[0]).toBe('3/500')
+    await user.click(saveButton())
+    await marker()
+    expect(sentInput().unhealthy_message).toBe('a\nb')
+  })
+
+  it('keeps both field errors and the summary when the switch is turned off and on', async () => {
+    const { user } = setup()
+    await failWith(
+      user,
+      validationProblem(fieldError('unhealthy_message', 'Too long.', 'too_long'), fieldError('recovery_message', 'Also too long.', 'too_long')),
+    )
+    await user.click(alertsSwitch())
+    expect(unhealthyArea()).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    await user.click(alertsSwitch())
+    expect(unhealthyArea()).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('opens the discard question for Cancel after a message of one space', async () => {
+    const { user } = setup()
+    await user.type(unhealthyArea(), ' ')
+    await user.click(cancelButton())
+    expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+  })
+})
