@@ -54,6 +54,21 @@ func (r *ServiceRepository) Create(ctx context.Context, service domain.Service, 
 	})
 }
 
+// Find returns the service as saved, without its state, times in UTC. It returns
+// domain.ErrNotFound when no row has that id and writes nothing.
+func (r *ServiceRepository) Find(ctx context.Context, id string) (domain.Service, error) {
+	var service domain.Service
+	err := r.db.WithContext(ctx).Where("id = ?", id).Take(&service).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return domain.Service{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Service{}, err
+	}
+	service.CreatedAt, service.UpdatedAt = service.CreatedAt.UTC(), service.UpdatedAt.UTC()
+	return service, nil
+}
+
 // serviceRow is one row of the list query: the service, its state and the two values
 // computed from targets.
 type serviceRow struct {
