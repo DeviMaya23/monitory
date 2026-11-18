@@ -31,6 +31,7 @@
 /* The dialog's live region and error summary (the same shape as the service form's). */
 .form-banners { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
 .form-banners:empty { display: none; }
+.header-rows__legend { margin-bottom: 6px; }
 .form-summary { margin: var(--space-1) 0 0; padding-left: 18px; list-style: disc; }
 
 @container app (max-width: 640px) {

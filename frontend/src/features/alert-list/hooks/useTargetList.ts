@@ -12,8 +12,8 @@ export type TargetListView = {
   refreshFailed: boolean
   /** Any request for the list is in flight. */
   fetching: boolean
-  /** Fetches the list again; the rows stay while it runs. */
-  refresh: () => void
+  /** Fetches the list again; the rows stay while it runs. Resolves when the request has ended, whatever its outcome. */
+  refresh: () => Promise<void>
 }
 
 /** One service's alert list: a single query with no retry and no interval, and the screen state derived from it (FR-17). */
@@ -38,8 +38,8 @@ export function useTargetList(serviceId: string): TargetListView {
     targets: state === 'list' ? (data ?? []) : [],
     refreshFailed: data !== undefined && query.isError && !notFound,
     fetching: query.isFetching,
-    refresh: () => {
-      void query.refetch()
+    refresh: async () => {
+      await query.refetch()
     },
   }
 }

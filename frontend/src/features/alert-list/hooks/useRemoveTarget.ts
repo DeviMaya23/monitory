@@ -57,10 +57,16 @@ export function useRemoveTarget(serviceId: string) {
       if (outcome === 'unauthenticated') return
       if (outcome === 'already-removed') {
         await removeFromList(variables)
-        toast.show({ kind: 'error', message: 'That target was already removed.' })
+        toast.show({
+          kind: 'error',
+          message: 'That target was already removed.',
+        })
         setClosed({ id: variables.targetId, as: 'removed' })
         // Not awaited: the removal settles now; a deleted service then shows "not found".
-        void queryClient.refetchQueries({ queryKey: targetsQueryKey(variables.serviceId), exact: true })
+        void queryClient.refetchQueries({
+          queryKey: targetsQueryKey(variables.serviceId),
+          exact: true,
+        })
         return
       }
       if (outcome === 'csrf') {
@@ -70,7 +76,10 @@ export function useRemoveTarget(serviceId: string) {
           action: { label: 'Reload', onClick: () => window.location.reload() },
         })
       } else {
-        toast.show({ kind: 'error', message: 'Couldn’t remove the target. Try again.' })
+        toast.show({
+          kind: 'error',
+          message: 'Couldn’t remove the target. Try again.',
+        })
       }
       setClosed({ id: variables.targetId, as: 'kept' })
     },
@@ -96,6 +105,11 @@ export function useRemoveTarget(serviceId: string) {
     cancel: () => {
       if (inFlight.current || askedId === null) return
       setClosed({ id: askedId, as: 'kept' })
+      setAskedId(null)
+    },
+    /** Closes the question without sending anything and without a focus move (a dialog opens instead); does nothing while a request is in flight. */
+    dismiss: () => {
+      if (inFlight.current) return
       setAskedId(null)
     },
     /** Sends the removal for the asked target; does nothing without one or while a request is in flight. */

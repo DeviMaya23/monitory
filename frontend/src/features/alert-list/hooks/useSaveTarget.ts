@@ -65,7 +65,10 @@ export function useSaveTarget(serviceId: string) {
           { updatedAt: entry.dataUpdatedAt },
         )
       }
-      toast.show({ kind: 'success', message: targetId === null ? 'Target added.' : 'Target saved.' })
+      toast.show({
+        kind: 'success',
+        message: targetId === null ? 'Target added.' : 'Target saved.',
+      })
     },
     onSettled: () => {
       inFlight.current = false
@@ -80,6 +83,10 @@ export function useSaveTarget(serviceId: string) {
     /** A request is in flight. */
     saving: mutation.isPending,
     failure,
+    /** Drops the last failure (a new attempt starts). Does nothing while a request is in flight. */
+    clearFailure: () => {
+      if (!inFlight.current) mutation.reset()
+    },
     /**
      * Sends the input once (does nothing while a request is in flight). Resolves with the saved
      * target, or with null after a failure.
