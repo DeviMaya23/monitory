@@ -1,6 +1,9 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react'
-import { LoaderCircle, Mail, Pencil, Trash2, Webhook } from 'lucide-react'
+import { LoaderCircle, Mail, Pencil, Trash2, TriangleAlert, Webhook } from 'lucide-react'
 import type { Target } from '../../../lib/api/targets'
+
+/** Fixed text (NFR-7); shown while the server says the last delivery failed (FR-86). */
+const DELIVERY_FAILED_NOTICE = 'Last delivery failed. Shown until a later delivery succeeds.'
 
 /** What names a target: its name, or when that is absent, empty or only spaces, its address or URL. */
 function targetLabel(target: Target): string {
@@ -67,6 +70,12 @@ export function TargetRow({
           <span className="chip">{isEmail ? 'EMAIL' : 'WEBHOOK'}</span>
         </div>
         <span className="target__addr">{isEmail ? target.address : target.url}</span>
+        {target.last_delivery_failed === true && (
+          <p className="notice notice--warn">
+            <TriangleAlert className="icon icon--sm" aria-hidden="true" />
+            <span>{DELIVERY_FAILED_NOTICE}</span>
+          </p>
+        )}
       </div>
       {asking ? (
         <div className="target__confirm" role="group" aria-label="Confirm removal" onKeyDown={onKeyDown}>

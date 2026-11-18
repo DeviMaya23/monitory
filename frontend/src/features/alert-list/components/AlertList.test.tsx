@@ -8,7 +8,7 @@ import { ToastProvider } from '../../../components/ui/Toast'
 import { setUnauthenticatedHandler } from '../../../lib/api/request'
 import { listServices } from '../../../lib/api/services'
 import { getSession } from '../../../lib/api/session'
-import { deleteTarget, listTargets, type TargetList } from '../../../lib/api/targets'
+import { deleteTarget, listTargets, updateTarget, type Target, type TargetList } from '../../../lib/api/targets'
 import AlertListPage from '../../../pages/AlertListPage'
 import {
   makeEmailTarget,
@@ -29,6 +29,7 @@ vi.mock('../../../lib/api/targets', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/api/targets')>()),
   listTargets: vi.fn(),
   deleteTarget: vi.fn(),
+  updateTarget: vi.fn(),
 }))
 vi.mock('../../../lib/api/request', () => ({ setCsrfToken: vi.fn(), setUnauthenticatedHandler: vi.fn() }))
 
@@ -500,5 +501,138 @@ describe('removing a target', () => {
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
     expect(screen.queryByRole('list', { name: 'Notification targets' })).not.toBeInTheDocument()
     expect(screen.queryByText(/Couldn’t remove|already removed|Target removed/)).not.toBeInTheDocument()
+  })
+})
+
+describe('the delivery-failed notice (FR-86)', () => {
+  const TEXT = 'Last delivery failed. Shown until a later delivery succeeds.'
+  const first = makeEmailTarget({ name: 'First', address: 'first@example.com' })
+  const second = makeWebhookTarget({ name: 'Second', url: 'https://second.example.com' })
+  const third = makeEmailTarget({ name: 'Third', address: 'third@example.com' })
+  const flagged = (target: Target, value = true): Target => ({ ...target, last_delivery_failed: value })
+  const notices = () => document.querySelectorAll('.notice')
+  const rowOf = (name: string) => screen.getByText(name).closest('li') as HTMLElement
+  const noticeIn = (name: string) => rowOf(name).querySelector('.notice')
+
+  /** Removes `name` through a 404 and makes the refetch reject, so the rows stay under the banner. */
+  async function failReloadByRemoving(name: string) {
+    vi.mocked(deleteTarget).mockRejectedValueOnce(problem(404, 'not_found'))
+    vi.mocked(listTargets).mockRejectedValueOnce(problem(500, 'internal_error'))
+    await userEvent.click(removeButton(name))
+    await userEvent.click(confirmRemove())
+    await screen.findByText('Something went wrong.')
+  }
+
+  it('shows the notice only in the flagged row, in server order, with the sub line unchanged (FR-17)', async () => {
+    await shown(makeTargetList(first, flagged(second), third))
+    expect(notices()).toHaveLength(1)
+    expect(noticeIn('Second')?.textContent).toBe(TEXT)
+    expect(noticeIn('First')).toBeNull()
+    expect(noticeIn('Third')).toBeNull()
+    const rows = screen.getAllByRole('listitem')
+    expect(rows.map((li) => li.querySelector('.target__name')?.textContent)).toEqual(['First', 'Second', 'Third'])
+    expect(screen.getByText('3 targets · in the order added')).toBeInTheDocument()
+  })
+
+  it('shows none when none is flagged and three when all are', async () => {
+    const none = renderPage
+    vi.mocked(listServices).mockResolvedValue(makeServiceList(service))
+    vi.mocked(listTargets).mockResolvedValue(makeTargetList(first, second, third))
+    const view = none()
+    await screen.findByRole('list', { name: 'Notification targets' })
+    expect(notices()).toHaveLength(0)
+    view.unmount()
+    vi.mocked(listTargets).mockResolvedValue(makeTargetList(flagged(first), flagged(second), flagged(third)))
+    renderPage()
+    await screen.findByRole('list', { name: 'Notification targets' })
+    expect(notices()).toHaveLength(3)
+  })
+
+  it('keeps the rows under the banner when a reload fails after a 404 removal', async () => {
+    await shown(makeTargetList(flagged(first), flagged(second)))
+    await failReloadByRemoving('First')
+    expect(listTargets).toHaveBeenCalledTimes(2)
+    expect(screen.getAllByRole('listitem')).toHaveLength(1)
+    expect(noticeIn('Second')).not.toBeNull()
+  })
+
+  it('drops the notice when a reload says false for that target', async () => {
+    await shown(makeTargetList(flagged(first), flagged(second)))
+    await failReloadByRemoving('First')
+    expect(noticeIn('Second')?.textContent).toBe(TEXT)
+    vi.mocked(listTargets).mockResolvedValueOnce(makeTargetList(flagged(second, false)))
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument())
+    expect(screen.getAllByRole('listitem')).toHaveLength(1)
+    expect(rowOf('Second')).toBeInTheDocument()
+    expect(notices()).toHaveLength(0)
+  })
+
+  it('shows the notice when a reload says true for a target that showed none', async () => {
+    await shown(makeTargetList(first, second))
+    await failReloadByRemoving('Second')
+    expect(notices()).toHaveLength(0)
+    vi.mocked(listTargets).mockResolvedValueOnce(makeTargetList(flagged(first)))
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(noticeIn('First')).not.toBeNull())
+    expect(notices()).toHaveLength(1)
+  })
+
+  describe.each([
+    ['true', true],
+    ['false', false],
+  ])('edit through the dialog on a flagged row, answered with %s', (_name, answer) => {
+    it(answer ? 'keeps the notice' : 'drops the notice', async () => {
+      await shown(makeTargetList(first, flagged(second), flagged(third)))
+      vi.mocked(updateTarget).mockResolvedValue(flagged(second, answer))
+      await userEvent.click(editButton('Second'))
+      const dialog = await screen.findByRole('dialog', { name: 'Edit target' })
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save target' }))
+      await toastShown('Target saved.')
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: /^(Add|Edit) target$/ })).not.toBeInTheDocument())
+      expect(updateTarget).toHaveBeenCalledOnce()
+      expect(noticeIn('Second') !== null).toBe(answer)
+      expect(noticeIn('First')).toBeNull()
+      expect(noticeIn('Third')).not.toBeNull()
+    })
+  })
+
+  it('removing a flagged target (204) removes its notice and adds none elsewhere', async () => {
+    await shown(makeTargetList(first, flagged(second), third))
+    vi.mocked(deleteTarget).mockResolvedValueOnce(undefined)
+    await userEvent.click(removeButton('Second'))
+    await userEvent.click(confirmRemove())
+    await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2))
+    expect(screen.queryByText('Second')).not.toBeInTheDocument()
+    expect(notices()).toHaveLength(0)
+  })
+
+  it('keeps the notice while the removal question is open and after Cancel', async () => {
+    await shown(makeTargetList(first, flagged(second)))
+    await userEvent.click(removeButton('Second'))
+    expect(noticeIn('Second')?.textContent).toBe(TEXT)
+    await userEvent.click(within(confirming()).getByRole('button', { name: 'Cancel' }))
+    expect(noticeIn('Second')?.textContent).toBe(TEXT)
+    expect(notices()).toHaveLength(1)
+  })
+
+  it('follows the data on a reload while another row\'s removal question is open (verifier)', async () => {
+    await shown(makeTargetList(first, flagged(second), flagged(third)))
+    await failReloadByRemoving('First')
+    await userEvent.click(removeButton('Third'))
+    expect(noticeIn('Third')).not.toBeNull()
+    vi.mocked(listTargets).mockResolvedValueOnce(makeTargetList(flagged(second, false), flagged(third)))
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument())
+    expect(confirming()).toBeInTheDocument()
+    expect(noticeIn('Second')).toBeNull()
+    expect(noticeIn('Third')?.textContent).toBe(TEXT)
+    expect(notices()).toHaveLength(1)
+  })
+
+  it('shows five notices for five flagged targets (verifier)', async () => {
+    const five = ['a', 'b', 'c', 'd', 'e'].map((n) => flagged(makeEmailTarget({ name: n, address: `${n}@example.com` })))
+    await shown(makeTargetList(...five))
+    expect(notices()).toHaveLength(5)
   })
 })
