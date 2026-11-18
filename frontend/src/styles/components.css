@@ -456,6 +456,24 @@
 /* The positioner of a select's popup: above a sticky footer, below a dialog. */
 .menu-layer { z-index: 10; }
 
+/* The portal host: where the dialog, alert dialog and select list render (`getPortalHost()`).
+   It carries the class `app` so the `.app` rules (container query, font, resets, focus ring)
+   reach the popups. It is fixed and viewport-sized, so the library's fixed layers cover the
+   viewport, not `#root` (whose `container-type` contains fixed descendants). It must stay
+   AFTER the `.app` rule: equal specificity, so order lets it cancel `min-height`, `background`
+   and `position: relative`. It ignores the pointer; everything inside takes it back, unclassed
+   library elements (modal blockers) included. `z-index` puts popups above the toast viewport
+   (30); inside it the dialog layer (20) stays above the select layer (10). */
+.portal-host {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  min-height: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.portal-host * { pointer-events: auto; }
+
 /* ---------- Dialog (Base UI Dialog / AlertDialog) ---------- */
 .dialog-layer {
   position: fixed;
