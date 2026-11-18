@@ -434,6 +434,7 @@ describe('Add service (FR-6, FR-4)', () => {
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
+      settings: { check_interval_seconds: 60, timeout_seconds: 10, retry_count: 2, retry_interval_seconds: 10 },
     })
     expect(signOutButton()).toBeInTheDocument()
   })

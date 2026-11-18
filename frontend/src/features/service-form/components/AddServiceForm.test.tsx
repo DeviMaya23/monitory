@@ -56,7 +56,10 @@ function unloadPrompts(): boolean {
   return event.defaultPrevented
 }
 
-type Settle = { resolve: (service: Service) => void; reject: (error: unknown) => void }
+type Settle = {
+  resolve: (service: Service) => void
+  reject: (error: unknown) => void
+}
 function pending(): Settle {
   const settle: Settle = { resolve: () => {}, reject: () => {} }
   vi.mocked(createService).mockReturnValueOnce(
@@ -139,6 +142,12 @@ describe('saving a valid form (FR-6, FR-12)', () => {
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
+      settings: {
+        check_interval_seconds: 60,
+        timeout_seconds: 10,
+        retry_count: 2,
+        retry_interval_seconds: 10,
+      },
     })
     expect(saveButton()).toHaveTextContent('Saving…')
     expect(saveButton()).toHaveAttribute('aria-busy', 'true')
@@ -207,7 +216,11 @@ describe('the method (FR-36)', () => {
     await chooseMethod(user, 'PATCH')
     await user.click(saveButton())
     await marker()
-    expect(sentInput().check).toStrictEqual({ type: 'http', method: 'PATCH', url: URL_VALUE })
+    expect(sentInput().check).toStrictEqual({
+      type: 'http',
+      method: 'PATCH',
+      url: URL_VALUE,
+    })
   })
 
   it('sends GET by default', async () => {
@@ -216,7 +229,11 @@ describe('the method (FR-36)', () => {
     await fill(user)
     await user.click(saveButton())
     await marker()
-    expect(sentInput().check).toStrictEqual({ type: 'http', method: 'GET', url: URL_VALUE })
+    expect(sentInput().check).toStrictEqual({
+      type: 'http',
+      method: 'GET',
+      url: URL_VALUE,
+    })
   })
 })
 
@@ -334,7 +351,11 @@ describe('client checks', () => {
     await fill(user, 'Search API', 'ftp://files.example.com')
     await user.click(saveButton())
     await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
-    expect(sentInput().check).toStrictEqual({ type: 'http', method: 'GET', url: 'ftp://files.example.com' })
+    expect(sentInput().check).toStrictEqual({
+      type: 'http',
+      method: 'GET',
+      url: 'ftp://files.example.com',
+    })
   })
 })
 
@@ -361,7 +382,11 @@ describe('422 validation_failed (FR-12, FR-74, NFR-4)', () => {
     expect(summary).toHaveTextContent('3 fields need fixing before this can be saved.')
     expect(summary).toHaveAttribute('tabindex', '-1')
     expect(summary).toHaveFocus()
-    expect(within(summary).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+    expect(
+      within(summary)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
       'Name: The name is over the 40 characters this install allows.',
       'URL: The address must begin with http or https here.',
       'Method: This install does not check with that method.',
@@ -393,7 +418,11 @@ describe('422 validation_failed (FR-12, FR-74, NFR-4)', () => {
     expect(describedBy(urlInput())).toBe('Starts with http:// or https://.')
     const summary = screen.getByRole('alert')
     expect(summary).toHaveTextContent('2 fields need fixing before this can be saved.')
-    expect(within(summary).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+    expect(
+      within(summary)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
       'Name: The name is over the 40 characters this install allows.',
       'Method: This install does not check with that method.',
     ])
@@ -412,10 +441,10 @@ describe('422 validation_failed (FR-12, FR-74, NFR-4)', () => {
 
   it('lists an unmapped path as plain text with no link, and no field shows an error', async () => {
     const { user } = setup()
-    await failWith(user, validationProblem(fieldError('settings', 'The timing does not fit.', 'check_budget_exceeded')))
+    await failWith(user, validationProblem(fieldError('check.headers[0].value', 'The value is not allowed.')))
     const summary = screen.getByRole('alert')
     expect(summary).toHaveTextContent('1 field needs fixing before this can be saved.')
-    expect(within(summary).getByRole('listitem')).toHaveTextContent('settings: The timing does not fit.')
+    expect(within(summary).getByRole('listitem')).toHaveTextContent('check.headers[0].value: The value is not allowed.')
     expect(within(summary).queryByRole('link')).not.toBeInTheDocument()
     expect(summary).toHaveFocus()
     expect(document.querySelector('[aria-invalid]')).toBeNull()
@@ -523,6 +552,12 @@ describe('the banners', () => {
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
+      settings: {
+        check_interval_seconds: 60,
+        timeout_seconds: 10,
+        retry_count: 2,
+        retry_interval_seconds: 10,
+      },
     })
 
     await act(async () => settle.resolve(makeService({ name: 'Search API' })))
@@ -654,22 +689,27 @@ describe('leaving', () => {
   it.each([
     ['Cancel', cancelButton],
     ['the back link', backLink],
-  ])('%s with a typed name opens the dialog with Keep editing focused; Keep editing closes it', async (_name, opener) => {
-    const { user } = setup()
-    await user.type(nameInput(), 'Search API')
-    expect(footerStatus()).toHaveTextContent('Unsaved changes')
-    await user.click(opener())
-    const dialog = await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })
-    expect(dialog).toHaveTextContent('The changes to this service will be lost.')
-    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Keep editing' })).toHaveFocus())
-    expect(screen.queryByText('dashboard marker')).not.toBeInTheDocument()
+  ])(
+    '%s with a typed name opens the dialog with Keep editing focused; Keep editing closes it',
+    async (_name, opener) => {
+      const { user } = setup()
+      await user.type(nameInput(), 'Search API')
+      expect(footerStatus()).toHaveTextContent('Unsaved changes')
+      await user.click(opener())
+      const dialog = await screen.findByRole('dialog', {
+        name: 'Discard unsaved changes?',
+      })
+      expect(dialog).toHaveTextContent('The changes to this service will be lost.')
+      await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Keep editing' })).toHaveFocus())
+      expect(screen.queryByText('dashboard marker')).not.toBeInTheDocument()
 
-    await user.click(within(dialog).getByRole('button', { name: 'Keep editing' }))
-    await waitFor(() => expect(discardDialog()).not.toBeInTheDocument())
-    expect(nameInput()).toHaveValue('Search API')
-    expect(screen.queryByText('dashboard marker')).not.toBeInTheDocument()
-    await waitFor(() => expect(opener()).toHaveFocus())
-  })
+      await user.click(within(dialog).getByRole('button', { name: 'Keep editing' }))
+      await waitFor(() => expect(discardDialog()).not.toBeInTheDocument())
+      expect(nameInput()).toHaveValue('Search API')
+      expect(screen.queryByText('dashboard marker')).not.toBeInTheDocument()
+      await waitFor(() => expect(opener()).toHaveFocus())
+    },
+  )
 
   it('Esc closes the dialog and keeps the values', async () => {
     const { user } = setup()
@@ -686,7 +726,9 @@ describe('leaving', () => {
     const { user } = setup()
     await user.type(nameInput(), 'Search API')
     await user.click(cancelButton())
-    const dialog = await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Discard unsaved changes?',
+    })
     await user.click(within(dialog).getByRole('button', { name: 'Discard changes' }))
     expect(await marker()).toBeInTheDocument()
     expect(createService).not.toHaveBeenCalled()
@@ -747,7 +789,7 @@ describe('the Alerts group (FR-20, FR-65)', () => {
   it('shows after the Request group: the switch on and described, two text areas with counters at 0/500', () => {
     setup()
     const legends = Array.from(document.querySelectorAll('legend')).map((legend) => legend.textContent)
-    expect(legends).toEqual(['Service', 'Request', 'Alerts'])
+    expect(legends).toEqual(['Service', 'Request', 'Timing', 'Alerts'])
     expect(alertsSwitch()).toHaveAttribute('aria-checked', 'true')
     expect(alertsSwitch()).toHaveAccessibleDescription('To this service’s alert list when it goes down or recovers.')
     expect(screen.getByText('On')).toBeInTheDocument()
@@ -799,6 +841,12 @@ describe('the Alerts group (FR-20, FR-65)', () => {
       alerts_enabled: false,
       unhealthy_message: '  down ',
       recovery_message: '<b>x</b>',
+      settings: {
+        check_interval_seconds: 60,
+        timeout_seconds: 10,
+        retry_count: 2,
+        retry_interval_seconds: 10,
+      },
     })
   })
 
@@ -875,11 +923,11 @@ describe('the Alerts group (FR-20, FR-65)', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 
-    it('lists a path for settings as plain text with no link and no field error', async () => {
+    it('lists a header path as plain text with no link and no field error', async () => {
       const { user } = setup()
-      await failWith(user, validationProblem(fieldError('settings', 'Not on this screen.')))
+      await failWith(user, validationProblem(fieldError('check.headers[0].value', 'Not on this screen.')))
       expect(within(screen.getByRole('alert')).queryByRole('link')).toBeNull()
-      expect(screen.getByRole('alert')).toHaveTextContent('settings: Not on this screen.')
+      expect(screen.getByRole('alert')).toHaveTextContent('check.headers[0].value: Not on this screen.')
       expect(document.querySelector('.error-text')).toBeNull()
     })
 
@@ -920,9 +968,13 @@ describe('the Alerts group: boundaries and keyboard (FR-20, FR-65, NFR-4)', () =
   const alertsSwitch = () => screen.getByRole('switch', { name: 'Send alerts' })
   const counters = () => Array.from(document.querySelectorAll('.counter')).map((counter) => counter.textContent)
 
-  it('is reached by Tab in the order URL, switch, Unhealthy message, Recovery message, Cancel, Save; Space toggles the switch', async () => {
+  it('is reached by Tab in the order URL, the four timing inputs, switch, Unhealthy message, Recovery message, Cancel, Save; Space toggles the switch', async () => {
     const { user } = setup()
     await user.click(urlInput())
+    await user.tab()
+    await user.tab()
+    await user.tab()
+    await user.tab()
     await user.tab()
     expect(alertsSwitch()).toHaveFocus()
     await user.keyboard(' ')
@@ -968,7 +1020,10 @@ describe('the Alerts group: boundaries and keyboard (FR-20, FR-65, NFR-4)', () =
     const { user } = setup()
     await failWith(
       user,
-      validationProblem(fieldError('unhealthy_message', 'Too long.', 'too_long'), fieldError('recovery_message', 'Also too long.', 'too_long')),
+      validationProblem(
+        fieldError('unhealthy_message', 'Too long.', 'too_long'),
+        fieldError('recovery_message', 'Also too long.', 'too_long'),
+      ),
     )
     await user.click(alertsSwitch())
     expect(unhealthyArea()).toHaveAttribute('aria-invalid', 'true')
@@ -982,5 +1037,280 @@ describe('the Alerts group: boundaries and keyboard (FR-20, FR-65, NFR-4)', () =
     await user.type(unhealthyArea(), ' ')
     await user.click(cancelButton())
     expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+  })
+})
+
+describe('the Timing group (FR-41, FR-51, FR-53, FR-56, FR-57)', () => {
+  const interval = () => screen.getByLabelText('Check interval')
+  const timeout = () => screen.getByLabelText('Timeout')
+  const retries = () => screen.getByLabelText('Retries')
+  const retryInterval = () => screen.getByLabelText('Retry interval')
+  const inputs = () => [interval(), timeout(), retries(), retryInterval()]
+  const alertsSwitch = () => screen.getByRole('switch', { name: 'Send alerts' })
+  const line = () => document.querySelector('.timing-sum')
+  const group = () => screen.getByText('Timing', { selector: 'legend' }).closest('fieldset') as HTMLElement
+  const summary = () => screen.getByRole('alert')
+  const WHOLE = 'Enter a whole number.'
+  const set = async (user: ReturnType<typeof userEvent.setup>, input: HTMLElement, text: string) => {
+    await user.clear(input)
+    if (text !== '') await user.type(input, text)
+  }
+  const BUDGET = 'The longest attempt, 70 s, is longer than the 30 s interval.'
+  const budget = () => fieldError('settings', BUDGET, 'check_budget_exceeded')
+  const rangeError = (path: string, message: string) => fieldError(path, message, 'out_of_range')
+
+  it('shows between Request and Alerts with four inputs at 60, 10, 2, 10, their addons, no placeholder, and the line', () => {
+    setup()
+    expect(inputs().map((input) => (input as HTMLInputElement).value)).toEqual(['60', '10', '2', '10'])
+    for (const input of inputs()) {
+      expect(input).not.toHaveAttribute('placeholder')
+      expect(input).toHaveAttribute('inputmode', 'numeric')
+      expect(input).toHaveClass('input--mono')
+      expect(input.closest('.input-group')).not.toBeNull()
+    }
+    expect(
+      inputs().map((input) => input.closest('.input-group')?.querySelector('.input-group__addon')?.textContent),
+    ).toEqual(['s', 's', 'times', 's'])
+    expect(group().querySelector('.hint')).toBeNull()
+    expect(line()).toHaveTextContent('Longest attempt: 10 × (1 + 2) + 10 × 2 = 50 s fits in the 60 s interval.')
+    expect(group()).toHaveAttribute('aria-describedby', line()?.id)
+    expect(footerStatus()).toBeEmptyDOMElement()
+  })
+
+  it('updates the line as the admin types, hides it for a blank or non-number, and shows fits again', async () => {
+    const { user } = setup()
+    await set(user, interval(), '30')
+    await set(user, retries(), '3')
+    expect(line()).toHaveTextContent('10 × (1 + 3) + 10 × 3 = 70 s exceeds the 30 s interval.')
+    await set(user, interval(), '')
+    expect(line()).toBeNull()
+    expect(group()).not.toHaveAttribute('aria-describedby')
+    await set(user, interval(), '70')
+    expect(line()).toHaveTextContent('fits in the 70 s interval.')
+    await set(user, timeout(), 'abc')
+    expect(line()).toBeNull()
+    await set(user, timeout(), '007')
+    await set(user, retries(), '0')
+    expect(line()).toHaveTextContent('7 × (1 + 0) + 10 × 0 = 7 s fits in the 70 s interval.')
+  })
+
+  it('still sends the request when the line says exceeds (FR-56: the server decides)', async () => {
+    vi.mocked(createService).mockResolvedValueOnce(makeService())
+    const { user } = setup()
+    await set(user, interval(), '30')
+    await set(user, retries(), '3')
+    expect(line()).toHaveTextContent('exceeds')
+    await fill(user)
+    await user.click(saveButton())
+    await marker()
+    expect(sentInput().settings).toStrictEqual({
+      check_interval_seconds: 30,
+      timeout_seconds: 10,
+      retry_count: 3,
+      retry_interval_seconds: 10,
+    })
+  })
+
+  it('sends the typed values as integers, with spaces trimmed', async () => {
+    vi.mocked(createService).mockResolvedValueOnce(makeService())
+    const { user } = setup()
+    await set(user, interval(), '45')
+    await set(user, timeout(), '5')
+    await set(user, retries(), '0')
+    await set(user, retryInterval(), ' 12 ')
+    await fill(user)
+    await user.click(saveButton())
+    await marker()
+    expect(sentInput().settings).toStrictEqual({
+      check_interval_seconds: 45,
+      timeout_seconds: 5,
+      retry_count: 0,
+      retry_interval_seconds: 12,
+    })
+  })
+
+  describe('client checks', () => {
+    it.each(['', ' ', 'abc', '-1', '1.5', '99999999999999999999'])(
+      'refuses %j with a message under the field, focuses it, sends nothing, and drops the message on edit',
+      async (bad) => {
+        const { user } = setup()
+        await fill(user)
+        await set(user, timeout(), bad)
+        await user.click(saveButton())
+        expect(createService).not.toHaveBeenCalled()
+        expect(describedBy(timeout())).toBe(WHOLE)
+        expect(timeout()).toHaveAttribute('aria-invalid', 'true')
+        expect(timeout()).toHaveFocus()
+        await user.type(timeout(), '5')
+        expect(timeout()).not.toHaveAttribute('aria-invalid')
+        expect(screen.queryByText(WHOLE)).toBeNull()
+      },
+    )
+
+    it('shows both bad fields and focuses the first in the order of the form', async () => {
+      const { user } = setup()
+      await fill(user)
+      await set(user, retryInterval(), 'x')
+      await set(user, retries(), 'y')
+      await user.click(saveButton())
+      expect(screen.getAllByText(WHOLE)).toHaveLength(2)
+      expect(retries()).toHaveFocus()
+      expect(createService).not.toHaveBeenCalled()
+    })
+
+    it('puts the Name before the timing fields', async () => {
+      const { user } = setup()
+      await set(user, interval(), 'x')
+      await user.click(saveButton())
+      expect(nameInput()).toHaveFocus()
+      expect(describedBy(interval())).toBe(WHOLE)
+    })
+  })
+
+  it('locks the four inputs in flight and unlocks them after a failure', async () => {
+    const settle = pending()
+    const { user } = setup()
+    await fill(user)
+    await user.click(saveButton())
+    for (const input of inputs()) expect(input).toHaveAttribute('readonly')
+    expect(line()).not.toBeNull()
+    await act(async () => settle.reject(problem(500, 'internal_error')))
+    await waitFor(() => expect(saveButton()).toBeEnabled())
+    for (const input of inputs()) expect(input).not.toHaveAttribute('readonly')
+  })
+
+  describe('a 422 for fields', () => {
+    const twoErrors = () =>
+      validationProblem(
+        rangeError('settings.timeout_seconds', 'The timeout is 1 to 300 seconds. <b>x</b>'),
+        rangeError('settings.retry_count', 'Retries are 0 to 5.'),
+      )
+
+    it('lists Timeout then Retries, shows each message under its input as text, and focuses the summary', async () => {
+      const { user } = setup()
+      await failWith(user, twoErrors())
+      const items = within(summary()).getAllByRole('listitem')
+      expect(items.map((item) => item.textContent)).toEqual([
+        'Timeout: The timeout is 1 to 300 seconds. <b>x</b>',
+        'Retries: Retries are 0 to 5.',
+      ])
+      expect(describedBy(timeout())).toBe('The timeout is 1 to 300 seconds. <b>x</b>')
+      expect(describedBy(retries())).toBe('Retries are 0 to 5.')
+      expect(timeout()).toHaveAttribute('aria-invalid', 'true')
+      expect(retries()).toHaveAttribute('aria-invalid', 'true')
+      expect(interval()).not.toHaveAttribute('aria-invalid')
+      expect(retryInterval()).not.toHaveAttribute('aria-invalid')
+      expect(document.querySelector('main b')).toBeNull()
+      expect(summary()).toHaveFocus()
+    })
+
+    it('moves focus to the input from its summary link', async () => {
+      const { user } = setup()
+      await failWith(user, twoErrors())
+      await user.click(within(summary()).getByRole('link', { name: /^Retries:/ }))
+      expect(retries()).toHaveFocus()
+      await act(async () => summary().focus())
+      await user.click(within(summary()).getByRole('link', { name: /^Timeout:/ }))
+      expect(timeout()).toHaveFocus()
+    })
+
+    it('editing one input removes only its error and entry', async () => {
+      const { user } = setup()
+      await failWith(user, twoErrors())
+      await user.type(timeout(), '0')
+      expect(timeout()).not.toHaveAttribute('aria-invalid')
+      expect(retries()).toHaveAttribute('aria-invalid', 'true')
+      expect(within(summary()).getAllByRole('listitem')).toHaveLength(1)
+      await user.type(retries(), '0')
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it('a 422 for check.url and a timing error clear independently', async () => {
+      const { user } = setup()
+      await failWith(
+        user,
+        validationProblem(
+          fieldError('check.url', 'Needs a scheme.'),
+          rangeError('settings.retry_interval_seconds', 'Range.'),
+        ),
+      )
+      expect(describedBy(urlInput())).toBe('Needs a scheme.')
+      expect(describedBy(retryInterval())).toBe('Range.')
+      await user.type(urlInput(), 'x')
+      expect(urlInput()).not.toHaveAttribute('aria-invalid')
+      expect(retryInterval()).toHaveAttribute('aria-invalid', 'true')
+      expect(within(summary()).getAllByRole('listitem')).toHaveLength(1)
+      await user.type(retryInterval(), '1')
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+  })
+
+  describe('a 422 for the group (FR-56)', () => {
+    it('shows the server message under the legend with the icon, marks the group, and lists Timing as plain text', async () => {
+      const { user } = setup()
+      await failWith(user, validationProblem(budget()))
+      const error = group().querySelector('.error-text') as HTMLElement
+      expect(group().querySelector('legend')?.nextElementSibling).toBe(error)
+      expect(error).toHaveTextContent(BUDGET)
+      expect(error.firstElementChild?.tagName.toLowerCase()).toBe('svg')
+      expect(group()).toHaveClass('group--invalid')
+      expect(group().getAttribute('aria-describedby')?.split(' ')).toEqual([line()?.id, error.id])
+      const item = within(summary()).getByRole('listitem')
+      expect(item).toHaveTextContent(`Timing: ${BUDGET}`)
+      expect(within(summary()).queryByRole('link')).toBeNull()
+      expect(summary()).toHaveFocus()
+      expect(document.querySelector('[aria-invalid]')).toBeNull()
+    })
+
+    it.each([
+      ['Check interval', 0],
+      ['Timeout', 1],
+      ['Retries', 2],
+      ['Retry interval', 3],
+    ])('editing %s removes the error, the class and the entry, and the summary with it', async (_label, index) => {
+      const { user } = setup()
+      await failWith(user, validationProblem(budget()))
+      await user.type(inputs()[index], '1')
+      expect(group().querySelector('.error-text')).toBeNull()
+      expect(group()).not.toHaveClass('group--invalid')
+      expect(group().getAttribute('aria-describedby')).toBe(line()?.id)
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it('editing a field outside the group leaves the group error', async () => {
+      const { user } = setup()
+      await failWith(user, validationProblem(budget(), fieldError('name', 'Taken.')))
+      await user.type(nameInput(), 'x')
+      expect(group()).toHaveClass('group--invalid')
+      expect(within(summary()).getAllByRole('listitem')).toHaveLength(1)
+    })
+  })
+
+  describe('leaving', () => {
+    it('counts a changed value, asks on Cancel, arms the unload prompt, and is clean again when put back', async () => {
+      const { user } = setup()
+      await user.type(retries(), ' ')
+      expect(footerStatus()).toHaveTextContent('Unsaved changes')
+      expect(unloadPrompts()).toBe(true)
+      await user.click(cancelButton())
+      expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+      await user.type(retries(), '{Backspace}')
+      expect(footerStatus()).toBeEmptyDOMElement()
+      expect(unloadPrompts()).toBe(false)
+      await user.click(cancelButton())
+      expect(await marker()).toBeInTheDocument()
+    })
+  })
+
+  it('is reached by Tab from the URL: the four inputs in order, then the alert switch', async () => {
+    const { user } = setup()
+    await user.click(urlInput())
+    for (const input of inputs()) {
+      await user.tab()
+      expect(input).toHaveFocus()
+    }
+    await user.tab()
+    expect(alertsSwitch()).toHaveFocus()
   })
 })
