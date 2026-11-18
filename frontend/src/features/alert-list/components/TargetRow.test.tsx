@@ -84,4 +84,17 @@ describe.each(kinds)('%s target', (_kind, make) => {
     expect(container.querySelector('b')).toBeNull()
     expect(container.querySelector('.target__name')?.textContent).toBe('<b>x</b>')
   })
+
+  it('keeps one notice for a spaces-only name and a 2,048-character address without a space (verifier)', () => {
+    const long = `https://example.com/${'a'.repeat(2048 - 20)}`
+    const target = make({ name: '   ', last_delivery_failed: true })
+    const t = target.type === 'email' ? { ...target, address: `${'x'.repeat(50)}@example.com` } : { ...target, url: long }
+    const { container } = renderRow(t)
+    expect(container.querySelectorAll('.notice')).toHaveLength(1)
+    expect(container.querySelector('.notice')?.textContent).toBe(TEXT)
+    expect(container.querySelector('.target__name')?.textContent).toBe(
+      target.type === 'email' ? 'Unnamed email' : 'Unnamed webhook',
+    )
+    if (t.type === 'webhook') expect(container.querySelector('.target__addr')?.textContent).toHaveLength(2048)
+  })
 })

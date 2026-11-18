@@ -615,4 +615,24 @@ describe('the delivery-failed notice (FR-86)', () => {
     expect(noticeIn('Second')?.textContent).toBe(TEXT)
     expect(notices()).toHaveLength(1)
   })
+
+  it('follows the data on a reload while another row\'s removal question is open (verifier)', async () => {
+    await shown(makeTargetList(first, flagged(second), flagged(third)))
+    await failReloadByRemoving('First')
+    await userEvent.click(removeButton('Third'))
+    expect(noticeIn('Third')).not.toBeNull()
+    vi.mocked(listTargets).mockResolvedValueOnce(makeTargetList(flagged(second, false), flagged(third)))
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument())
+    expect(confirming()).toBeInTheDocument()
+    expect(noticeIn('Second')).toBeNull()
+    expect(noticeIn('Third')?.textContent).toBe(TEXT)
+    expect(notices()).toHaveLength(1)
+  })
+
+  it('shows five notices for five flagged targets (verifier)', async () => {
+    const five = ['a', 'b', 'c', 'd', 'e'].map((n) => flagged(makeEmailTarget({ name: n, address: `${n}@example.com` })))
+    await shown(makeTargetList(...five))
+    expect(notices()).toHaveLength(5)
+  })
 })
