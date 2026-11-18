@@ -26,7 +26,15 @@
 .target__actions { display: flex; gap: var(--space-1); align-items: center; }
 .target__confirm { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
 
+.list-foot { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-3); flex-wrap: wrap; }
+
+/* The dialog's live region and error summary (the same shape as the service form's). */
+.form-banners { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+.form-banners:empty { display: none; }
+.form-summary { margin: var(--space-1) 0 0; padding-left: 18px; list-style: disc; }
+
 @container app (max-width: 640px) {
+  .list-foot > .btn { flex: 1 1 auto; }
   .target-list { border: 0; background: transparent; display: flex; flex-direction: column; gap: var(--space-2); }
   .target { grid-template-columns: 28px minmax(0, 1fr); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
   .target + .target { border-top: 1px solid var(--color-border); }

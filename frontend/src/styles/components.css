@@ -275,6 +275,13 @@
 .segmented label:has(input:checked) .seg-check { display: inline-block; }
 .segmented label:has(input:focus-visible), .segmented label.is-focus { outline: var(--focus-width) solid var(--color-focus); outline-offset: -3px; z-index: 1; }
 .segmented label:has(input:disabled) { color: var(--color-text-subtle); cursor: not-allowed; }
+/* The same states for the Base UI radio (components/ui/RadioGroup): its own element takes the state and the focus. */
+.segmented__radio { position: absolute; inset: 0; margin: 0; cursor: pointer; outline: 0; }
+.segmented label:has([role="radio"][data-checked]) { background: var(--color-accent-soft); color: var(--color-accent); font-weight: var(--weight-semibold); }
+.segmented label:has([role="radio"][data-checked]) .seg-check { display: inline-block; }
+.segmented label:has([role="radio"]:focus-visible) { outline: var(--focus-width) solid var(--color-focus); outline-offset: -3px; z-index: 1; }
+.segmented label:has([role="radio"][data-disabled]) { color: var(--color-text-subtle); cursor: not-allowed; }
+.segmented label:has([role="radio"][data-disabled]) .segmented__radio { cursor: not-allowed; }
 
 .choices { display: flex; flex-direction: column; gap: var(--space-2); }
 .choice { display: flex; align-items: flex-start; gap: var(--space-2); cursor: pointer; }

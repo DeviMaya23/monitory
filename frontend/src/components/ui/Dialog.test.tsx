@@ -122,3 +122,74 @@ describe('Dialog', () => {
     expect(document.querySelectorAll('[data-portal-host]')).toHaveLength(1)
   })
 })
+
+describe('Dialog added props', () => {
+  it('showClose renders Close, which calls onClose once and does nothing while busy; absent without the prop', async () => {
+    const onClose = vi.fn()
+    const { rerender } = render(
+      <Dialog open title="T" onClose={onClose}>
+        <p>x</p>
+      </Dialog>,
+    )
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull()
+    rerender(
+      <Dialog open title="T" onClose={onClose} showClose>
+        <p>x</p>
+      </Dialog>,
+    )
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+    rerender(
+      <Dialog open title="T" onClose={onClose} showClose busy>
+        <p>x</p>
+      </Dialog>,
+    )
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('sheet adds the two classes and its absence leaves them out', async () => {
+    const { rerender } = render(
+      <Dialog open title="T" onClose={vi.fn()}>
+        <p>x</p>
+      </Dialog>,
+    )
+    await screen.findByRole('dialog')
+    expect(document.querySelector('.dialog-layer--sheet')).toBeNull()
+    expect(document.querySelector('.dialog--sheet')).toBeNull()
+    rerender(
+      <Dialog open title="T" onClose={vi.fn()} sheet>
+        <p>x</p>
+      </Dialog>,
+    )
+    expect(document.querySelector('.dialog-layer.dialog-layer--sheet')).not.toBeNull()
+    expect(document.querySelector('.dialog.dialog--sheet')).not.toBeNull()
+  })
+
+  it('finalFocus decides where focus goes on close', async () => {
+    function WithFinal() {
+      const [isOpen, setOpen] = useState(false)
+      const elsewhere = useRef<HTMLButtonElement>(null)
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Open</button>
+          <button ref={elsewhere}>Elsewhere</button>
+          <Dialog
+            open={isOpen}
+            title="T"
+            onClose={() => setOpen(false)}
+            finalFocus={() => elsewhere.current}
+          >
+            <p>x</p>
+          </Dialog>
+        </>
+      )
+    }
+    render(<WithFinal />)
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+    await screen.findByRole('dialog')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Elsewhere' })).toHaveFocus())
+  })
+})
