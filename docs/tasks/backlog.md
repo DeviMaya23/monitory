@@ -16,7 +16,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-84, FR-86 | none | none | The delivery outcome written to `targets.last_delivery_failed`, and its final result reported by the dispatcher (after `delivery-retry`). The mailer, `alert_delivery_failed` in `listServices` and the dashboard notice (`ServiceRow`) exist |
 | FR-107, FR-108 | `testTarget` | Target form | One attempt, no saved state touched |
 | Milestone journeys | all of the above | Alert list | Down to alert received in Mailpit and at the stub receiver; failed-delivery cases |
 
@@ -68,9 +67,9 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - Left out of `service-form-alerts`: the Alerts group (the `Send alerts` switch and the two messages) on the edit form, with `getService` and `updateService` (FR-20, FR-65). The edit-form task builds it from the add form's `AlertsGroup` and the `Switch` hint prop. Matters when: the edit-form task is drafted.
 
-- Left out of `scheduler`: a log line per check outcome with the failure reason (`CONVENTIONS.md`, Logging). The runner returns no result to log. Matters when: the admin needs to see in the log why a service went unhealthy; best added with `delivery-outcome`, which writes what the alert pipeline learned (`alert-dispatch` did not add it).
+- Left out of `scheduler`: a log line per check outcome with the failure reason (`CONVENTIONS.md`, Logging). The runner returns no result to log. Matters when: the admin needs to see in the log why a service went unhealthy; best added with the task that next changes `worker.CheckRunner` (the milestone 3 TCP probe).
 
-- Left out of `alert-dispatch`: `worker.AlertDispatcher` makes one attempt per target with no retry and writes no delivery outcome (`last_delivery_failed` is never set); `webhook-sender` replaces its skip of a webhook target. `delivery-retry` uses `ALERT_DELIVERY_RETRIES` and `ALERT_DELIVERY_RETRY_INTERVAL_SECONDS`; the outcome task writes the notice (FR-86). The mailer's two reasons (`no SMTP account configured`, `the SMTP server did not accept the message`) may get finer ones then. The test-alert wording (FR-107) belongs to `test-target`. Matters when: an admin has only webhook targets, or an email is refused, before those tasks merge.
+- Left out of `alert-dispatch`: `worker.AlertDispatcher` makes one attempt per target with no retry and writes no delivery outcome (`last_delivery_failed` is never set); `webhook-sender` replaces its skip of a webhook target. `delivery-retry` uses `ALERT_DELIVERY_RETRIES` and `ALERT_DELIVERY_RETRY_INTERVAL_SECONDS`; `delivery-outcome` writes the notice (FR-86). The mailer's two reasons (`no SMTP account configured`, `the SMTP server did not accept the message`) may get finer ones then. The test-alert wording (FR-107) belongs to `test-target`. Matters when: an admin has only webhook targets, or an email is refused, before those tasks merge.
 
 - Left out of `target-form-dialog` (by the user's decision, the alert-list feature keeps its own copies): the discard dialog, the `422` error summary with its server-error hook, and the failure banners exist twice, in `service-form` and in `alert-list`. Promote them to shared places (`components/`, `lib/`). Matters when: a third form needs them, or the wording or behaviour of one copy changes and the other is forgotten. Needs: the user's approval of the shared components (`CONVENTIONS.md`, "Matching existing shapes").
 
@@ -100,7 +99,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `target-form-dialog`: a `422` summary keeps the entries of the inactive type. After a `url` error, switching to Email leaves `Webhook URL: …` in the summary with a link that moves focus nowhere, while its message is hidden with the field. Matters when: an admin gets a `url` or `headers` error and then switches type. Needs: the user, to decide whether a type switch drops the other type's entries.
 
 - `service-form-alerts`: `TargetDialog.test.tsx` "adds a header row… (FR-92)" timed out once at 5000 ms in a full parallel run (1 of 3 runs); it is not part of that diff. Matters when: the same case times out again on CI or on another task's branch; then raise its timeout in that file.
-- `target-delivery-notice`: FR-86 says the notice is shown "on the admin dashboard" and `docs/requirements.md` does not mention the alert list, where the board and `target-delivery-notice` also show it. Matters when: someone reads FR-86 to decide whether the alert-list notice is in scope (drafting `delivery-outcome`, or the milestone's end-to-end tests). Needs: the user, a one-line edit to FR-86.
 
 ## Decisions waiting on the user
 
