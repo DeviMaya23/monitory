@@ -384,3 +384,113 @@ func TestTargetRepository_ServiceDeleteRemovesItsTargets(t *testing.T) {
 	require.NoError(t, repository.NewServiceRepository(db).Delete(t.Context(), "s1"))
 	assert.Zero(t, count(t, db, &domain.Target{}))
 }
+
+func marked(t *testing.T, repo *repository.TargetRepository, serviceID string) map[string]bool {
+	t.Helper()
+	got, err := repo.List(t.Context(), serviceID)
+	require.NoError(t, err)
+	out := map[string]bool{}
+	for _, tg := range got {
+		out[tg.ID] = tg.LastDeliveryFailed
+	}
+	return out
+}
+
+func TestTargetRepository_SetDeliveryFailed(t *testing.T) {
+	t.Run("sets, clears and repeats without error", func(t *testing.T) {
+		db, repo := targetFixture(t)
+		insertTarget(t, db, emailTarget("t1", "s1", "a@x.io"))
+		ctx := t.Context()
+
+		require.NoError(t, repo.SetDeliveryFailed(ctx, "s1", "t1", true))
+		assert.Equal(t, map[string]bool{"t1": true}, marked(t, repo, "s1"))
+		require.NoError(t, repo.SetDeliveryFailed(ctx, "s1", "t1", true))
+		assert.Equal(t, map[string]bool{"t1": true}, marked(t, repo, "s1"))
+		require.NoError(t, repo.SetDeliveryFailed(ctx, "s1", "t1", false))
+		assert.Equal(t, map[string]bool{"t1": false}, marked(t, repo, "s1"))
+		require.NoError(t, repo.SetDeliveryFailed(ctx, "s1", "t1", false))
+		assert.Equal(t, map[string]bool{"t1": false}, marked(t, repo, "s1"))
+	})
+	t.Run("writes the one column and nothing of the service", func(t *testing.T) {
+		db, repo := targetFixture(t)
+		hook := webhookTarget("t1", "s1", "https://h")
+		hook.Name = "Pager"
+		insertTarget(t, db, hook)
+		var svcBefore domain.Service
+		var stateBefore domain.ServiceState
+		require.NoError(t, db.First(&svcBefore, "id = ?", "s1").Error)
+		require.NoError(t, db.First(&stateBefore, "service_id = ?", "s1").Error)
+		var rawBefore, rawAfter map[string]any
+		require.NoError(t, db.Raw("SELECT * FROM targets WHERE id = ?", "t1").Scan(&rawBefore).Error)
+
+		require.NoError(t, repo.SetDeliveryFailed(t.Context(), "s1", "t1", true))
+
+		require.NoError(t, db.Raw("SELECT * FROM targets WHERE id = ?", "t1").Scan(&rawAfter).Error)
+		require.NotEqual(t, rawBefore["last_delivery_failed"], rawAfter["last_delivery_failed"], "baseline: the column changed")
+		delete(rawBefore, "last_delivery_failed")
+		delete(rawAfter, "last_delivery_failed")
+		assert.Equal(t, rawBefore, rawAfter, "name, type, value, value_key, headers, created_at and updated_at are as they were")
+		var svcAfter domain.Service
+		var stateAfter domain.ServiceState
+		require.NoError(t, db.First(&svcAfter, "id = ?", "s1").Error)
+		require.NoError(t, db.First(&stateAfter, "service_id = ?", "s1").Error)
+		assert.Equal(t, svcBefore, svcAfter)
+		assert.Equal(t, stateBefore, stateAfter)
+	})
+	t.Run("other targets keep their own value", func(t *testing.T) {
+		db, repo := targetFixture(t)
+		insertTarget(t, db, emailTarget("t1", "s1", "a@x.io"))
+		insertTarget(t, db, emailTarget("t2", "s1", "b@x.io"))
+		ctx := t.Context()
+
+		require.NoError(t, repo.SetDeliveryFailed(ctx, "s1", "t1", true))
+		assert.Equal(t, map[string]bool{"t1": true, "t2": false}, marked(t, repo, "s1"))
+		require.NoError(t, repo.SetDeliveryFailed(ctx, "s1", "t2", true))
+		require.NoError(t, repo.SetDeliveryFailed(ctx, "s1", "t1", false))
+		assert.Equal(t, map[string]bool{"t1": false, "t2": true}, marked(t, repo, "s1"))
+	})
+	t.Run("no row, another service's target and a deleted target are ErrNotFound", func(t *testing.T) {
+		db, repo := targetFixture(t)
+		insertTarget(t, db, emailTarget("t1", "s1", "a@x.io"))
+		insertTarget(t, db, emailTarget("t2", "s1", "b@x.io"))
+		require.NoError(t, repo.Delete(t.Context(), "s1", "t2"))
+
+		require.ErrorIs(t, repo.SetDeliveryFailed(t.Context(), "s1", "nope", true), domain.ErrNotFound)
+		require.ErrorIs(t, repo.SetDeliveryFailed(t.Context(), "s2", "t1", true), domain.ErrNotFound)
+		require.ErrorIs(t, repo.SetDeliveryFailed(t.Context(), "s1", "t2", true), domain.ErrNotFound)
+		assert.Equal(t, map[string]bool{"t1": false}, marked(t, repo, "s1"), "nothing changed")
+	})
+	t.Run("Update keeps the mark", func(t *testing.T) {
+		db, repo := targetFixture(t)
+		insertTarget(t, db, emailTarget("t1", "s1", "a@x.io"))
+		require.NoError(t, repo.SetDeliveryFailed(t.Context(), "s1", "t1", true))
+
+		edited := emailTarget("t1", "s1", "fixed@x.io")
+		edited.UpdatedAt = targetTime.Add(time.Hour)
+		got, err := repo.Update(t.Context(), edited)
+
+		require.NoError(t, err)
+		assert.True(t, got.LastDeliveryFailed)
+		assert.Equal(t, map[string]bool{"t1": true}, marked(t, repo, "s1"))
+	})
+	t.Run("the service list notice follows the marks", func(t *testing.T) {
+		db, repo := targetFixture(t)
+		services := repository.NewServiceRepository(db)
+		insertTarget(t, db, emailTarget("t1", "s1", "a@x.io"))
+		insertTarget(t, db, emailTarget("t2", "s1", "b@x.io"))
+		failedOf := func() bool {
+			views, err := services.List(t.Context())
+			require.NoError(t, err)
+			return viewByName(t, views, "one").AlertDeliveryFailed
+		}
+		assert.False(t, failedOf())
+
+		require.NoError(t, repo.SetDeliveryFailed(t.Context(), "s1", "t1", true))
+		require.NoError(t, repo.SetDeliveryFailed(t.Context(), "s1", "t2", true))
+		assert.True(t, failedOf())
+		require.NoError(t, repo.SetDeliveryFailed(t.Context(), "s1", "t1", false))
+		assert.True(t, failedOf(), "a second marked target remains")
+		require.NoError(t, repo.SetDeliveryFailed(t.Context(), "s1", "t2", false))
+		assert.False(t, failedOf())
+	})
+}

@@ -136,3 +136,19 @@ func (r *TargetRepository) Delete(ctx context.Context, serviceID, targetID strin
 	}
 	return nil
 }
+
+// SetDeliveryFailed sets last_delivery_failed of the target with the id and service id
+// with one UPDATE that writes no other column (FR-86, FR-84). No row matched is
+// domain.ErrNotFound; setting the value the row already has is not an error.
+func (r *TargetRepository) SetDeliveryFailed(ctx context.Context, serviceID, targetID string, failed bool) error {
+	result := r.db.WithContext(ctx).Model(&domain.Target{}).
+		Where("id = ? AND service_id = ?", targetID, serviceID).
+		UpdateColumn("last_delivery_failed", failed)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
