@@ -110,3 +110,5 @@ Each needs a decision, or to be dropped, by the next milestone.
 
 <!-- Fix rounds append here: `- [<task slug>] finding. Matters when: <trigger>.` -->
 
+- [alert-list-screen] Test quality: the "failed reload with rows on screen" criterion is only reached through the delete-404 refetch; the task's screen test for a failed reload and the "both banners" test are one test, so the screen-level `refreshFailed` path has no test of its own (the hook test covers the hook). Matters when: a real reload (a refresh button or polling for this list) is added.
+- [alert-list-screen] Latent bug: `useRemoveTarget` keeps `askedId` if `serviceId` changes while the page stays mounted. No link goes from one alert list to another, so it cannot happen today. Matters when: a service switcher or a prev/next link appears on this page.
