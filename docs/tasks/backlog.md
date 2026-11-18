@@ -39,8 +39,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
 | FR-26, FR-27, FR-68 | `getPublicViewSettings`, `updatePublicViewSettings`, `updateService` | Dashboard switch, service toggle | The two settings operations exist (built in the foundation as the example for each layer). Left: the switch on the dashboard and the service toggle |
-| FR-28 to FR-31, FR-40, FR-63, FR-113 | `getPublicDashboard` | Public dashboard | Response type holds name, status and last check time only |
-| FR-32 | `getPublicDashboard` | "Too many requests" state | Fixed window per client address from the policy router |
+| FR-28, FR-29, FR-32, FR-40, FR-63, FR-113 | `getPublicDashboard` | none | Backend: the usecase (name, status and last check of the chosen services that are healthy or unhealthy, ordered by name ignoring case), the fixed window per client address (60 a minute, from configuration) with `429 rate_limited` and `Retry-After`, and `404 public_view_unavailable` while the view is off. Waits for the delivery lane (`handler/server.go`, `cmd/server/main.go`). Left out of `public-dashboard-screen`, which builds the page |
 | FR-96 | `getHealth` | none | Built in the foundation; this row is its end-to-end journey |
 | Milestone journeys | all of the above | Public dashboard | As an anonymous visitor, including what must not be shown |
 
@@ -98,6 +97,8 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `target-form-dialog`: a `422` summary keeps the entries of the inactive type. After a `url` error, switching to Email leaves `Webhook URL: …` in the summary with a link that moves focus nowhere, while its message is hidden with the field. Matters when: an admin gets a `url` or `headers` error and then switches type. Needs: the user, to decide whether a type switch drops the other type's entries.
 
 - `service-form-alerts`: `TargetDialog.test.tsx` "adds a header row… (FR-92)" timed out once at 5000 ms in a full parallel run (1 of 3 runs); it is not part of that diff. Matters when: the same case times out again on CI or on another task's branch; then raise its timeout in that file.
+
+- `webhook-sender`: a custom webhook header the HTTP library controls (`Host`, `Content-Length`, `Transfer-Encoding`, `Trailer`) is accepted on save and silently not sent, and a value loses its surrounding spaces. Matters when: an admin enters one of these names and expects it to reach the receiver; best fixed with the save-time header rule (the `targets-api` line above). Needs: the user's approval of that rule.
 
 ## Decisions waiting on the user
 
