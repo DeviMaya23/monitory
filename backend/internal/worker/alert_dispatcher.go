@@ -4,8 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	"monitory/internal/domain"
+	"monitory/pkg/clock"
 )
 
 // Mailer sends one alert by email. The text of a returned error is the reason: it is
@@ -21,30 +23,61 @@ type WebhookSender interface {
 	SendWebhook(ctx context.Context, url string, headers []domain.NameValue, alert domain.Alert) error
 }
 
+// RetryPolicy says how often a failed delivery is tried again (FR-85). Retries is the
+// number of attempts after the first; Interval is the wait between two attempts. The
+// configuration guarantees Retries >= 0 and a positive Interval.
+type RetryPolicy struct {
+	Retries  int
+	Interval time.Duration
+}
+
+// alertRecord is the latest alert of one service. Its channel is closed when a newer
+// alert for the service replaces it, which supersedes every sequence that carries it.
+type alertRecord struct {
+	superseded chan struct{}
+}
+
+func (r *alertRecord) isSuperseded() bool {
+	select {
+	case <-r.superseded:
+		return true
+	default:
+		return false
+	}
+}
+
 // AlertDispatcher delivers an alert to every target of a list, each in its own
-// goroutine, with one attempt (FR-83, NFR-5). It owns the goroutines it starts; Close
-// stops and waits for them.
+// goroutine, retrying a failed delivery by its RetryPolicy (FR-83, FR-85, NFR-5). A
+// newer alert for a service ends the retries of the older one. It owns the goroutines
+// it starts; Close stops and waits for them.
 type AlertDispatcher struct {
 	mailer   Mailer
 	webhooks WebhookSender
+	clock    clock.Clock
+	retry    RetryPolicy
 	log      *slog.Logger
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu     sync.Mutex // guards closed and wg.Add
+	mu     sync.Mutex // guards closed, latest and wg.Add
 	closed bool
+	latest map[string]*alertRecord // by service id; replaced, never removed
 	wg     sync.WaitGroup
 }
 
 // NewAlertDispatcher returns an AlertDispatcher.
-func NewAlertDispatcher(mailer Mailer, webhooks WebhookSender, log *slog.Logger) *AlertDispatcher {
+func NewAlertDispatcher(mailer Mailer, webhooks WebhookSender, clk clock.Clock, retry RetryPolicy, log *slog.Logger) *AlertDispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &AlertDispatcher{mailer: mailer, webhooks: webhooks, log: log, ctx: ctx, cancel: cancel}
+	return &AlertDispatcher{
+		mailer: mailer, webhooks: webhooks, clock: clk, retry: retry, log: log,
+		ctx: ctx, cancel: cancel, latest: map[string]*alertRecord{},
+	}
 }
 
-// Dispatch starts the delivery to every target and returns at once. After Close it
-// starts nothing and logs that the alert was dropped.
+// Dispatch starts the delivery to every target and returns at once. It supersedes the
+// sequences of the earlier alert for the same service. After Close it starts nothing and
+// logs that the alert was dropped.
 func (d *AlertDispatcher) Dispatch(alert domain.Alert, targets []domain.Target) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -55,41 +88,74 @@ func (d *AlertDispatcher) Dispatch(alert domain.Alert, targets []domain.Target) 
 			"reason", "the app is stopping")
 		return
 	}
+	if older, ok := d.latest[alert.ServiceID]; ok {
+		close(older.superseded)
+	}
+	rec := &alertRecord{superseded: make(chan struct{})}
+	d.latest[alert.ServiceID] = rec
 	for _, target := range targets {
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
-			d.deliver(alert, target)
+			d.deliver(alert, target, rec)
 		}()
 	}
 }
 
-// deliver makes the one attempt for one target and logs its outcome. No log line holds
-// an address, a URL, a name or the message (CONVENTIONS.md, Logging).
-func (d *AlertDispatcher) deliver(alert domain.Alert, target domain.Target) {
+// deliver runs the sequence of one target and logs its end: delivered, failed,
+// superseded or abandoned. No log line holds an address, a URL, a name or the message
+// (CONVENTIONS.md, Logging).
+func (d *AlertDispatcher) deliver(alert domain.Alert, target domain.Target, rec *alertRecord) {
 	log := d.log.With("service_id", alert.ServiceID, "target_id", target.ID, "status", string(alert.Status))
-	var err error
+	var send func() error
 	switch target.Type {
 	case domain.TargetTypeEmail:
-		err = d.mailer.SendEmail(d.ctx, target.Value, alert)
+		send = func() error { return d.mailer.SendEmail(d.ctx, target.Value, alert) }
 	case domain.TargetTypeWebhook:
-		err = d.webhooks.SendWebhook(d.ctx, target.Value, target.Headers, alert)
+		send = func() error { return d.webhooks.SendWebhook(d.ctx, target.Value, target.Headers, alert) }
 	default:
 		log.Warn("alert not delivered", "reason", "unknown target type")
 		return
 	}
-	switch {
-	case err == nil:
-		log.Info("alert delivered")
-	case d.ctx.Err() != nil:
-		log.Warn("alert delivery abandoned")
-	default:
-		log.Warn("alert delivery failed", "reason", err.Error())
+	for attempt := 1; ; attempt++ {
+		// Attempt 1 is always made; only the waiting and later attempts are stopped.
+		err := send()
+		switch {
+		case err == nil:
+			log.Info("alert delivered", "attempts", attempt)
+			return
+		case d.ctx.Err() != nil:
+			log.Warn("alert delivery abandoned")
+			return
+		case attempt == 1+d.retry.Retries:
+			log.Warn("alert delivery failed", "attempts", attempt, "reason", err.Error())
+			return
+		case rec.isSuperseded():
+			log.Warn("alert delivery superseded", "attempts", attempt)
+			return
+		}
+		timer := d.clock.NewTimer(d.retry.Interval)
+		log.Warn("alert delivery attempt failed", "attempt", attempt, "reason", err.Error())
+		select {
+		case <-timer.C():
+		case <-d.ctx.Done():
+		case <-rec.superseded:
+		}
+		timer.Stop()
+		// Re-check in a fixed order: Go picks at random among ready channels.
+		if d.ctx.Err() != nil {
+			log.Warn("alert delivery abandoned")
+			return
+		}
+		if rec.isSuperseded() {
+			log.Warn("alert delivery superseded", "attempts", attempt)
+			return
+		}
 	}
 }
 
-// Close stops accepting alerts, cancels the attempts in progress and returns once every
-// goroutine has ended. A second call is safe.
+// Close stops accepting alerts, cancels the attempts in progress and the waits, and
+// returns once every goroutine has ended. A second call is safe.
 func (d *AlertDispatcher) Close() {
 	d.mu.Lock()
 	d.closed = true
