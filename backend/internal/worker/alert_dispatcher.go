@@ -23,6 +23,12 @@ type WebhookSender interface {
 	SendWebhook(ctx context.Context, url string, headers []domain.NameValue, alert domain.Alert) error
 }
 
+// OutcomeRecorder is told the final outcome of a delivery to one target: delivered, or
+// failed after the last attempt (FR-86). A sequence that was stopped reports nothing.
+type OutcomeRecorder interface {
+	RecordDeliveryOutcome(ctx context.Context, serviceID, targetID string, delivered bool) error
+}
+
 // RetryPolicy says how often a failed delivery is tried again (FR-85). Retries is the
 // number of attempts after the first; Interval is the wait between two attempts. The
 // configuration guarantees Retries >= 0 and a positive Interval.
@@ -55,6 +61,7 @@ type AlertDispatcher struct {
 	webhooks WebhookSender
 	clock    clock.Clock
 	retry    RetryPolicy
+	outcomes OutcomeRecorder
 	log      *slog.Logger
 
 	ctx    context.Context
@@ -67,10 +74,10 @@ type AlertDispatcher struct {
 }
 
 // NewAlertDispatcher returns an AlertDispatcher.
-func NewAlertDispatcher(mailer Mailer, webhooks WebhookSender, clk clock.Clock, retry RetryPolicy, log *slog.Logger) *AlertDispatcher {
+func NewAlertDispatcher(mailer Mailer, webhooks WebhookSender, clk clock.Clock, retry RetryPolicy, outcomes OutcomeRecorder, log *slog.Logger) *AlertDispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &AlertDispatcher{
-		mailer: mailer, webhooks: webhooks, clock: clk, retry: retry, log: log,
+		mailer: mailer, webhooks: webhooks, clock: clk, retry: retry, outcomes: outcomes, log: log,
 		ctx: ctx, cancel: cancel, latest: map[string]*alertRecord{},
 	}
 }
@@ -103,7 +110,7 @@ func (d *AlertDispatcher) Dispatch(alert domain.Alert, targets []domain.Target) 
 }
 
 // deliver runs the sequence of one target and logs its end: delivered, failed,
-// superseded or abandoned. No log line holds an address, a URL, a name or the message
+// superseded or abandoned. Delivered and failed are reported to the OutcomeRecorder. No log line holds an address, a URL, a name or the message
 // (CONVENTIONS.md, Logging).
 func (d *AlertDispatcher) deliver(alert domain.Alert, target domain.Target, rec *alertRecord) {
 	log := d.log.With("service_id", alert.ServiceID, "target_id", target.ID, "status", string(alert.Status))
@@ -123,12 +130,14 @@ func (d *AlertDispatcher) deliver(alert domain.Alert, target domain.Target, rec 
 		switch {
 		case err == nil:
 			log.Info("alert delivered", "attempts", attempt)
+			d.record(log, alert, target, true)
 			return
 		case d.ctx.Err() != nil:
 			log.Warn("alert delivery abandoned")
 			return
 		case attempt == 1+d.retry.Retries:
 			log.Warn("alert delivery failed", "attempts", attempt, "reason", err.Error())
+			d.record(log, alert, target, false)
 			return
 		case rec.isSuperseded():
 			log.Warn("alert delivery superseded", "attempts", attempt)
@@ -151,6 +160,17 @@ func (d *AlertDispatcher) deliver(alert domain.Alert, target domain.Target, rec 
 			log.Warn("alert delivery superseded", "attempts", attempt)
 			return
 		}
+	}
+}
+
+// record reports the final outcome of a sequence, from the sequence's own goroutine and
+// outside the mutex. The context keeps the values of the dispatcher's but not its
+// cancellation, so an outcome decided around Close is still written; the database layer
+// bounds the write. A failed write is logged with no error text and not retried.
+func (d *AlertDispatcher) record(log *slog.Logger, alert domain.Alert, target domain.Target, delivered bool) {
+	ctx := context.WithoutCancel(d.ctx)
+	if err := d.outcomes.RecordDeliveryOutcome(ctx, alert.ServiceID, target.ID, delivered); err != nil {
+		log.Warn("alert outcome not saved", "delivered", delivered)
 	}
 }
 

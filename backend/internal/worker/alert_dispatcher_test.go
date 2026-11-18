@@ -226,11 +226,85 @@ func newDispatcherWith(t *testing.T, mailer worker.Mailer, hooks worker.WebhookS
 // cleanup closes the dispatcher under a deadline that fails the test.
 func newRetryDispatcher(t *testing.T, mailer worker.Mailer, hooks worker.WebhookSender, policy worker.RetryPolicy) (*worker.AlertDispatcher, *syncBuffer, *clock.Fake) {
 	t.Helper()
+	return newRecordingDispatcher(t, mailer, hooks, policy, newFakeOutcomes())
+}
+
+// newRecordingDispatcher is newRetryDispatcher with the recorder the test holds.
+func newRecordingDispatcher(t *testing.T, mailer worker.Mailer, hooks worker.WebhookSender, policy worker.RetryPolicy, rec worker.OutcomeRecorder) (*worker.AlertDispatcher, *syncBuffer, *clock.Fake) {
+	t.Helper()
 	buf := &syncBuffer{written: make(chan struct{}, 100)}
 	clk := clock.NewFake(time.Date(2026, 11, 18, 14, 0, 0, 0, time.UTC))
-	d := worker.NewAlertDispatcher(mailer, hooks, clk, policy, slog.New(slog.NewJSONHandler(buf, nil)))
+	d := worker.NewAlertDispatcher(mailer, hooks, clk, policy, rec, slog.New(slog.NewJSONHandler(buf, nil)))
 	t.Cleanup(func() { closeWithin(t, d) })
 	return d, buf, clk
+}
+
+type outcomeCall struct {
+	serviceID, targetID string
+	delivered           bool
+}
+
+// fakeOutcomes records every outcome with the context it received. It succeeds, unless
+// err is set; when block is set every call waits for it to be closed.
+type fakeOutcomes struct {
+	mu       sync.Mutex
+	calls    []outcomeCall
+	ctxs     []context.Context
+	returned int
+	reported chan struct{} // one signal per call as it starts
+	block    chan struct{}
+	err      error
+}
+
+func newFakeOutcomes() *fakeOutcomes { return &fakeOutcomes{reported: make(chan struct{}, 100)} }
+
+func (r *fakeOutcomes) RecordDeliveryOutcome(ctx context.Context, serviceID, targetID string, delivered bool) error {
+	r.mu.Lock()
+	r.calls = append(r.calls, outcomeCall{serviceID, targetID, delivered})
+	r.ctxs = append(r.ctxs, ctx)
+	block, err := r.block, r.err
+	r.mu.Unlock()
+	r.reported <- struct{}{}
+	if block != nil {
+		select {
+		case <-block:
+		case <-time.After(5 * time.Second):
+		}
+	}
+	r.mu.Lock()
+	r.returned++
+	r.mu.Unlock()
+	return err
+}
+
+func (r *fakeOutcomes) callList() []outcomeCall {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]outcomeCall(nil), r.calls...)
+}
+
+func (r *fakeOutcomes) returnedCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.returned
+}
+
+func (r *fakeOutcomes) ctxList() []context.Context {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]context.Context(nil), r.ctxs...)
+}
+
+// waitReports blocks until n recorder calls have started.
+func (r *fakeOutcomes) waitReports(t *testing.T, n int) {
+	t.Helper()
+	for range n {
+		select {
+		case <-r.reported:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for a report")
+		}
+	}
 }
 
 // closeWithin closes the dispatcher and fails the test if Close does not return in time.
@@ -737,7 +811,7 @@ func TestClose_SecondCallAndDispatchAfterClose(t *testing.T) {
 func TestDispatch_RacingCloseNeverSendsAfterCloseReturned(t *testing.T) {
 	for range 50 {
 		mailer := newFakeMailer()
-		d := worker.NewAlertDispatcher(mailer, newFakeWebhooks(), clock.NewFake(start), worker.RetryPolicy{}, slog.New(slog.NewJSONHandler(&syncBuffer{}, nil)))
+		d := worker.NewAlertDispatcher(mailer, newFakeWebhooks(), clock.NewFake(start), worker.RetryPolicy{}, newFakeOutcomes(), slog.New(slog.NewJSONHandler(&syncBuffer{}, nil)))
 		var wg sync.WaitGroup
 		for range 8 {
 			wg.Add(1)
@@ -1456,5 +1530,356 @@ func TestDispatch_RacingDispatchesAndClose(t *testing.T) {
 		assert.Equal(t, started, returned, "every started send has returned when Close does")
 		assert.Equal(t, started, len(mailer.callList()), "no send started after Close returned")
 		assert.Equal(t, 0, clk.Pending())
+	}
+}
+
+// ---- the final outcome is reported ----
+
+func TestOutcome_SuccessAtOnce(t *testing.T) {
+	mailer := newFakeMailer()
+	release := make(chan struct{})
+	mailer.behave["a@x"] = func(context.Context) error { <-release; return nil }
+	rec := newFakeOutcomes()
+	d, _, _ := newRecordingDispatcher(t, mailer, newFakeWebhooks(), retry3, rec)
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	waitFor(t, mailer.started, "a@x")
+	assert.Empty(t, rec.callList(), "nothing is reported before the attempt returns")
+	once.Do(func() { close(release) })
+	rec.waitReports(t, 1)
+	closeWithin(t, d)
+
+	assert.Equal(t, []outcomeCall{{"svc", "t1", true}}, rec.callList())
+}
+
+func TestOutcome_FailFailSucceed(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["a@x"] = failFirst(2)
+	rec := newFakeOutcomes()
+	d, buf, clk := newRecordingDispatcher(t, mailer, newFakeWebhooks(), retry3, rec)
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	waitMsg(t, buf, "t1", "alert delivery attempt failed")
+	waitPending(t, clk, 1)
+	assert.Empty(t, rec.callList(), "none after the first failure")
+	clk.Advance(7 * time.Second)
+	waitMailCalls(t, mailer, 2)
+	eventually(t, "the second timer", func() bool { return clk.Pending() == 1 && len(buf.linesOf(t, "t1")) == 2 })
+	assert.Empty(t, rec.callList(), "none after the second failure")
+	clk.Advance(7 * time.Second)
+	rec.waitReports(t, 1)
+	clk.Advance(time.Hour)
+	closeWithin(t, d)
+
+	assert.Equal(t, []outcomeCall{{"svc", "t1", true}}, rec.callList())
+	assert.Len(t, mailer.callList(), 3)
+}
+
+func TestOutcome_AlwaysFailing(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["a@x"] = alwaysFail()
+	rec := newFakeOutcomes()
+	d, buf, clk := newRecordingDispatcher(t, mailer, newFakeWebhooks(), retry3, rec)
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	for i := 1; i <= 3; i++ {
+		eventually(t, "the wait after attempt", func() bool {
+			return clk.Pending() == 1 && len(mailer.callList()) == i && len(buf.linesOf(t, "t1")) == i
+		})
+		assert.Empty(t, rec.callList(), "no report after attempt %d", i)
+		clk.Advance(7 * time.Second)
+	}
+	rec.waitReports(t, 1)
+	clk.Advance(time.Hour)
+	closeWithin(t, d)
+
+	assert.Len(t, mailer.callList(), 4)
+	assert.Equal(t, []outcomeCall{{"svc", "t1", false}}, rec.callList(), "one report, after the fourth failed attempt")
+}
+
+func TestOutcome_ZeroRetriesFailsAtOnce(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["a@x"] = alwaysFail()
+	rec := newFakeOutcomes()
+	d, _, _ := newRecordingDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 0, Interval: 7 * time.Second}, rec)
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	rec.waitReports(t, 1)
+	closeWithin(t, d)
+
+	assert.Equal(t, []outcomeCall{{"svc", "t1", false}}, rec.callList())
+}
+
+func TestOutcome_Superseded(t *testing.T) {
+	t.Run("a waiting sequence reports nothing; the newer one reports its own", func(t *testing.T) {
+		mailer := newFakeMailer()
+		mailer.behaveN["a@x"] = alwaysFail()
+		mailer.behaveN["b@x"] = failFirst(1)
+		rec := newFakeOutcomes()
+		d, buf, clk := newRecordingDispatcher(t, mailer, newFakeWebhooks(), retry3, rec)
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+		waitMsg(t, buf, "a", "alert delivery attempt failed")
+		waitPending(t, clk, 1)
+
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("b", "b@x")})
+		waitMsg(t, buf, "a", "alert delivery superseded")
+		waitMsg(t, buf, "b", "alert delivery attempt failed")
+		waitPending(t, clk, 1)
+		clk.Advance(time.Hour)
+		rec.waitReports(t, 1)
+		closeWithin(t, d)
+
+		assert.Equal(t, []outcomeCall{{"svc", "b", true}}, rec.callList(), "baseline: b reports, a does not")
+	})
+	// blocked sets up a first attempt that blocks until released, then a newer alert.
+	blocked := func(t *testing.T, policy worker.RetryPolicy) (rec *fakeOutcomes, buf *syncBuffer, release func(error)) {
+		mailer := newFakeMailer()
+		gate := make(chan error, 1)
+		release = func(err error) { gate <- err }
+		mailer.behaveN["a@x"] = func(_ context.Context, n int) error {
+			if n == 1 {
+				select {
+				case err := <-gate:
+					return err
+				case <-time.After(deadline):
+					return errors.New("not released")
+				}
+			}
+			return errors.New("later failure")
+		}
+		rec = newFakeOutcomes()
+		d, buf, _ := newRecordingDispatcher(t, mailer, newFakeWebhooks(), policy, rec)
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+		waitFor(t, mailer.started, "a@x")
+		dispatchWithin(t, d, testAlert("svc"), nil)
+		return
+	}
+	t.Run("a success that returns after the newer alert reports delivered", func(t *testing.T) {
+		rec, _, release := blocked(t, retry3)
+		release(nil)
+		rec.waitReports(t, 1)
+		assert.Equal(t, []outcomeCall{{"svc", "a", true}}, rec.callList())
+	})
+	t.Run("a last attempt that fails after the newer alert reports failed", func(t *testing.T) {
+		rec, _, release := blocked(t, worker.RetryPolicy{Retries: 0, Interval: 7 * time.Second})
+		release(errors.New("refused"))
+		rec.waitReports(t, 1)
+		assert.Equal(t, []outcomeCall{{"svc", "a", false}}, rec.callList())
+	})
+	t.Run("a failure with retries left reports nothing", func(t *testing.T) {
+		rec, buf, release := blocked(t, retry3)
+		release(errors.New("refused"))
+		waitMsg(t, buf, "a", "alert delivery superseded")
+		assert.Empty(t, rec.callList())
+	})
+}
+
+func TestOutcome_Abandoned(t *testing.T) {
+	t.Run("Close during a wait", func(t *testing.T) {
+		mailer := newFakeMailer()
+		mailer.behaveN["a@x"] = alwaysFail()
+		rec := newFakeOutcomes()
+		d, buf, clk := newRecordingDispatcher(t, mailer, newFakeWebhooks(), retry3, rec)
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+		waitMsg(t, buf, "t1", "alert delivery attempt failed")
+		waitPending(t, clk, 1)
+
+		closeWithin(t, d)
+
+		assert.Equal(t, "alert delivery abandoned", buf.linesOf(t, "t1")[1]["msg"], "baseline: the sequence was abandoned")
+		assert.Empty(t, rec.callList())
+	})
+	t.Run("Close during an attempt that returns an error", func(t *testing.T) {
+		mailer := newFakeMailer()
+		mailer.behave["a@x"] = func(ctx context.Context) error { <-ctx.Done(); return errors.New("refused") }
+		rec := newFakeOutcomes()
+		d, buf, _ := newRecordingDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 0, Interval: time.Second}, rec)
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+		waitFor(t, mailer.started, "a@x")
+
+		closeWithin(t, d)
+
+		assert.Equal(t, []string{"alert delivery abandoned"}, msgsOf(buf.linesOf(t, "t1")), "baseline: no final failure was decided")
+		assert.Empty(t, rec.callList())
+	})
+}
+
+func TestOutcome_SuccessAfterCloseIsRecorded(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behave["a@x"] = func(ctx context.Context) error { <-ctx.Done(); return nil }
+	rec := newFakeOutcomes()
+	rec.block = make(chan struct{})
+	var once sync.Once
+	releaseRec := func() { once.Do(func() { close(rec.block) }) }
+	t.Cleanup(releaseRec)
+	d, _, _ := newRecordingDispatcher(t, mailer, newFakeWebhooks(), retry3, rec)
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	waitFor(t, mailer.started, "a@x")
+	mailer.mu.Lock()
+	sendCtx := mailer.ctxs[0]
+	mailer.mu.Unlock()
+
+	closed := make(chan struct{})
+	go func() { d.Close(); close(closed) }()
+	rec.waitReports(t, 1)
+
+	require.Error(t, sendCtx.Err(), "baseline: Close cancelled the dispatcher's context")
+	assert.NoError(t, rec.ctxList()[0].Err(), "the recorder's context is not cancelled")
+	select {
+	case <-closed:
+		t.Fatal("Close returned before the recorder call returned")
+	case <-time.After(50 * time.Millisecond):
+	}
+	releaseRec()
+	select {
+	case <-closed:
+	case <-time.After(deadline):
+		t.Fatal("Close did not return")
+	}
+	assert.Equal(t, 1, rec.returnedCount())
+	assert.Equal(t, []outcomeCall{{"svc", "t1", true}}, rec.callList())
+}
+
+func TestOutcome_EmailAndWebhook(t *testing.T) {
+	mailer, hooks := newFakeMailer(), newFakeWebhooks()
+	mailer.behaveN["a@x"] = alwaysFail()
+	rec := newFakeOutcomes()
+	d, _, _ := newRecordingDispatcher(t, mailer, hooks, worker.RetryPolicy{Retries: 0, Interval: time.Second}, rec)
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("e1", "a@x"), webhookTarget("w1")})
+	rec.waitReports(t, 2)
+	closeWithin(t, d)
+
+	assert.ElementsMatch(t, []outcomeCall{{"svc", "e1", false}, {"svc", "w1", true}}, rec.callList())
+}
+
+func TestOutcome_NothingForUnknownTypeOrAfterClose(t *testing.T) {
+	rec := newFakeOutcomes()
+	d, buf, _ := newRecordingDispatcher(t, newFakeMailer(), newFakeWebhooks(), retry3, rec)
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{
+		{ID: "x1", ServiceID: "svc", Type: "sms", Value: "123"}, emailTarget("t1", "a@x"),
+	})
+	rec.waitReports(t, 1)
+	closeWithin(t, d)
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t2", "b@x")})
+
+	assert.Equal(t, []outcomeCall{{"svc", "t1", true}}, rec.callList(), "baseline: the email target reports, the others do not")
+	assert.Equal(t, []string{"alert not delivered"}, msgsOf(buf.linesOf(t, "x1")))
+}
+
+func TestOutcome_BlockedRecorder(t *testing.T) {
+	mailer := newFakeMailer()
+	rec := newFakeOutcomes()
+	rec.block = make(chan struct{})
+	var once sync.Once
+	releaseRec := func() { once.Do(func() { close(rec.block) }) }
+	t.Cleanup(releaseRec)
+	d, buf, _ := newRecordingDispatcher(t, mailer, newFakeWebhooks(), retry3, rec)
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x"), emailTarget("t2", "b@x")})
+	rec.waitReports(t, 2) // both targets reached the recorder, which is blocked in each
+	dispatchWithin(t, d, testAlert("other"), []domain.Target{{ID: "o1", ServiceID: "other", Type: domain.TargetTypeEmail, Value: "o@x"}})
+	waitMsg(t, buf, "o1", "alert delivered")
+	rec.waitReports(t, 1)
+	assert.Zero(t, rec.returnedCount(), "baseline: the recorder is still blocked")
+
+	closed := make(chan struct{})
+	go func() { d.Close(); close(closed) }()
+	select {
+	case <-closed:
+		t.Fatal("Close returned while a recorder call was in progress")
+	case <-time.After(50 * time.Millisecond):
+	}
+	releaseRec()
+	select {
+	case <-closed:
+	case <-time.After(deadline):
+		t.Fatal("Close did not return")
+	}
+	assert.Equal(t, 3, rec.returnedCount())
+}
+
+func TestOutcome_RecorderError(t *testing.T) {
+	for name, fail := range map[string]bool{"delivered": false, "failed": true} {
+		t.Run(name, func(t *testing.T) {
+			mailer := newFakeMailer()
+			if fail {
+				mailer.behaveN["a@x"] = alwaysFail()
+			}
+			rec := newFakeOutcomes()
+			rec.err = errors.New("database is locked: /var/lib/monitory/secret.db")
+			d, buf, clk := newRecordingDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 0, Interval: time.Second}, rec)
+
+			dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+			waitMsg(t, buf, "t1", "alert outcome not saved")
+			clk.Advance(time.Hour)
+			closeWithin(t, d)
+
+			lines := buf.linesOf(t, "t1")
+			wantMsg := "alert delivered"
+			if fail {
+				wantMsg = "alert delivery failed"
+			}
+			require.Equal(t, []string{wantMsg, "alert outcome not saved"}, msgsOf(lines))
+			l := lines[1]
+			assert.Equal(t, "WARN", l["level"])
+			assert.Equal(t, "svc", l["service_id"])
+			assert.Equal(t, "t1", l["target_id"])
+			assert.Equal(t, "unhealthy", l["status"])
+			assert.Equal(t, fail == false, l["delivered"])
+			assert.NotContains(t, l, "reason")
+			assert.NotContains(t, buf.String(), "secret.db")
+			assert.Len(t, rec.callList(), 1, "the write is not retried")
+		})
+	}
+}
+
+func TestOutcome_LogsHoldNoSecret(t *testing.T) {
+	mailer, hooks := newFakeMailer(), newFakeWebhooks()
+	mailer.behaveN[secretAddress] = alwaysFail()
+	hooks.behaveN[secretURL] = alwaysFail()
+	rec := newFakeOutcomes()
+	rec.err = errors.New("write failed")
+	d, buf, _ := newRecordingDispatcher(t, mailer, hooks, worker.RetryPolicy{Retries: 0, Interval: time.Second}, rec)
+	headers := domain.NameValue{Name: secretHeaderName, Value: secretHeaderValue}
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{
+		emailTarget("e1", secretAddress), webhookTargetTo("w1", secretURL, headers), emailTarget("e2", "fine@x"),
+	})
+	rec.waitReports(t, 3)
+	closeWithin(t, d)
+
+	assert.Equal(t, 3, strings.Count(buf.String(), "alert outcome not saved"), "baseline: the new line was written")
+	for _, secret := range []string{secretAddress, secretURL, "hooks.example.com", secretHeaderName, secretHeaderValue, secretName, secretService, secretMessage} {
+		assert.NotContains(t, buf.String(), secret)
+	}
+}
+
+func TestOutcome_RacingDispatchesAndClose(t *testing.T) {
+	for range 30 {
+		mailer := newFakeMailer()
+		mailer.behaveN["a@x"] = failFirst(1)
+		rec := newFakeOutcomes()
+		d, _, clk := newRecordingDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 1, Interval: time.Second}, rec)
+		var wg sync.WaitGroup
+		for i := range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				d.Dispatch(testAlert(fmt.Sprintf("svc-%d", i%3)), []domain.Target{emailTarget("t1", "a@x"), emailTarget("t2", "b@x")})
+				clk.Advance(time.Second)
+			}()
+		}
+
+		closeWithin(t, d)
+		started, returned := len(rec.callList()), rec.returnedCount()
+		waitGroupWithin(t, &wg)
+
+		assert.Equal(t, started, returned, "every recorder call has returned when Close does")
+		assert.Equal(t, started, len(rec.callList()), "no recorder call started after Close returned")
+		assert.Equal(t, mailer.returnedCount(), len(mailer.callList()))
 	}
 }
