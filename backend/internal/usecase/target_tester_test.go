@@ -274,3 +274,25 @@ func TestTestTarget_EndedContextIsAnErrorNotAResult(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, got.Delivered)
 }
+
+// offsetClock is a usecase.Clock that reports its time in a zone other than UTC, as a
+// real clock on a server with a local zone does. clock.Fake converts to UTC itself, so
+// it cannot show that the usecase does.
+type offsetClock struct{ now time.Time }
+
+func (c offsetClock) Now() time.Time { return c.now }
+
+func TestTestTarget_AlertTimeIsUTCEvenWhenTheClockIsNot(t *testing.T) {
+	s := newTesterSetup()
+	local := time.Date(2026, 11, 18, 21, 5, 59, 0, time.FixedZone("UTC+7", 7*60*60))
+	svc := usecase.NewTargetTestService(s.finder, s.mail, s.webhooks, offsetClock{local}, testTargetLimits)
+
+	_, err := svc.TestTarget(t.Context(), "svc-1", validEmailTarget())
+
+	require.NoError(t, err)
+	require.Len(t, s.mail.calls, 1)
+	got := s.mail.calls[0].alert.ChangedAt
+	assert.Equal(t, time.UTC, got.Location())
+	assert.True(t, got.Equal(local))
+	assert.Equal(t, wantTestAlert("API"), s.mail.calls[0].alert)
+}
