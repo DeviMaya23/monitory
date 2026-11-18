@@ -162,6 +162,23 @@ describe('the list', () => {
     expect(screen.queryByRole('link', { name: /Add|Edit/ })).not.toBeInTheDocument()
   })
 
+  it('shows five targets (the most the server sends) and a 2,048-character URL in full', async () => {
+    const huge = `https://hooks.example.com/${'q'.repeat(2048 - 'https://hooks.example.com/'.length)}`
+    expect(huge).toHaveLength(2048)
+    const five = makeTargetList(
+      makeEmailTarget({ name: 'one', address: 'one@example.com' }),
+      makeEmailTarget({ name: 'two', address: 'two@example.com' }),
+      makeEmailTarget({ name: 'three', address: 'three@example.com' }),
+      makeEmailTarget({ name: 'four', address: 'four@example.com' }),
+      makeWebhookTarget({ name: undefined, url: huge }),
+    )
+    await shown(five)
+    expect(screen.getByText('5 targets · in the order added')).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem')).toHaveLength(5)
+    expect(document.querySelectorAll('.target__addr')[4].textContent).toBe(huge)
+    expect(removeButton(huge)).toBeInTheDocument()
+  })
+
   it('asks for the targets of the service in the address (FR-18)', async () => {
     await shown(three)
     expect(listTargets).toHaveBeenCalledWith('s1')
@@ -416,6 +433,22 @@ describe('removing a target', () => {
       expect(screen.getAllByRole('listitem')).toHaveLength(3)
       expect(screen.queryAllByText('Reload', { selector: 'button' }).length > 0).toBe(reload)
     })
+  })
+
+  it('two failures in a row each restore the row, toast again and refocus its Remove button', async () => {
+    await shown(three)
+    for (const error of [problem(500, 'internal_error'), new TypeError('Failed to fetch')]) {
+      vi.mocked(deleteTarget).mockRejectedValueOnce(error)
+      await userEvent.click(removeButton('Ops mailbox'))
+      await userEvent.click(confirmRemove())
+      await toastShown('Couldn’t remove the target. Try again.')
+      await waitFor(() => expect(removeButton('Ops mailbox')).toHaveFocus())
+      await userEvent.click(removeButton('https://hooks.example.com/bare'))
+      await userEvent.keyboard('{Escape}')
+      expect(removeButton('https://hooks.example.com/bare')).toHaveFocus()
+    }
+    expect(deleteTarget).toHaveBeenCalledTimes(2)
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
   })
 
   it('a 401 shows the sign-in form through the shell, no toast, and not the cached list', async () => {
