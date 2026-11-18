@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -807,4 +809,618 @@ func TestDispatch_FiveTargetsOneBlockedOneFailing(t *testing.T) {
 		"t4": "alert delivered", "t5": "alert delivered",
 	}, outcomes)
 	assert.Len(t, mailer.callList(), 5)
+}
+
+// ---- retry sequences ----
+
+var retry3 = worker.RetryPolicy{Retries: 3, Interval: 7 * time.Second}
+
+// eventually polls cond, yielding, until it holds or the deadline passes.
+func eventually(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	end := time.Now().Add(deadline)
+	for !cond() {
+		if time.Now().After(end) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		runtime.Gosched()
+	}
+}
+
+func waitPending(t *testing.T, clk *clock.Fake, n int) {
+	t.Helper()
+	eventually(t, fmt.Sprintf("%d pending timers (have %d)", n, clk.Pending()), func() bool { return clk.Pending() == n })
+}
+
+func waitMailCalls(t *testing.T, m *fakeMailer, n int) {
+	t.Helper()
+	eventually(t, fmt.Sprintf("%d email calls", n), func() bool { return len(m.callList()) >= n })
+}
+
+// linesOf returns the log lines of one target.
+func (s *syncBuffer) linesOf(t *testing.T, targetID string) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, l := range s.lines(t) {
+		if l["target_id"] == targetID {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func msgsOf(lines []map[string]any) []string {
+	var out []string
+	for _, l := range lines {
+		out = append(out, l["msg"].(string))
+	}
+	return out
+}
+
+// waitMsg waits until the target has logged msg and returns that line.
+func waitMsg(t *testing.T, buf *syncBuffer, targetID, msg string) map[string]any {
+	t.Helper()
+	var found map[string]any
+	eventually(t, fmt.Sprintf("%q for %s", msg, targetID), func() bool {
+		for _, l := range buf.linesOf(t, targetID) {
+			if l["msg"] == msg {
+				found = l
+				return true
+			}
+		}
+		return false
+	})
+	return found
+}
+
+// failFirst fails the first k calls with the reason "failure <n>", then succeeds.
+func failFirst(k int) callFn {
+	return func(_ context.Context, n int) error {
+		if n <= k {
+			return fmt.Errorf("failure %d", n)
+		}
+		return nil
+	}
+}
+
+func alwaysFail() callFn { return failFirst(1 << 30) }
+
+func TestSequence_SuccessAtOnce(t *testing.T) {
+	mailer := newFakeMailer()
+	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	line := waitMsg(t, buf, "t1", "alert delivered")
+
+	assert.Len(t, mailer.callList(), 1)
+	assert.Equal(t, 0, clk.Pending())
+	assert.Equal(t, "INFO", line["level"])
+	assert.EqualValues(t, 1, line["attempts"])
+	assert.Equal(t, []string{"alert delivered"}, msgsOf(buf.lines(t)))
+}
+
+func TestSequence_FailFailSucceed(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["a@x"] = failFirst(2)
+	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	waitMsg(t, buf, "t1", "alert delivery attempt failed")
+	waitPending(t, clk, 1)
+	require.Len(t, mailer.callList(), 1)
+
+	clk.Advance(7*time.Second - time.Nanosecond)
+	assert.Len(t, mailer.callList(), 1, "one nanosecond short of the interval")
+	clk.Advance(time.Nanosecond)
+	waitMailCalls(t, mailer, 2)
+	buf.waitLines(t, 2)
+	waitPending(t, clk, 1)
+	assert.Len(t, mailer.callList(), 2)
+
+	clk.Advance(7*time.Second - time.Nanosecond)
+	assert.Len(t, mailer.callList(), 2, "one nanosecond short of the second interval")
+	clk.Advance(time.Nanosecond)
+	line := waitMsg(t, buf, "t1", "alert delivered")
+	assert.EqualValues(t, 3, line["attempts"])
+
+	clk.Advance(time.Hour)
+	assert.Len(t, mailer.callList(), 3, "no fourth call")
+	assert.Equal(t, 0, clk.Pending())
+	lines := buf.lines(t)
+	require.Equal(t, []string{"alert delivery attempt failed", "alert delivery attempt failed", "alert delivered"}, msgsOf(lines))
+	for i, l := range lines[:2] {
+		assert.EqualValues(t, i+1, l["attempt"])
+		assert.Equal(t, fmt.Sprintf("failure %d", i+1), l["reason"])
+		assert.Equal(t, "WARN", l["level"])
+	}
+}
+
+func TestSequence_AlwaysFailing(t *testing.T) {
+	mailer := newFakeMailer()
+	clk0 := time.Date(2026, 11, 18, 14, 0, 0, 0, time.UTC)
+	var clk *clock.Fake
+	var mu sync.Mutex
+	var at []time.Duration
+	mailer.behaveN["a@x"] = func(_ context.Context, n int) error {
+		mu.Lock()
+		at = append(at, clk.Now().Sub(clk0))
+		mu.Unlock()
+		return fmt.Errorf("failure %d", n)
+	}
+	d, buf, c := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+	clk = c
+
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	for i := 1; i <= 3; i++ {
+		waitMsg(t, buf, "t1", "alert delivery attempt failed")
+		buf.waitLines(t, 0)
+		eventually(t, "the timer", func() bool { return clk.Pending() == 1 && len(mailer.callList()) == i })
+		clk.Advance(7 * time.Second)
+	}
+	line := waitMsg(t, buf, "t1", "alert delivery failed")
+	clk.Advance(time.Hour)
+
+	assert.Len(t, mailer.callList(), 4, "no fifth call")
+	mu.Lock()
+	assert.Equal(t, []time.Duration{0, 7 * time.Second, 14 * time.Second, 21 * time.Second}, at)
+	mu.Unlock()
+	assert.Equal(t, "WARN", line["level"])
+	assert.Equal(t, "failure 4", line["reason"])
+	assert.EqualValues(t, 4, line["attempts"])
+	assert.Equal(t, []string{
+		"alert delivery attempt failed", "alert delivery attempt failed", "alert delivery attempt failed", "alert delivery failed",
+	}, msgsOf(buf.lines(t)))
+}
+
+func TestSequence_IntervalComesFromThePolicy(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["a@x"] = failFirst(1)
+	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 3, Interval: 45 * time.Second})
+
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	waitMsg(t, buf, "t1", "alert delivery attempt failed")
+	waitPending(t, clk, 1)
+
+	clk.Advance(30 * time.Second)
+	assert.Len(t, mailer.callList(), 1, "not the 30 s default")
+	clk.Advance(15*time.Second - time.Nanosecond)
+	assert.Len(t, mailer.callList(), 1)
+	clk.Advance(time.Nanosecond)
+	waitMsg(t, buf, "t1", "alert delivered")
+	assert.Len(t, mailer.callList(), 2)
+}
+
+func TestSequence_ZeroRetriesFailsAtOnce(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["a@x"] = alwaysFail()
+	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 0, Interval: 7 * time.Second})
+
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	line := waitMsg(t, buf, "t1", "alert delivery failed")
+
+	assert.Equal(t, 0, clk.Pending())
+	assert.EqualValues(t, 1, line["attempts"])
+	assert.Equal(t, "failure 1", line["reason"])
+	assert.Len(t, mailer.callList(), 1)
+	assert.Equal(t, []string{"alert delivery failed"}, msgsOf(buf.lines(t)))
+}
+
+func TestSequence_EmailAndWebhook(t *testing.T) {
+	mailer, hooks := newFakeMailer(), newFakeWebhooks()
+	mailer.behaveN["a@x"] = failFirst(1)
+	hooks.behaveN[secretURL] = failFirst(2)
+	d, buf, clk := newRetryDispatcher(t, mailer, hooks, retry3)
+
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("e1", "a@x"), webhookTarget("w1")})
+	waitPending(t, clk, 2)
+	clk.Advance(7 * time.Second)
+	e := waitMsg(t, buf, "e1", "alert delivered")
+	waitMsg(t, buf, "w1", "alert delivery attempt failed")
+	eventually(t, "the webhook's second timer", func() bool { return clk.Pending() == 1 && len(hooks.callList()) == 2 })
+	clk.Advance(7 * time.Second)
+	w := waitMsg(t, buf, "w1", "alert delivered")
+
+	assert.EqualValues(t, 2, e["attempts"])
+	assert.EqualValues(t, 3, w["attempts"])
+	assert.Len(t, mailer.callList(), 2)
+	assert.Len(t, hooks.callList(), 3)
+}
+
+func TestSequence_TargetsAreIndependent(t *testing.T) {
+	t.Run("a waiting target does not delay another", func(t *testing.T) {
+		mailer := newFakeMailer()
+		mailer.behaveN["bad@x"] = alwaysFail()
+		d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+
+		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("bad", "bad@x"), emailTarget("good", "good@x")})
+
+		waitMsg(t, buf, "good", "alert delivered")
+		waitMsg(t, buf, "bad", "alert delivery attempt failed")
+		assert.Equal(t, 1, clk.Pending(), "the failing target waits; the good one is done")
+	})
+	t.Run("two failing targets retry on the same tick", func(t *testing.T) {
+		mailer := newFakeMailer()
+		mailer.behaveN["a@x"] = failFirst(1)
+		mailer.behaveN["b@x"] = failFirst(1)
+		d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+
+		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x"), emailTarget("t2", "b@x")})
+		waitPending(t, clk, 2)
+		clk.Advance(7 * time.Second)
+
+		waitMsg(t, buf, "t1", "alert delivered")
+		waitMsg(t, buf, "t2", "alert delivered")
+		assert.Len(t, mailer.callList(), 4)
+	})
+}
+
+func TestSequence_LogsHoldIdsOnly(t *testing.T) {
+	mailer, hooks := newFakeMailer(), newFakeWebhooks()
+	mailer.behaveN[secretAddress] = alwaysFail()
+	hooks.behaveN[secretURL] = failFirst(1)
+	d, buf, clk := newRetryDispatcher(t, mailer, hooks, worker.RetryPolicy{Retries: 1, Interval: 7 * time.Second})
+
+	d.Dispatch(testAlert("svc"), []domain.Target{
+		emailTarget("e1", secretAddress),
+		webhookTargetTo("w1", secretURL, domain.NameValue{Name: secretHeaderName, Value: secretHeaderValue}),
+	})
+	waitPending(t, clk, 2)
+	clk.Advance(7 * time.Second)
+	waitMsg(t, buf, "e1", "alert delivery failed")
+	waitMsg(t, buf, "w1", "alert delivered")
+
+	lines := buf.lines(t)
+	require.Len(t, lines, 4)
+	for _, l := range lines {
+		assert.Equal(t, "svc", l["service_id"])
+		assert.Equal(t, "unhealthy", l["status"])
+		assert.Contains(t, l, "target_id")
+	}
+	for _, secret := range []string{secretAddress, secretURL, secretHeaderName, secretHeaderValue, secretName, secretService, secretMessage} {
+		assert.NotContains(t, buf.String(), secret)
+	}
+}
+
+func TestClose_WhileWaiting(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["a@x"] = alwaysFail()
+	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	waitMsg(t, buf, "t1", "alert delivery attempt failed")
+	waitPending(t, clk, 1)
+
+	closeWithin(t, d)
+
+	assert.Equal(t, 0, clk.Pending(), "the timer is stopped")
+	lines := buf.linesOf(t, "t1")
+	require.Len(t, lines, 2)
+	assert.Equal(t, "alert delivery abandoned", lines[1]["msg"])
+	assert.NotContains(t, lines[1], "reason")
+	clk.Advance(time.Hour)
+	assert.Len(t, mailer.callList(), 1, "no call after Close")
+}
+
+func TestClose_LaterAttemptIsCancelled(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["a@x"] = func(ctx context.Context, n int) error {
+		if n == 1 {
+			return errors.New("failure 1")
+		}
+		<-ctx.Done()
+		return errors.New("the SMTP server did not accept the message")
+	}
+	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	waitPending(t, clk, 1)
+	clk.Advance(7 * time.Second)
+	waitMailCalls(t, mailer, 2)
+
+	closeWithin(t, d)
+
+	lines := buf.linesOf(t, "t1")
+	require.Len(t, lines, 2)
+	assert.Equal(t, "alert delivery abandoned", lines[1]["msg"])
+	assert.NotContains(t, lines[1], "reason")
+	assert.Equal(t, 0, clk.Pending())
+	assert.Len(t, mailer.callList(), 2)
+}
+
+// ---- the newer alert rule ----
+
+func TestSupersede_WaitingSequence(t *testing.T) {
+	for name, status := range map[string]domain.AlertStatus{"same status": domain.AlertUnhealthy, "opposite status": domain.AlertHealthy} {
+		t.Run(name, func(t *testing.T) {
+			mailer := newFakeMailer()
+			mailer.behaveN["a@x"] = alwaysFail()
+			mailer.behaveN["b@x"] = failFirst(1)
+			d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+			d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+			waitMsg(t, buf, "a", "alert delivery attempt failed")
+			waitPending(t, clk, 1)
+
+			newer := testAlert("svc")
+			newer.Status = status
+			d.Dispatch(newer, []domain.Target{emailTarget("b", "b@x")})
+
+			line := waitMsg(t, buf, "a", "alert delivery superseded")
+			assert.Equal(t, "WARN", line["level"])
+			assert.EqualValues(t, 1, line["attempts"])
+			assert.Equal(t, "unhealthy", line["status"], "the older alert's own status")
+			assert.NotContains(t, line, "reason")
+			waitMsg(t, buf, "b", "alert delivery attempt failed")
+			waitPending(t, clk, 1) // b's timer only: a's is stopped
+
+			clk.Advance(time.Hour)
+			waitMsg(t, buf, "b", "alert delivered")
+			aCalls := 0
+			for _, c := range mailer.callList() {
+				if c.to == "a@x" {
+					aCalls++
+				}
+			}
+			assert.Equal(t, 1, aCalls, "no further call for the superseded sequence")
+			assert.Equal(t, 0, clk.Pending())
+		})
+	}
+}
+
+func TestSupersede_OtherServiceIsNotAffected(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["t@x"] = failFirst(1)
+	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+	d.Dispatch(testAlert("svc-t"), []domain.Target{emailTarget("t", "t@x")})
+	waitMsg(t, buf, "t", "alert delivery attempt failed")
+	waitPending(t, clk, 1)
+
+	d.Dispatch(testAlert("svc-s"), []domain.Target{emailTarget("s", "s@x")})
+	waitMsg(t, buf, "s", "alert delivered")
+	clk.Advance(7 * time.Second)
+
+	line := waitMsg(t, buf, "t", "alert delivered")
+	assert.EqualValues(t, 2, line["attempts"])
+	assert.NotContains(t, msgsOf(buf.linesOf(t, "t")), "alert delivery superseded")
+}
+
+func TestSupersede_AttemptInProgress(t *testing.T) {
+	// blocked sets up a dispatcher whose first attempt blocks until the test releases it.
+	blocked := func(t *testing.T, policy worker.RetryPolicy) (d *worker.AlertDispatcher, buf *syncBuffer, clk *clock.Fake, mailer *fakeMailer, release func(error)) {
+		mailer = newFakeMailer()
+		gate := make(chan error, 1)
+		var once sync.Once
+		release = func(err error) { once.Do(func() { gate <- err }) }
+		mailer.behaveN["a@x"] = func(_ context.Context, n int) error {
+			if n == 1 {
+				select {
+				case err := <-gate:
+					return err
+				case <-time.After(deadline):
+					return errors.New("not released")
+				}
+			}
+			return errors.New("later failure")
+		}
+		d, buf, clk = newRetryDispatcher(t, mailer, newFakeWebhooks(), policy)
+		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+		waitFor(t, mailer.started, "a@x")
+		d.Dispatch(testAlert("svc"), nil) // the newer alert
+		return
+	}
+	t.Run("the attempt is not cancelled", func(t *testing.T) {
+		_, _, _, mailer, release := blocked(t, retry3)
+		defer release(nil)
+		mailer.mu.Lock()
+		ctx := mailer.ctxs[0]
+		mailer.mu.Unlock()
+		assert.NoError(t, ctx.Err())
+	})
+	t.Run("success counts", func(t *testing.T) {
+		_, buf, _, _, release := blocked(t, retry3)
+		release(nil)
+		line := waitMsg(t, buf, "a", "alert delivered")
+		assert.EqualValues(t, 1, line["attempts"])
+	})
+	t.Run("failure with retries left is superseded, with no wait", func(t *testing.T) {
+		_, buf, clk, mailer, release := blocked(t, retry3)
+		release(errors.New("refused"))
+		line := waitMsg(t, buf, "a", "alert delivery superseded")
+		assert.EqualValues(t, 1, line["attempts"])
+		assert.Equal(t, 0, clk.Pending())
+		clk.Advance(time.Hour)
+		assert.Len(t, mailer.callList(), 1)
+		assert.Equal(t, []string{"alert delivery superseded"}, msgsOf(buf.lines(t)))
+	})
+	t.Run("failure on the last attempt is the final failure", func(t *testing.T) {
+		_, buf, _, _, release := blocked(t, worker.RetryPolicy{Retries: 0, Interval: 7 * time.Second})
+		release(errors.New("refused"))
+		line := waitMsg(t, buf, "a", "alert delivery failed")
+		assert.Equal(t, "refused", line["reason"])
+		assert.EqualValues(t, 1, line["attempts"])
+	})
+	t.Run("a later attempt in progress is not cancelled either", func(t *testing.T) {
+		mailer := newFakeMailer()
+		gate := make(chan error, 1)
+		mailer.behaveN["a@x"] = func(_ context.Context, n int) error {
+			if n == 1 {
+				return errors.New("failure 1")
+			}
+			select {
+			case err := <-gate:
+				return err
+			case <-time.After(deadline):
+				return errors.New("not released")
+			}
+		}
+		d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 1, Interval: 7 * time.Second})
+		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+		waitPending(t, clk, 1)
+		clk.Advance(7 * time.Second)
+		waitMailCalls(t, mailer, 2)
+		d.Dispatch(testAlert("svc"), nil)
+		mailer.mu.Lock()
+		assert.NoError(t, mailer.ctxs[1].Err())
+		mailer.mu.Unlock()
+		gate <- errors.New("failure 2")
+
+		line := waitMsg(t, buf, "a", "alert delivery failed")
+		assert.EqualValues(t, 2, line["attempts"])
+	})
+}
+
+func TestSupersede_FirstAttemptIsAlwaysMade(t *testing.T) {
+	for range 50 {
+		mailer := newFakeMailer()
+		mailer.behaveN["a@x"] = alwaysFail()
+		d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+
+		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("b", "b@x")})
+
+		line := waitMsg(t, buf, "a", "alert delivery superseded")
+		waitMsg(t, buf, "b", "alert delivered")
+		assert.EqualValues(t, 1, line["attempts"])
+		assert.Equal(t, 1, countTo(mailer, "a@x"), "attempt 1 of the first alert was made")
+		assert.Equal(t, 0, clk.Pending())
+	}
+}
+
+func countTo(m *fakeMailer, to string) int {
+	n := 0
+	for _, c := range m.callList() {
+		if c.to == to {
+			n++
+		}
+	}
+	return n
+}
+
+// holdAttemptFailed makes the log write of "alert delivery attempt failed" block until
+// the returned release is called, with the timer already created.
+func holdAttemptFailed(buf *syncBuffer) (held <-chan struct{}, release func()) {
+	h := make(chan struct{}, 1)
+	gate := make(chan struct{})
+	var once sync.Once
+	buf.hook = func(line string) {
+		if strings.Contains(line, "alert delivery attempt failed") {
+			h <- struct{}{}
+			<-gate
+		}
+	}
+	return h, func() { once.Do(func() { close(gate) }) }
+}
+
+func TestSupersede_RecheckAfterWakeUp(t *testing.T) {
+	// The sequence is held after it created its timer. The timer fires and the second
+	// event happens, then the sequence runs again with both ready: Go picks at random
+	// between the ready channels, so the loop makes a skipped re-check fail.
+	t.Run("timer fired and a newer alert was handed off", func(t *testing.T) {
+		for range 40 {
+			mailer := newFakeMailer()
+			mailer.behaveN["a@x"] = alwaysFail()
+			d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+			held, release := holdAttemptFailed(buf)
+			d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+			select {
+			case <-held:
+			case <-time.After(deadline):
+				t.Fatal("the sequence did not reach its wait")
+			}
+			clk.Advance(7 * time.Second)
+			d.Dispatch(testAlert("svc"), nil)
+			buf.hook = nil
+			release()
+
+			line := waitMsg(t, buf, "a", "alert delivery superseded")
+			assert.EqualValues(t, 1, line["attempts"])
+			assert.Len(t, mailer.callList(), 1, "no attempt 2")
+		}
+	})
+	t.Run("timer fired and Close ran", func(t *testing.T) {
+		for range 40 {
+			mailer := newFakeMailer()
+			mailer.behaveN["a@x"] = alwaysFail()
+			d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+			held, release := holdAttemptFailed(buf)
+			d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+			select {
+			case <-held:
+			case <-time.After(deadline):
+				t.Fatal("the sequence did not reach its wait")
+			}
+			clk.Advance(7 * time.Second)
+			closed := make(chan struct{})
+			go func() { d.Close(); close(closed) }()
+			mailer.mu.Lock()
+			ctx := mailer.ctxs[0]
+			mailer.mu.Unlock()
+			eventually(t, "Close to cancel the context", func() bool { return ctx.Err() != nil })
+			buf.hook = nil
+			release()
+			select {
+			case <-closed:
+			case <-time.After(deadline):
+				t.Fatal("Close did not return")
+			}
+
+			assert.Equal(t, "alert delivery abandoned", buf.linesOf(t, "a")[1]["msg"])
+			assert.Len(t, mailer.callList(), 1, "no attempt 2")
+		}
+	})
+}
+
+func TestSupersede_EndedSequenceLogsNothing(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["bad@x"] = alwaysFail()
+	d, buf, _ := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 0, Interval: 7 * time.Second})
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("ok", "ok@x"), emailTarget("bad", "bad@x")})
+	waitMsg(t, buf, "ok", "alert delivered")
+	waitMsg(t, buf, "bad", "alert delivery failed")
+
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("next", "next@x")})
+	waitMsg(t, buf, "next", "alert delivered")
+
+	assert.Equal(t, []string{"alert delivered"}, msgsOf(buf.linesOf(t, "ok")))
+	assert.Equal(t, []string{"alert delivery failed"}, msgsOf(buf.linesOf(t, "bad")))
+}
+
+func TestSupersede_SecondDispatchIsNotSuperseded(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["a@x"] = alwaysFail()
+	mailer.behaveN["b@x"] = failFirst(1)
+	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("b", "b@x")})
+	waitMsg(t, buf, "a", "alert delivery superseded")
+	waitMsg(t, buf, "b", "alert delivery attempt failed")
+	waitPending(t, clk, 1)
+	clk.Advance(7 * time.Second)
+
+	waitMsg(t, buf, "b", "alert delivered")
+	assert.NotContains(t, msgsOf(buf.linesOf(t, "b")), "alert delivery superseded")
+}
+
+func TestDispatch_RacingDispatchesAndClose(t *testing.T) {
+	for range 30 {
+		mailer := newFakeMailer()
+		mailer.behaveN["a@x"] = alwaysFail()
+		d, _, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 3, Interval: time.Second})
+		var wg sync.WaitGroup
+		for i := range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				svc := fmt.Sprintf("svc-%d", i%3) // several services, some dispatched repeatedly
+				d.Dispatch(testAlert(svc), []domain.Target{emailTarget("t1", "a@x"), emailTarget("t2", "a@x")})
+				clk.Advance(time.Second)
+			}()
+		}
+
+		closeWithin(t, d)
+		started, returned := len(mailer.callList()), mailer.returnedCount()
+		wg.Wait()
+
+		assert.Equal(t, started, returned, "every started send has returned when Close does")
+		assert.Equal(t, started, len(mailer.callList()), "no send started after Close returned")
+		assert.Equal(t, 0, clk.Pending())
+	}
 }
