@@ -131,6 +131,26 @@ func TestSendWebhook_TextIsJSONNeverInterpreted(t *testing.T) {
 	assert.Equal(t, text, got["message"])
 }
 
+func TestSendWebhook_TestStatus(t *testing.T) {
+	ts := receiver(t)
+	ts.Script("/hook", testutil.Route{})
+	name := `<b>x</b> "quoted"`
+	message := "This is a test alert from Monitory. No service has changed status."
+	alert := domain.Alert{
+		ServiceID: serviceID, ServiceName: name, Status: domain.AlertTest,
+		ChangedAt: time.Date(2026, 11, 18, 14, 5, 7, 0, time.UTC), Message: message,
+	}
+
+	require.NoError(t, newSender(t, 5*time.Second).SendWebhook(context.Background(), ts.URL()+"/hook", nil, alert))
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(ts.Requests()[0].Body), &got))
+	assert.Equal(t, map[string]any{
+		"service_name": name, "status": "test",
+		"changed_at": "2026-11-18T14:05:07Z", "message": message,
+	}, got)
+}
+
 func TestSendWebhook_CustomHeaders(t *testing.T) {
 	long := strings.Repeat("a", 4096)
 	send := func(t *testing.T, headers []domain.NameValue) http.Header {

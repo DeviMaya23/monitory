@@ -136,10 +136,27 @@ func (s *targetSpy) DeleteTarget(_ context.Context, serviceID, targetID string) 
 	return s.err
 }
 
+// testerSpy is a handler.TargetTester that returns a canned result or error and records
+// the service ids and inputs it was given.
+type testerSpy struct {
+	result domain.TargetTestResult
+	err    error
+
+	serviceIDs []string
+	inputs     []domain.TargetInput
+}
+
+func (s *testerSpy) TestTarget(_ context.Context, serviceID string, input domain.TargetInput) (domain.TargetTestResult, error) {
+	s.serviceIDs = append(s.serviceIDs, serviceID)
+	s.inputs = append(s.inputs, input)
+	return s.result, s.err
+}
+
 type routerOptions struct {
 	settings        handler.SettingsService
 	services        handler.ServiceService
 	targets         handler.TargetService
+	tester          handler.TargetTester
 	auth            handler.AuthService
 	requireHTTPS    bool
 	logOutput       io.Writer
@@ -160,6 +177,9 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 	if opts.targets == nil {
 		opts.targets = &targetSpy{}
 	}
+	if opts.tester == nil {
+		opts.tester = &testerSpy{result: domain.TargetTestResult{Delivered: true}}
+	}
 	if opts.auth == nil {
 		opts.auth = &authSpy{}
 	}
@@ -174,7 +194,7 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 		opts.clientIPHeader = "X-Forwarded-For"
 	}
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(opts.settings, opts.services, opts.targets, opts.auth, log, opts.requireHTTPS),
+		Server:          handler.NewServer(opts.settings, opts.services, opts.targets, opts.tester, opts.auth, log, opts.requireHTTPS),
 		Sessions:        oneSession{},
 		Log:             log,
 		MaxRequestBytes: opts.maxRequestBytes,
