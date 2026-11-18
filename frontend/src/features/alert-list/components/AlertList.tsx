@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { ArrowLeft, BellOff, CircleAlert, Plus } from 'lucide-react'
 import { Link } from 'react-router'
 import type { Service } from '../../../lib/api/services'
@@ -66,8 +66,7 @@ export function AlertList({
   const outcome = useRef<TargetDialogOutcome>({ kind: 'left' })
   const opener = useRef<HTMLElement | null>(null)
   // After "Close and refresh": the row whose `Edit` button takes focus once the list is fetched again.
-  const [refreshedFor, setRefreshedFor] = useState<{ targetId: string } | null>(null)
-  const handledRefresh = useRef<{ targetId: string } | null>(null)
+  const refreshing = useRef<{ targetId: string; started: boolean } | null>(null)
 
   // Once a removal has settled and the list has updated, focus goes where the outcome is.
   useEffect(() => {
@@ -83,13 +82,17 @@ export function AlertList({
     ;(button ?? title.current)?.focus()
   })
 
+  // After "Close and refresh", once the list has been fetched again, focus goes to the row if it is still there.
   useEffect(() => {
-    if (refreshedFor === null || handledRefresh.current === refreshedFor) return
-    handledRefresh.current = refreshedFor
+    const pending = refreshing.current
+    if (!pending) return
+    if (view.fetching) pending.started = true
+    if (!pending.started || view.fetching) return
+    refreshing.current = null
     // A service that is gone shows its own block, which takes focus itself.
     if (view.state === 'not-found') return
-    ;(editButtons.current.get(refreshedFor.targetId) ?? title.current)?.focus()
-  }, [refreshedFor, view.state])
+    ;(editButtons.current.get(pending.targetId) ?? title.current)?.focus()
+  })
 
   const connected = (element: HTMLElement | null) => (element?.isConnected ? element : null)
   const focusAfterClose = (): HTMLElement | null => {
@@ -110,8 +113,11 @@ export function AlertList({
     outcome.current = ended
     opener.current = dialog.state.mode === 'none' ? null : dialog.state.opener
     dialog.close()
-    if (ended.kind === 'gone') void view.refresh()
-    if (ended.kind === 'refresh') void view.refresh().then(() => setRefreshedFor({ targetId: ended.targetId }))
+    if (ended.kind === 'gone') view.refresh()
+    if (ended.kind === 'refresh') {
+      refreshing.current = { targetId: ended.targetId, started: false }
+      view.refresh()
+    }
   }
   /** Opens the dialog; a removal question that is open closes first, with nothing sent. */
   const open = (start: () => void) => {

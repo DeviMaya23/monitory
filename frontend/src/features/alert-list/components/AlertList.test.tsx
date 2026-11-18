@@ -82,6 +82,7 @@ function pendingRemoval(): Settle {
 
 /** A toast's text is also in a live region, so it can match more than once. */
 const toastShown = async (text: string) => expect((await screen.findAllByText(text)).length).toBeGreaterThan(0)
+const editButton = (name: string) => screen.getByRole('button', { name: `Edit ${name}` })
 const removeButton = (name: string) => screen.getByRole('button', { name: `Remove ${name}` })
 const confirming = () => screen.getByRole('group', { name: 'Confirm removal' })
 const confirmRemove = () => within(confirming()).getByRole('button', { name: /Remove|Removing/ })
@@ -153,13 +154,36 @@ describe('the list', () => {
     expect(screen.getByRole('button', { name: 'Remove <b>x</b>' })).toBeInTheDocument()
   })
 
-  it('has one Remove button per row and no Add target, Edit button or Edit link', async () => {
+  it('has an Edit and a Remove button per row, named by name or address, and the footer with Add target and its hint (FR-14, FR-15)', async () => {
     await shown(three)
-    expect(screen.getAllByRole('button')).toHaveLength(3)
+    expect(screen.getAllByRole('button')).toHaveLength(3 * 2 + 1)
+    expect(editButton('Ops mailbox')).toHaveTextContent('Edit')
+    expect(editButton('https://hooks.example.com/bare')).toBeInTheDocument()
     expect(removeButton('Ops mailbox')).toBeInTheDocument()
     expect(removeButton('https://hooks.example.com/bare')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Add|Edit/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Add|Edit/ })).not.toBeInTheDocument()
+    const foot = document.querySelector('.list-foot') as HTMLElement
+    expect(within(foot).getByRole('button', { name: 'Add target' })).toBeInTheDocument()
+    expect(foot).toHaveTextContent('Email or webhook. Alerts go to every target when the service goes down or recovers.')
+    // Edit comes before Remove in each row.
+    const buttons = within(screen.getAllByRole('listitem')[0]).getAllByRole('button')
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(['Edit Ops mailbox', 'Remove Ops mailbox'])
+    expect(screen.queryByRole('link', { name: /Add|Edit target/ })).not.toBeInTheDocument()
+  })
+
+  it('has no Add target while loading, when the list could not be loaded, or when the service is not found', async () => {
+    vi.mocked(listTargets).mockReturnValue(new Promise(() => {}))
+    const loading = renderPage()
+    expect(screen.queryByRole('button', { name: 'Add target' })).not.toBeInTheDocument()
+    loading.unmount()
+    vi.mocked(listTargets).mockRejectedValue(problem(500, 'internal_error'))
+    const failed = renderPage()
+    await screen.findByText('Something went wrong.')
+    expect(screen.queryByRole('button', { name: 'Add target' })).not.toBeInTheDocument()
+    failed.unmount()
+    vi.mocked(listTargets).mockRejectedValue(problem(404, 'not_found'))
+    renderPage()
+    await screen.findByRole('heading', { name: 'This service no longer exists' })
+    expect(screen.queryByRole('button', { name: 'Add target' })).not.toBeInTheDocument()
   })
 
   it('shows five targets (the most the server sends) and a 2,048-character URL in full', async () => {
@@ -192,11 +216,12 @@ describe('the list', () => {
 })
 
 describe('empty', () => {
-  it('shows the heading, the text, no button and the sub line', async () => {
+  it('shows the heading, the text, Add target under it and the sub line', async () => {
     await shown([])
     expect(screen.getByText('No alerts will be sent for this service until you add an email address or a webhook.')).toBeInTheDocument()
     expect(screen.getByText('No targets · in the order added')).toBeInTheDocument()
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Add target' })).toBeInTheDocument()
   })
 })
 
@@ -344,6 +369,9 @@ describe('removing a target', () => {
     expect(within(confirming()).getByRole('button', { name: 'Cancel' })).toBeDisabled()
     expect(removeButton('https://hooks.example.com/bare')).toBeDisabled()
     expect(removeButton(LONG_NAME)).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Add target' })).toBeDisabled()
+    expect(editButton('https://hooks.example.com/bare')).toBeDisabled()
+    expect(editButton(LONG_NAME)).toBeDisabled()
     await userEvent.keyboard('{Escape}')
     await userEvent.click(button)
     await userEvent.keyboard('{Enter}')
@@ -356,13 +384,13 @@ describe('removing a target', () => {
     it.each([
       ['the first row', 0, 'https://hooks.example.com/bare'],
       ['the middle row', 1, LONG_NAME],
-    ])('removes %s and focuses the next row’s Remove button', async (_name, index, nextName) => {
+    ])('removes %s and focuses the next row’s Edit button', async (_name, index, nextName) => {
       await shown(three)
       const names = ['Ops mailbox', 'https://hooks.example.com/bare', LONG_NAME]
       vi.mocked(deleteTarget).mockResolvedValueOnce(undefined)
       await userEvent.click(removeButton(names[index]))
       await userEvent.click(confirmRemove())
-      await waitFor(() => expect(removeButton(nextName)).toHaveFocus())
+      await waitFor(() => expect(editButton(nextName)).toHaveFocus())
       expect(screen.getAllByRole('listitem')).toHaveLength(2)
       expect(screen.queryByRole('button', { name: `Remove ${names[index]}` })).not.toBeInTheDocument()
       expect(screen.getByText('2 targets · in the order added')).toBeInTheDocument()
@@ -370,37 +398,37 @@ describe('removing a target', () => {
       expect(listTargets).toHaveBeenCalledOnce()
     })
 
-    it('keeps the other rows in order and moves focus to the heading when the last row goes', async () => {
+    it('keeps the other rows in order and moves focus to Add target when the last row goes', async () => {
       await shown(three)
       vi.mocked(deleteTarget).mockResolvedValueOnce(undefined)
       await userEvent.click(removeButton(LONG_NAME))
       await userEvent.click(confirmRemove())
-      await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus())
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Add target' })).toHaveFocus())
       expect(rowsText()[0]).toContain('Ops mailbox')
       expect(rowsText()[1]).toContain('Unnamed webhook')
       expect(screen.getAllByRole('listitem')).toHaveLength(2)
     })
 
-    it('shows the empty state and focuses the heading when the only target goes', async () => {
+    it('shows the empty state and focuses its Add target when the only target goes', async () => {
       await shown(makeTargetList(mail))
       vi.mocked(deleteTarget).mockResolvedValueOnce(undefined)
       await userEvent.click(removeButton('Ops mailbox'))
       await userEvent.click(confirmRemove())
       expect(await screen.findByRole('heading', { name: 'No notification targets' })).toBeInTheDocument()
-      await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus())
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Add target' })).toHaveFocus())
       expect(screen.getByText('No targets · in the order added')).toBeInTheDocument()
     })
   })
 
   describe('after a 404 not_found', () => {
-    it('removes the row, toasts, fetches again and focuses the next row', async () => {
+    it('removes the row, toasts, fetches again and focuses the next row’s Edit button', async () => {
       await shown(three)
       vi.mocked(deleteTarget).mockRejectedValueOnce(problem(404, 'not_found'))
       vi.mocked(listTargets).mockResolvedValueOnce(makeTargetList(bare, longHook))
       await userEvent.click(removeButton('Ops mailbox'))
       await userEvent.click(confirmRemove())
       await toastShown('That target was already removed.')
-      await waitFor(() => expect(removeButton('https://hooks.example.com/bare')).toHaveFocus())
+      await waitFor(() => expect(editButton('https://hooks.example.com/bare')).toHaveFocus())
       expect(listTargets).toHaveBeenCalledTimes(2)
       expect(screen.getAllByRole('listitem')).toHaveLength(2)
     })

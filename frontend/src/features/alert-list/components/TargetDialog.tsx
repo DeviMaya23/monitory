@@ -193,6 +193,8 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
       }
     >
       <form id={FORM_ID} className="stack" noValidate onSubmit={onSubmit}>
+        {/* The footer's button is outside the form; this one is the form's own default button, so that Enter in an input submits. */}
+        <button type="submit" hidden tabIndex={-1} aria-hidden="true" />
         <TargetDialogBanners
           failure={failure}
           editing={editing !== null}
