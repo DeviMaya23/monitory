@@ -9,19 +9,30 @@ describe('fieldLabel', () => {
     ['check.url', 'URL'],
     ['unhealthy_message', 'Unhealthy message'],
     ['recovery_message', 'Recovery message'],
+    ['settings.check_interval_seconds', 'Check interval'],
+    ['settings.timeout_seconds', 'Timeout'],
+    ['settings.retry_count', 'Retries'],
+    ['settings.retry_interval_seconds', 'Retry interval'],
   ] as const)('maps %s to %s with its target', (path, label) => {
     expect(fieldLabel(path)).toEqual({ label, target: path })
   })
 
-  it.each(['settings', 'check.headers[2].value', 'toString'])('maps %s to itself with no target', (path) => {
+  it.each(['check.headers[2].value', 'toString'])('maps %s to itself with no target', (path) => {
     expect(fieldLabel(path)).toEqual({ label: path, target: null })
   })
 })
 
+describe('the bare settings path', () => {
+  it('is the Timing group: labelled Timing, with no input', () => {
+    expect(fieldLabel('settings')).toEqual({ label: 'Timing', target: null })
+  })
+})
+
 describe('FIELD_IDS', () => {
-  it('has a distinct id for every target, including the two message text areas', () => {
+  it('has a distinct id for every target, including the message text areas and the four timing inputs', () => {
     expect(FIELD_IDS.unhealthy_message).toBeTruthy()
     expect(FIELD_IDS.recovery_message).toBeTruthy()
+    expect(FIELD_IDS['settings.timeout_seconds']).toBeTruthy()
     expect(new Set(Object.values(FIELD_IDS)).size).toBe(Object.keys(FIELD_IDS).length)
   })
 })

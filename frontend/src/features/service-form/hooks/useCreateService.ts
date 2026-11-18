@@ -17,6 +17,11 @@ export type ServiceFormValues = {
   alerts_enabled: boolean
   unhealthy_message: string
   recovery_message: string
+  /** The four timing values, as typed (FR-41, FR-51, FR-53, FR-57). */
+  check_interval: string
+  timeout: string
+  retries: string
+  retry_interval: string
 }
 
 /** How the last save failed. A new object for every failure, so a repeat of the same kind is still a change. */
@@ -71,6 +76,10 @@ export function useCreateService(onCreated: (service: Service) => void) {
     alerts_enabled,
     unhealthy_message,
     recovery_message,
+    check_interval,
+    timeout,
+    retries,
+    retry_interval,
   }: ServiceFormValues) => {
     if (inFlight.current) return
     inFlight.current = true
@@ -83,6 +92,12 @@ export function useCreateService(onCreated: (service: Service) => void) {
         alerts_enabled,
         unhealthy_message,
         recovery_message,
+        settings: {
+          check_interval_seconds: Number(check_interval.trim()),
+          timeout_seconds: Number(timeout.trim()),
+          retry_count: Number(retries.trim()),
+          retry_interval_seconds: Number(retry_interval.trim()),
+        },
       })
       // The dashboard is not mounted here: without the entry it loads the fresh list.
       queryClient.removeQueries({ queryKey: servicesQueryKey })

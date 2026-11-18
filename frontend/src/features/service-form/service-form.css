@@ -38,3 +38,6 @@
   .form-foot__status { width: 100%; flex: none; }
   .form-foot .btn { flex: 1 1 0; }
 }
+
+.timing-sum { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin-top: var(--space-3); font-size: var(--text-sm); color: var(--color-text-muted); }
+.timing-sum .mono { color: var(--color-text); }

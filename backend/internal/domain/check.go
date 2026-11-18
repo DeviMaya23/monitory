@@ -13,6 +13,18 @@ type HTTPCheck struct {
 	Headers     []NameValue
 	BodyType    BodyType
 	BodyContent string
+
+	// JSONRules and JSONRuleMode are judged against the response body (FR-42, FR-44,
+	// FR-47). With no rules the body is not read. An empty mode means any.
+	JSONRules    []JSONRule
+	JSONRuleMode JSONRuleMode
+
+	// CertificateCheck fails the check when fewer than CertMinDaysLeft whole days
+	// remain on the certificate (FR-34, FR-50). IgnoreCertificateErrors accepts an
+	// invalid certificate (FR-64).
+	CertificateCheck        bool
+	CertMinDaysLeft         int
+	IgnoreCertificateErrors bool
 }
 
 // CheckFailure says why a check attempt failed (FR-61). HTTPStatus is set only for

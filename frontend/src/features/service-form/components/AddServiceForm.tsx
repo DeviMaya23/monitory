@@ -9,11 +9,13 @@ import { useCreateService, type ServiceFormValues } from '../hooks/useCreateServ
 import { DEFAULT_METHOD, useLeaveGuard } from '../hooks/useLeaveGuard'
 import { useServerErrors } from '../hooks/useServerErrors'
 import { errorId, FIELD_IDS, focusField } from '../lib/fieldIds'
+import { TIMING_DEFAULTS, TIMING_FIELDS, TIMING_NAMES, type TimingName } from '../lib/timingGroup'
 import { AlertsGroup } from './AlertsGroup'
 import { DiscardDialog } from './DiscardDialog'
 import { ErrorSummary } from './ErrorSummary'
 import { FieldErrorText } from './FieldErrorText'
 import { FormBanners } from './FormBanners'
+import { TimingGroup } from './TimingGroup'
 import '../service-form.css'
 
 // The methods the contract allows (FR-36), in the order the select lists them.
@@ -44,6 +46,7 @@ export function AddServiceForm() {
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
+      ...TIMING_DEFAULTS,
     },
     // A client error goes when its field is edited, not when it becomes valid.
     reValidateMode: 'onSubmit',
@@ -53,10 +56,11 @@ export function AddServiceForm() {
     void navigate('/')
   })
   const serverErrors = useServerErrors(failure?.kind === 'field-errors' ? failure.errors : null)
-  const [name, method, url, alertsEnabled, unhealthyMessage, recoveryMessage] = useWatch({
+  const [name, method, url, alertsEnabled, unhealthyMessage, recoveryMessage, ...timingTexts] = useWatch({
     control,
-    name: ['name', 'method', 'url', 'alerts_enabled', 'unhealthy_message', 'recovery_message'],
+    name: ['name', 'method', 'url', 'alerts_enabled', 'unhealthy_message', 'recovery_message', ...TIMING_NAMES],
   })
+  const timing = Object.fromEntries(TIMING_NAMES.map((key, i) => [key, timingTexts[i]])) as Record<TimingName, string>
   const guard = useLeaveGuard({
     name,
     method,
@@ -64,6 +68,7 @@ export function AddServiceForm() {
     alertsEnabled,
     unhealthyMessage,
     recoveryMessage,
+    timing,
     saving,
     saved,
     onLeave: () => void navigate('/'),
@@ -112,6 +117,9 @@ export function AddServiceForm() {
     clientErrors.name?.message ?? (failure?.kind === 'name-taken' ? NAME_TAKEN : serverErrors.errorFor('name'))
   const methodError = serverErrors.errorFor('check.method')
   const urlError = clientErrors.url?.message ?? serverErrors.errorFor('check.url')
+  const timingErrors = Object.fromEntries(
+    TIMING_NAMES.map((key) => [key, clientErrors[key]?.message ?? serverErrors.errorFor(TIMING_FIELDS[key].path)]),
+  ) as Record<TimingName, string | null>
   const status = saving ? SAVING : guard.changed ? 'Unsaved changes' : ''
 
   return (
@@ -206,6 +214,18 @@ export function AddServiceForm() {
                 </div>
               </div>
             </fieldset>
+
+            <TimingGroup
+              control={control}
+              register={register}
+              saving={saving}
+              errors={timingErrors}
+              groupError={serverErrors.groupError()}
+              onEdit={(key) => {
+                clearErrors(key)
+                serverErrors.clearTiming(TIMING_FIELDS[key].path)
+              }}
+            />
 
             <AlertsGroup
               control={control}

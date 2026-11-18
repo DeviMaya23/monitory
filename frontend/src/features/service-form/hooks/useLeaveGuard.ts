@@ -1,5 +1,6 @@
 import { useEffect, useState, type MouseEvent } from 'react'
 import type { HttpMethod } from '../../../lib/api/services'
+import { TIMING_DEFAULTS, TIMING_NAMES, type TimingTexts } from '../lib/timingGroup'
 
 /** The method a new service starts with. */
 export const DEFAULT_METHOD: HttpMethod = 'GET'
@@ -12,6 +13,8 @@ type Options = {
   alertsEnabled: boolean
   unhealthyMessage: string
   recoveryMessage: string
+  /** The four timing texts. */
+  timing: TimingTexts
   /** A save is in flight. */
   saving: boolean
   /** The save succeeded; the page is about to go. */
@@ -31,6 +34,7 @@ export function useLeaveGuard({
   alertsEnabled,
   unhealthyMessage,
   recoveryMessage,
+  timing,
   saving,
   saved,
   onLeave,
@@ -42,7 +46,8 @@ export function useLeaveGuard({
     method !== DEFAULT_METHOD ||
     !alertsEnabled ||
     unhealthyMessage !== '' ||
-    recoveryMessage !== ''
+    recoveryMessage !== '' ||
+    TIMING_NAMES.some((key) => timing[key] !== TIMING_DEFAULTS[key])
   // While saving the form is left at once: the request is not cancelled.
   const asks = changed && !saving
   const armed = changed && !saving && !saved
