@@ -1,6 +1,6 @@
 # Requirements: self-hosted uptime/status monitor
 
-Version: v0.44
+Version: v0.45
 Status: draft. All nine sections are written and what is in them is accepted for now (may still change). The completeness check gaps are closed. `openapi.yaml` v0.1.0 is written against this version and maps every requirement to an operation or "no API".
 
 ## 1. Product
@@ -154,8 +154,8 @@ A check is healthy by default and fails when one of the conditions below applies
 - **FR-82** An email target must be a validly formatted email address. An invalid address is rejected, and nothing is saved.
 - **FR-83** A failed delivery to one notification target does not stop delivery to the others on the list.
 - **FR-84** A failed delivery does not change the service's status.
-- **FR-85** When a delivery to a notification target fails, the monitor retries it up to 3 times, waiting 30 seconds between attempts. An email delivery fails if no SMTP account is configured (the reason says so) or if the SMTP server does not accept it. A webhook delivery fails when the monitor cannot connect, when the receiver's certificate is rejected, on a timeout, or on a non-2xx response. *(Reworded in v0.26: connection and certificate failures added. Reworded in v0.32: missing SMTP account added.)* *(Note for the implementor: do not hardcode the 3 or the 30 seconds.)*
-- **FR-86** If all delivery attempts fail, the target shows a "last delivery failed" notice on the admin dashboard. The notice stays until a later delivery to that target succeeds. The monitor keeps sending to that target on later alerts.
+- **FR-85** When a delivery to a notification target fails, the monitor retries it up to 3 times, waiting 30 seconds between attempts. An email delivery fails if no SMTP account is configured (the reason says so) or if the SMTP server does not accept it. A webhook delivery fails when the monitor cannot connect, when the receiver's certificate is rejected, on a timeout, or on a non-2xx response. When a service's status changes again while an earlier alert for it is still waiting to be retried, the earlier alert is not retried: the retries for that service stop, an attempt already in progress finishes, and it counts only if it succeeds. A stopped alert changes nothing about the "last delivery failed" notice (FR-86). *(Reworded in v0.26: connection and certificate failures added. Reworded in v0.32: missing SMTP account added.)* *(Reworded in v0.45: newer alert replaces pending retries.)* *(Note for the implementor: do not hardcode the 3 or the 30 seconds.)*
+- **FR-86** If all delivery attempts fail, the target shows a "last delivery failed" notice on the admin dashboard and on the service's alert list. The notice stays until a later delivery to that target succeeds. The monitor keeps sending to that target on later alerts. *(Reworded in v0.45: alert list added.)*
 - **FR-87** A notification target's name is up to 50 characters. A longer name is rejected, and nothing is saved.
 - **FR-88** The same contact (same type and value) cannot appear twice in one service's alert list. A duplicate is rejected, and nothing is saved.
 - **FR-89** A webhook target's URL must start with http or https. Any other URL is rejected, and nothing is saved. *(Reworded in v0.16: was https only.)*

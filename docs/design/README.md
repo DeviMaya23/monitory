@@ -43,6 +43,7 @@ Read-only. The files in this directory are the design reference for the five scr
 - Removing a notification target: inline two-step confirm in the row.
 - "Discard unsaved changes?" dialog on both forms, and the browser's own prompt on tab close or reload.
 - Notification target dialog: an error summary above the form after a `422`, titled `1 field needs fixing before this can be saved.` or `{n} fields need fixing before this can be saved.`, with one entry per error that links to its input. The board draws only the message under each field.
+- Alerts group on the service form: the `Send alerts` switch showing Off, and a message error under the Unhealthy or Recovery text area, styled like the other field errors.
 
 ## Pages
 

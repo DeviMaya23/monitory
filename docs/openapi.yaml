@@ -1069,7 +1069,6 @@ components:
 
     ServiceList:
       type: array
-      maxItems: 50
       items: { $ref: '#/components/schemas/Service' }
 
     ServiceTestResult:
@@ -1167,7 +1166,6 @@ components:
 
     TargetList:
       type: array
-      maxItems: 5
       items: { $ref: '#/components/schemas/Target' }
 
     TargetTestResult:
@@ -1200,7 +1198,6 @@ components:
       properties:
         services:
           type: array
-          maxItems: 50
           items: { $ref: '#/components/schemas/PublicService' }
 
     Health:
