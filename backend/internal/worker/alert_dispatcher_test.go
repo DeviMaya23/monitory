@@ -247,6 +247,32 @@ func closeWithin(t *testing.T, d *worker.AlertDispatcher) {
 
 const deadline = 2 * time.Second
 
+// waitGroupWithin waits for the group and fails the test if it takes longer than the
+// deadline, so goroutines that are stuck fail by assertion and do not hang.
+func waitGroupWithin(t *testing.T, wg *sync.WaitGroup) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(deadline):
+		t.Fatal("goroutines did not finish within the deadline")
+	}
+}
+
+// dispatchWithin calls Dispatch and fails the test if it does not return within the
+// deadline, so a Dispatch that waits for the sends fails by assertion and does not hang.
+func dispatchWithin(t *testing.T, d *worker.AlertDispatcher, alert domain.Alert, targets []domain.Target) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { d.Dispatch(alert, targets); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(deadline):
+		t.Fatal("Dispatch did not return within the deadline")
+	}
+}
+
 func testAlert(serviceID string) domain.Alert {
 	return domain.Alert{
 		ServiceID: serviceID, ServiceName: secretService, Status: domain.AlertUnhealthy,
@@ -282,7 +308,7 @@ func TestDispatch_EmailTargetIsSentOnceWithoutRetry(t *testing.T) {
 	d, buf := newDispatcher(t, mailer)
 	alert := testAlert("svc")
 
-	d.Dispatch(alert, []domain.Target{emailTarget("t1", secretAddress)})
+	dispatchWithin(t, d, alert, []domain.Target{emailTarget("t1", secretAddress)})
 	buf.waitLines(t, 1)
 	closeWithin(t, d)
 
@@ -294,13 +320,15 @@ func TestDispatch_ReturnsWhileASendIsBlocked(t *testing.T) {
 	release := make(chan struct{})
 	mailer.behave["a@x"] = func(context.Context) error { <-release; return nil }
 	d, _ := newDispatcher(t, mailer)
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
 
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
 
 	// Dispatch has returned; the blocked send has started with no clock involved.
 	waitFor(t, mailer.started, "a@x")
 	assert.False(t, mailer.hasReturned("a@x"))
-	close(release)
+	once.Do(func() { close(release) })
 }
 
 func TestDispatch_OneTargetDoesNotStopOrDelayTheOthers(t *testing.T) {
@@ -309,8 +337,10 @@ func TestDispatch_OneTargetDoesNotStopOrDelayTheOthers(t *testing.T) {
 	mailer.behave["first@x"] = func(context.Context) error { <-release; return nil }
 	mailer.behave["second@x"] = func(context.Context) error { return errors.New("refused") }
 	d, buf := newDispatcher(t, mailer)
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
 
-	d.Dispatch(testAlert("svc"), []domain.Target{
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{
 		emailTarget("t1", "first@x"), emailTarget("t2", "second@x"), emailTarget("t3", "third@x"),
 	})
 
@@ -324,7 +354,7 @@ func TestDispatch_OneTargetDoesNotStopOrDelayTheOthers(t *testing.T) {
 		}
 	}
 	assert.Equal(t, map[string]bool{"first@x": true, "second@x": true, "third@x": true}, got)
-	close(release)
+	once.Do(func() { close(release) })
 	buf.waitLines(t, 3)
 	closeWithin(t, d)
 
@@ -348,7 +378,7 @@ func TestDispatch_WebhookTargetIsSentOnceWithoutRetry(t *testing.T) {
 			d, buf := newDispatcherWith(t, mailer, hooks)
 			alert := testAlert("svc")
 
-			d.Dispatch(alert, []domain.Target{webhookTargetTo("w1", secretURL, headers...)})
+			dispatchWithin(t, d, alert, []domain.Target{webhookTargetTo("w1", secretURL, headers...)})
 			buf.waitLines(t, 1)
 			closeWithin(t, d)
 
@@ -363,7 +393,7 @@ func TestDispatch_WebhookOutcomeLogs(t *testing.T) {
 	hooks.behave["https://bad.example/hook"] = func(context.Context) error { return errors.New("the webhook answered with status 503") }
 	d, buf := newDispatcherWith(t, newFakeMailer(), hooks)
 
-	d.Dispatch(testAlert("svc"), []domain.Target{
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{
 		webhookTargetTo("ok", secretURL, domain.NameValue{Name: secretHeaderName, Value: secretHeaderValue}),
 		webhookTargetTo("bad", "https://bad.example/hook", domain.NameValue{Name: secretHeaderName, Value: secretHeaderValue}),
 	})
@@ -392,7 +422,7 @@ func TestDispatch_UnknownTargetTypeIsNotSent(t *testing.T) {
 	mailer, hooks := newFakeMailer(), newFakeWebhooks()
 	d, buf := newDispatcherWith(t, mailer, hooks)
 
-	d.Dispatch(testAlert("svc"), []domain.Target{{ID: "x1", ServiceID: "svc", Name: secretName, Type: "sms", Value: secretAddress}})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{{ID: "x1", ServiceID: "svc", Name: secretName, Type: "sms", Value: secretAddress}})
 	buf.waitLines(t, 1)
 	closeWithin(t, d)
 
@@ -416,7 +446,7 @@ func TestDispatch_WebhookAndEmailDoNotAffectEachOther(t *testing.T) {
 		hooks.behave[secretURL] = func(context.Context) error { <-release; return nil }
 		d, buf := newDispatcherWith(t, mailer, hooks)
 
-		d.Dispatch(testAlert("svc"), []domain.Target{webhookTarget("w1"), emailTarget("e1", "a@x")})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{webhookTarget("w1"), emailTarget("e1", "a@x")})
 		buf.waitLines(t, 1) // the email's outcome, while the webhook is still blocked
 
 		require.Len(t, mailer.callList(), 1)
@@ -431,7 +461,7 @@ func TestDispatch_WebhookAndEmailDoNotAffectEachOther(t *testing.T) {
 		mailer.behave["a@x"] = func(context.Context) error { return errors.New("refused") }
 		d, buf := newDispatcherWith(t, mailer, hooks)
 
-		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("e1", "a@x"), webhookTarget("w1")})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("e1", "a@x"), webhookTarget("w1")})
 		buf.waitLines(t, 2)
 		closeWithin(t, d)
 
@@ -456,7 +486,7 @@ func TestDispatch_ReturnsWhileAWebhookSendIsBlocked(t *testing.T) {
 
 	returned := make(chan struct{})
 	go func() {
-		d.Dispatch(testAlert("svc"), []domain.Target{webhookTarget("w1")})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{webhookTarget("w1")})
 		close(returned)
 	}()
 
@@ -495,7 +525,7 @@ func TestClose_WebhookSends(t *testing.T) {
 				}
 				d, buf := newDispatcherWith(t, newFakeMailer(), hooks)
 				t.Cleanup(func() { close(bail) })
-				d.Dispatch(testAlert("svc"), []domain.Target{webhookTarget("w1")})
+				dispatchWithin(t, d, testAlert("svc"), []domain.Target{webhookTarget("w1")})
 				waitFor(t, hooks.started, secretURL)
 				closed := make(chan struct{})
 
@@ -544,7 +574,7 @@ func TestClose_WebhookSends(t *testing.T) {
 		}
 		d, buf := newDispatcherWith(t, newFakeMailer(), hooks)
 		t.Cleanup(func() { close(bail) })
-		d.Dispatch(testAlert("svc"), []domain.Target{webhookTarget("w1")})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{webhookTarget("w1")})
 		waitFor(t, hooks.started, secretURL)
 
 		go func() { <-cancelled; close(gate) }()
@@ -573,7 +603,7 @@ func TestDispatch_ConcurrentWebhookServicesKeepTheirIDs(t *testing.T) {
 			d.Dispatch(testAlert(id), []domain.Target{webhookTargetTo("t-"+id, "https://"+id+".example/hook")})
 		}()
 	}
-	wg.Wait()
+	waitGroupWithin(t, &wg)
 	buf.waitLines(t, 2)
 	closeWithin(t, d)
 
@@ -594,7 +624,7 @@ func TestDispatch_LogsOutcomesWithIdsOnly(t *testing.T) {
 	mailer.behave["bad@x"] = func(context.Context) error { return errors.New("the SMTP server did not accept the message") }
 	d, buf := newDispatcher(t, mailer)
 
-	d.Dispatch(testAlert("svc"), []domain.Target{
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{
 		emailTarget("ok", secretAddress), emailTarget("bad", "bad@x"), webhookTarget("hook"),
 	})
 	buf.waitLines(t, 3)
@@ -630,7 +660,7 @@ func TestClose_CancelsAndWaitsForSendsInProgress(t *testing.T) {
 		}
 	}
 	d, buf := newDispatcher(t, mailer)
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x"), emailTarget("t2", "b@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x"), emailTarget("t2", "b@x")})
 	<-mailer.started
 	<-mailer.started
 	closed := make(chan struct{})
@@ -671,7 +701,7 @@ func TestClose_ASendThatSucceedsAfterCloseIsDelivered(t *testing.T) {
 	cancelled := make(chan struct{})
 	mailer.behave["a@x"] = func(ctx context.Context) error { <-ctx.Done(); close(cancelled); <-gate; return nil }
 	d, buf := newDispatcher(t, mailer)
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
 	waitFor(t, mailer.started, "a@x")
 
 	go func() { <-cancelled; close(gate) }()
@@ -685,13 +715,13 @@ func TestClose_ASendThatSucceedsAfterCloseIsDelivered(t *testing.T) {
 func TestClose_SecondCallAndDispatchAfterClose(t *testing.T) {
 	mailer := newFakeMailer()
 	d, buf := newDispatcher(t, mailer)
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
 	buf.waitLines(t, 1)
 	closeWithin(t, d)
 	require.Len(t, mailer.callList(), 1, "baseline: a dispatch before Close sends")
 
 	closeWithin(t, d)
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t2", "b@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t2", "b@x")})
 	closeWithin(t, d)
 
 	assert.Len(t, mailer.callList(), 1)
@@ -719,7 +749,7 @@ func TestDispatch_RacingCloseNeverSendsAfterCloseReturned(t *testing.T) {
 
 		closeWithin(t, d)
 		started, returned := len(mailer.callList()), mailer.returnedCount()
-		wg.Wait()
+		waitGroupWithin(t, &wg)
 
 		assert.Equal(t, started, returned, "every started send has returned when Close does")
 		assert.Equal(t, started, len(mailer.callList()), "no send started after Close returned")
@@ -737,7 +767,7 @@ func TestDispatch_ConcurrentServicesKeepTheirIDs(t *testing.T) {
 			d.Dispatch(testAlert(id), []domain.Target{emailTarget("t-"+id, id+"@x")})
 		}()
 	}
-	wg.Wait()
+	waitGroupWithin(t, &wg)
 	buf.waitLines(t, 2)
 	closeWithin(t, d)
 
@@ -757,7 +787,7 @@ func TestDispatch_FailureAndAbandonLogsNeverHoldTheAddress(t *testing.T) {
 		mailer.behave[secretAddress] = func(context.Context) error { return errors.New("the SMTP server did not accept the message") }
 		d, buf := newDispatcher(t, mailer)
 
-		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", secretAddress)})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", secretAddress)})
 		buf.waitLines(t, 1)
 		closeWithin(t, d)
 
@@ -772,7 +802,7 @@ func TestDispatch_FailureAndAbandonLogsNeverHoldTheAddress(t *testing.T) {
 		mailer := newFakeMailer()
 		mailer.behave[secretAddress] = func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }
 		d, buf := newDispatcher(t, mailer)
-		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", secretAddress)})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", secretAddress)})
 		waitFor(t, mailer.started, secretAddress)
 
 		closeWithin(t, d)
@@ -791,7 +821,7 @@ func TestDispatch_FiveTargetsOneBlockedOneFailing(t *testing.T) {
 	mailer.behave["t3@x"] = func(context.Context) error { return errors.New("refused") }
 	d, buf := newDispatcher(t, mailer)
 
-	d.Dispatch(testAlert("svc"), []domain.Target{
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{
 		emailTarget("t1", "t1@x"), emailTarget("t2", "t2@x"), emailTarget("t3", "t3@x"),
 		emailTarget("t4", "t4@x"), emailTarget("t5", "t5@x"),
 	})
@@ -889,7 +919,7 @@ func TestSequence_SuccessAtOnce(t *testing.T) {
 	mailer := newFakeMailer()
 	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
 
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
 	line := waitMsg(t, buf, "t1", "alert delivered")
 
 	assert.Len(t, mailer.callList(), 1)
@@ -904,7 +934,7 @@ func TestSequence_FailFailSucceed(t *testing.T) {
 	mailer.behaveN["a@x"] = failFirst(2)
 	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
 
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
 	waitMsg(t, buf, "t1", "alert delivery attempt failed")
 	waitPending(t, clk, 1)
 	require.Len(t, mailer.callList(), 1)
@@ -950,7 +980,7 @@ func TestSequence_AlwaysFailing(t *testing.T) {
 	d, buf, c := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
 	clk = c
 
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
 	for i := 1; i <= 3; i++ {
 		waitMsg(t, buf, "t1", "alert delivery attempt failed")
 		buf.waitLines(t, 0)
@@ -977,7 +1007,7 @@ func TestSequence_IntervalComesFromThePolicy(t *testing.T) {
 	mailer.behaveN["a@x"] = failFirst(1)
 	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 3, Interval: 45 * time.Second})
 
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
 	waitMsg(t, buf, "t1", "alert delivery attempt failed")
 	waitPending(t, clk, 1)
 
@@ -995,7 +1025,7 @@ func TestSequence_ZeroRetriesFailsAtOnce(t *testing.T) {
 	mailer.behaveN["a@x"] = alwaysFail()
 	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 0, Interval: 7 * time.Second})
 
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
 	line := waitMsg(t, buf, "t1", "alert delivery failed")
 
 	assert.Equal(t, 0, clk.Pending())
@@ -1011,7 +1041,7 @@ func TestSequence_EmailAndWebhook(t *testing.T) {
 	hooks.behaveN[secretURL] = failFirst(2)
 	d, buf, clk := newRetryDispatcher(t, mailer, hooks, retry3)
 
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("e1", "a@x"), webhookTarget("w1")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("e1", "a@x"), webhookTarget("w1")})
 	waitPending(t, clk, 2)
 	clk.Advance(7 * time.Second)
 	e := waitMsg(t, buf, "e1", "alert delivered")
@@ -1032,7 +1062,7 @@ func TestSequence_TargetsAreIndependent(t *testing.T) {
 		mailer.behaveN["bad@x"] = alwaysFail()
 		d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
 
-		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("bad", "bad@x"), emailTarget("good", "good@x")})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("bad", "bad@x"), emailTarget("good", "good@x")})
 
 		waitMsg(t, buf, "good", "alert delivered")
 		waitMsg(t, buf, "bad", "alert delivery attempt failed")
@@ -1044,7 +1074,7 @@ func TestSequence_TargetsAreIndependent(t *testing.T) {
 		mailer.behaveN["b@x"] = failFirst(1)
 		d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
 
-		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x"), emailTarget("t2", "b@x")})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x"), emailTarget("t2", "b@x")})
 		waitPending(t, clk, 2)
 		clk.Advance(7 * time.Second)
 
@@ -1060,7 +1090,7 @@ func TestSequence_LogsHoldIdsOnly(t *testing.T) {
 	hooks.behaveN[secretURL] = failFirst(1)
 	d, buf, clk := newRetryDispatcher(t, mailer, hooks, worker.RetryPolicy{Retries: 1, Interval: 7 * time.Second})
 
-	d.Dispatch(testAlert("svc"), []domain.Target{
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{
 		emailTarget("e1", secretAddress),
 		webhookTargetTo("w1", secretURL, domain.NameValue{Name: secretHeaderName, Value: secretHeaderValue}),
 	})
@@ -1085,7 +1115,7 @@ func TestClose_WhileWaiting(t *testing.T) {
 	mailer := newFakeMailer()
 	mailer.behaveN["a@x"] = alwaysFail()
 	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
 	waitMsg(t, buf, "t1", "alert delivery attempt failed")
 	waitPending(t, clk, 1)
 
@@ -1110,7 +1140,7 @@ func TestClose_LaterAttemptIsCancelled(t *testing.T) {
 		return errors.New("the SMTP server did not accept the message")
 	}
 	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
 	waitPending(t, clk, 1)
 	clk.Advance(7 * time.Second)
 	waitMailCalls(t, mailer, 2)
@@ -1134,13 +1164,13 @@ func TestSupersede_WaitingSequence(t *testing.T) {
 			mailer.behaveN["a@x"] = alwaysFail()
 			mailer.behaveN["b@x"] = failFirst(1)
 			d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
-			d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+			dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
 			waitMsg(t, buf, "a", "alert delivery attempt failed")
 			waitPending(t, clk, 1)
 
 			newer := testAlert("svc")
 			newer.Status = status
-			d.Dispatch(newer, []domain.Target{emailTarget("b", "b@x")})
+			dispatchWithin(t, d, newer, []domain.Target{emailTarget("b", "b@x")})
 
 			line := waitMsg(t, buf, "a", "alert delivery superseded")
 			assert.Equal(t, "WARN", line["level"])
@@ -1168,11 +1198,11 @@ func TestSupersede_OtherServiceIsNotAffected(t *testing.T) {
 	mailer := newFakeMailer()
 	mailer.behaveN["t@x"] = failFirst(1)
 	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
-	d.Dispatch(testAlert("svc-t"), []domain.Target{emailTarget("t", "t@x")})
+	dispatchWithin(t, d, testAlert("svc-t"), []domain.Target{emailTarget("t", "t@x")})
 	waitMsg(t, buf, "t", "alert delivery attempt failed")
 	waitPending(t, clk, 1)
 
-	d.Dispatch(testAlert("svc-s"), []domain.Target{emailTarget("s", "s@x")})
+	dispatchWithin(t, d, testAlert("svc-s"), []domain.Target{emailTarget("s", "s@x")})
 	waitMsg(t, buf, "s", "alert delivered")
 	clk.Advance(7 * time.Second)
 
@@ -1200,9 +1230,9 @@ func TestSupersede_AttemptInProgress(t *testing.T) {
 			return errors.New("later failure")
 		}
 		d, buf, clk = newRetryDispatcher(t, mailer, newFakeWebhooks(), policy)
-		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
 		waitFor(t, mailer.started, "a@x")
-		d.Dispatch(testAlert("svc"), nil) // the newer alert
+		dispatchWithin(t, d, testAlert("svc"), nil) // the newer alert
 		return
 	}
 	t.Run("the attempt is not cancelled", func(t *testing.T) {
@@ -1211,7 +1241,11 @@ func TestSupersede_AttemptInProgress(t *testing.T) {
 		mailer.mu.Lock()
 		ctx := mailer.ctxs[0]
 		mailer.mu.Unlock()
-		assert.NoError(t, ctx.Err())
+		// A cancel that a newer alert caused would arrive from another goroutine, so the
+		// context is watched for a short real time, yielding, not read once.
+		for end := time.Now().Add(50 * time.Millisecond); time.Now().Before(end); runtime.Gosched() {
+			require.NoError(t, ctx.Err(), "the attempt in progress is not cancelled by a newer alert")
+		}
 	})
 	t.Run("success counts", func(t *testing.T) {
 		_, buf, _, _, release := blocked(t, retry3)
@@ -1251,11 +1285,11 @@ func TestSupersede_AttemptInProgress(t *testing.T) {
 			}
 		}
 		d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 1, Interval: 7 * time.Second})
-		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
 		waitPending(t, clk, 1)
 		clk.Advance(7 * time.Second)
 		waitMailCalls(t, mailer, 2)
-		d.Dispatch(testAlert("svc"), nil)
+		dispatchWithin(t, d, testAlert("svc"), nil)
 		mailer.mu.Lock()
 		assert.NoError(t, mailer.ctxs[1].Err())
 		mailer.mu.Unlock()
@@ -1272,8 +1306,8 @@ func TestSupersede_FirstAttemptIsAlwaysMade(t *testing.T) {
 		mailer.behaveN["a@x"] = alwaysFail()
 		d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
 
-		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
-		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("b", "b@x")})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+		dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("b", "b@x")})
 
 		line := waitMsg(t, buf, "a", "alert delivery superseded")
 		waitMsg(t, buf, "b", "alert delivered")
@@ -1318,14 +1352,14 @@ func TestSupersede_RecheckAfterWakeUp(t *testing.T) {
 			mailer.behaveN["a@x"] = alwaysFail()
 			d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
 			held, release := holdAttemptFailed(buf)
-			d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+			dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
 			select {
 			case <-held:
 			case <-time.After(deadline):
 				t.Fatal("the sequence did not reach its wait")
 			}
 			clk.Advance(7 * time.Second)
-			d.Dispatch(testAlert("svc"), nil)
+			dispatchWithin(t, d, testAlert("svc"), nil)
 			buf.hook = nil
 			release()
 
@@ -1340,7 +1374,7 @@ func TestSupersede_RecheckAfterWakeUp(t *testing.T) {
 			mailer.behaveN["a@x"] = alwaysFail()
 			d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
 			held, release := holdAttemptFailed(buf)
-			d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+			dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
 			select {
 			case <-held:
 			case <-time.After(deadline):
@@ -1371,11 +1405,11 @@ func TestSupersede_EndedSequenceLogsNothing(t *testing.T) {
 	mailer := newFakeMailer()
 	mailer.behaveN["bad@x"] = alwaysFail()
 	d, buf, _ := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 0, Interval: 7 * time.Second})
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("ok", "ok@x"), emailTarget("bad", "bad@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("ok", "ok@x"), emailTarget("bad", "bad@x")})
 	waitMsg(t, buf, "ok", "alert delivered")
 	waitMsg(t, buf, "bad", "alert delivery failed")
 
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("next", "next@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("next", "next@x")})
 	waitMsg(t, buf, "next", "alert delivered")
 
 	assert.Equal(t, []string{"alert delivered"}, msgsOf(buf.linesOf(t, "ok")))
@@ -1388,8 +1422,8 @@ func TestSupersede_SecondDispatchIsNotSuperseded(t *testing.T) {
 	mailer.behaveN["b@x"] = failFirst(1)
 	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
 
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
-	d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("b", "b@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("a", "a@x")})
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("b", "b@x")})
 	waitMsg(t, buf, "a", "alert delivery superseded")
 	waitMsg(t, buf, "b", "alert delivery attempt failed")
 	waitPending(t, clk, 1)
@@ -1417,7 +1451,7 @@ func TestDispatch_RacingDispatchesAndClose(t *testing.T) {
 
 		closeWithin(t, d)
 		started, returned := len(mailer.callList()), mailer.returnedCount()
-		wg.Wait()
+		waitGroupWithin(t, &wg)
 
 		assert.Equal(t, started, returned, "every started send has returned when Close does")
 		assert.Equal(t, started, len(mailer.callList()), "no send started after Close returned")
