@@ -2,7 +2,7 @@
 
 Verifier branch: `verify/target-delivery-notice` (built on builder branch `feat/target-delivery-notice`, commit 04e0195)
 
-**Result: no Blocking findings.** `make check` passed (exit 0; 549 frontend tests before my additions, 551 files-wide after; the alert-list folder runs 200 tests, all passing; lint and `tsc -b` clean after my additions). I ran `npm ci` first because the worktree had no frontend dependencies (lockfile unchanged).
+**Result: no Blocking findings.** `make check` passed (exit 0, 549 frontend tests passing). After adding my test rows I re-ran the alert-list tests (200 passed), ESLint and `tsc -b` (clean). I ran `npm ci` first because the worktree had no frontend dependencies (lockfile unchanged).
 
 ## Acceptance criteria
 
@@ -82,7 +82,7 @@ None.
 
 ### Non-blocking
 
-1. **Test quality: row 5's live-region test only checks the default row.** Category: test quality. Matters when: someone wraps the notice in a role-bearing element only in the `asking` state. Report only is not needed; the trigger is that change.
+1. **Test quality: row 5's live-region test only checks the default row.** Category: test quality. Matters when: someone wraps the notice in a role-bearing element only in the `asking` state.
 2. **Decision needed: FR-86 says the notice is shown "on the admin dashboard".** The alert-list notice follows the board and the task file, but `docs/requirements.md` does not mention the alert list. Matters when: someone reads FR-86 to decide whether the alert-list notice is in scope, for example when drafting `delivery-outcome` or the milestone's end-to-end tests.
 3. **Cosmetic: the 360 px layout is checked by reading CSS only.** Category: cosmetic. Matters when: the first milestone narrow-screen manual check (NFR-3) is run; the "Narrow screens" section of `docs/manual-checks.md` is where a person confirms it. No test can prove it.
 
