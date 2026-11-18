@@ -1,10 +1,12 @@
 /** The server `field` paths that have an input on this screen. */
-export type FieldTarget = 'name' | 'check.method' | 'check.url'
+export type FieldTarget = 'name' | 'check.method' | 'check.url' | 'unhealthy_message' | 'recovery_message'
 
 const LABELS: Record<FieldTarget, string> = {
   name: 'Name',
   'check.method': 'Method',
   'check.url': 'URL',
+  unhealthy_message: 'Unhealthy message',
+  recovery_message: 'Recovery message',
 }
 
 function isTarget(path: string): path is FieldTarget {
@@ -12,7 +14,10 @@ function isTarget(path: string): path is FieldTarget {
 }
 
 /** The label of a server `field` path and the input it belongs to; a path with no input is its own label. */
-export function fieldLabel(path: string): { label: string; target: FieldTarget | null } {
+export function fieldLabel(path: string): {
+  label: string
+  target: FieldTarget | null
+} {
   return isTarget(path) ? { label: LABELS[path], target: path } : { label: path, target: null }
 }
 

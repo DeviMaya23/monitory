@@ -390,6 +390,9 @@ describe('Add service (FR-6, FR-4)', () => {
     expect(createService).toHaveBeenCalledWith({
       name: 'Search API',
       check: { type: 'http', method: 'GET', url: 'https://search.example.com/health' },
+      alerts_enabled: true,
+      unhealthy_message: '',
+      recovery_message: '',
     })
     expect(signOutButton()).toBeInTheDocument()
   })

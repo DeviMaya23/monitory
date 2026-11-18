@@ -116,14 +116,11 @@ describe('idle', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('has no counter, no Type control, no switch and no test button', () => {
+  it('has no Type control and no test button', () => {
     setup()
-    expect(document.querySelector('.counter')).toBeNull()
-    expect(screen.queryByText(/\d+\/\d+/)).not.toBeInTheDocument()
     expect(screen.queryByText('Type')).not.toBeInTheDocument()
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
     expect(screen.queryByRole('radio')).not.toBeInTheDocument()
-    expect(screen.queryByRole('switch')).not.toBeInTheDocument()
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Cancel', 'Save service'])
   })
 })
@@ -139,6 +136,9 @@ describe('saving a valid form (FR-6, FR-12)', () => {
     expect(sentInput()).toStrictEqual({
       name: '  Search API ',
       check: { type: 'http', method: 'GET', url: URL_VALUE },
+      alerts_enabled: true,
+      unhealthy_message: '',
+      recovery_message: '',
     })
     expect(saveButton()).toHaveTextContent('Saving…')
     expect(saveButton()).toHaveAttribute('aria-busy', 'true')
@@ -517,7 +517,13 @@ describe('the banners', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(createService).toHaveBeenCalledTimes(2)
     expect(sentInput(1)).toStrictEqual(sentInput(0))
-    expect(sentInput(1)).toStrictEqual({ name: 'Search API', check: { type: 'http', method: 'GET', url: URL_VALUE } })
+    expect(sentInput(1)).toStrictEqual({
+      name: 'Search API',
+      check: { type: 'http', method: 'GET', url: URL_VALUE },
+      alerts_enabled: true,
+      unhealthy_message: '',
+      recovery_message: '',
+    })
 
     await act(async () => settle.resolve(makeService({ name: 'Search API' })))
     expect(await marker()).toBeInTheDocument()
@@ -729,5 +735,181 @@ describe('leaving', () => {
     await act(async () => settle.resolve(makeService({ name: 'Search API' })))
     expect(client.getQueryData(['services'])).toBeUndefined()
     expect(screen.queryByText(/added\./)).not.toBeInTheDocument()
+  })
+})
+
+describe('the Alerts group (FR-20, FR-65)', () => {
+  const unhealthyArea = () => screen.getByLabelText('Unhealthy message (optional)')
+  const recoveryArea = () => screen.getByLabelText('Recovery message (optional)')
+  const alertsSwitch = () => screen.getByRole('switch', { name: 'Send alerts' })
+  const counters = () => Array.from(document.querySelectorAll('.counter')).map((counter) => counter.textContent)
+
+  it('shows after the Request group: the switch on and described, two text areas with counters at 0/500', () => {
+    setup()
+    const legends = Array.from(document.querySelectorAll('legend')).map((legend) => legend.textContent)
+    expect(legends).toEqual(['Service', 'Request', 'Alerts'])
+    expect(alertsSwitch()).toHaveAttribute('aria-checked', 'true')
+    expect(alertsSwitch()).toHaveAccessibleDescription('To this service’s alert list when it goes down or recovers.')
+    expect(screen.getByText('On')).toBeInTheDocument()
+    for (const area of [unhealthyArea(), recoveryArea()]) {
+      expect(area).toHaveAttribute('placeholder', 'Default message is used when empty')
+      expect(area).toHaveAttribute('rows', '3')
+      expect(area).not.toHaveAttribute('maxlength')
+    }
+    expect(counters()).toEqual(['0/500', '0/500'])
+    expect(footerStatus()).toBeEmptyDOMElement()
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Cancel', 'Save service'])
+  })
+
+  it('counts the characters of the field being typed in only, and an emoji as one', async () => {
+    const { user } = setup()
+    await user.type(unhealthyArea(), 'twelve chars')
+    expect(counters()).toEqual(['12/500', '0/500'])
+    await user.type(recoveryArea(), '😀')
+    expect(counters()).toEqual(['12/500', '1/500'])
+  })
+
+  it('keeps a paste of 501 characters whole and shows no error at 500', async () => {
+    const { user } = setup()
+    await user.click(unhealthyArea())
+    await user.paste('a'.repeat(501))
+    expect(unhealthyArea()).toHaveValue('a'.repeat(501))
+    expect(counters()[0]).toBe('501/500')
+    await user.click(recoveryArea())
+    await user.paste('b'.repeat(500))
+    expect(counters()[1]).toBe('500/500')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(document.querySelector('.error-text')).toBeNull()
+  })
+
+  it('sends messages exactly as typed with alerts off, even when alerts are off', async () => {
+    vi.mocked(createService).mockResolvedValueOnce(makeService())
+    const { user } = setup()
+    await fill(user)
+    await user.click(alertsSwitch())
+    expect(alertsSwitch()).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByText('Off')).toBeInTheDocument()
+    await user.type(unhealthyArea(), '  down ')
+    await user.type(recoveryArea(), '<b>x</b>')
+    await user.click(saveButton())
+    await marker()
+    expect(sentInput()).toStrictEqual({
+      name: 'Search API',
+      check: { type: 'http', method: 'GET', url: URL_VALUE },
+      alerts_enabled: false,
+      unhealthy_message: '  down ',
+      recovery_message: '<b>x</b>',
+    })
+  })
+
+  it('locks the switch and text areas in flight, and unlocks them after a failure', async () => {
+    const settle = pending()
+    const { user } = setup()
+    await fill(user)
+    await user.click(saveButton())
+    // Base UI's switch is a span that announces disabled through aria-disabled.
+    expect(alertsSwitch()).toHaveAttribute('aria-disabled', 'true')
+    expect(unhealthyArea()).toHaveAttribute('readonly')
+    expect(recoveryArea()).toHaveAttribute('readonly')
+    await act(async () => settle.reject(problem(500, 'internal_error')))
+    await waitFor(() => expect(saveButton()).toBeEnabled())
+    expect(alertsSwitch()).not.toHaveAttribute('aria-disabled')
+    expect(unhealthyArea()).not.toHaveAttribute('readonly')
+    expect(recoveryArea()).not.toHaveAttribute('readonly')
+  })
+
+  describe('a 422 for the messages (FR-12, FR-74, NFR-7)', () => {
+    const UNHEALTHY = 'The unhealthy message is over the 500 characters allowed.'
+    const RECOVERY = '<i>The recovery message</i> is over the 500 characters allowed.'
+    const BOTH = () =>
+      validationProblem(
+        fieldError('unhealthy_message', UNHEALTHY, 'too_long'),
+        fieldError('unhealthy_message', 'A second error for the same field.', 'too_long'),
+        fieldError('recovery_message', RECOVERY, 'too_long'),
+      )
+
+    it('shows each message on its text area and in the summary, in order, as text, with the first error only', async () => {
+      const { user } = setup()
+      await failWith(user, BOTH())
+      expect(describedBy(unhealthyArea())).toBe(UNHEALTHY)
+      expect(unhealthyArea()).toHaveAttribute('aria-invalid', 'true')
+      expect(describedBy(recoveryArea())).toBe(RECOVERY)
+      expect(recoveryArea()).toHaveAttribute('aria-invalid', 'true')
+      expect(document.querySelector('.error-text i')).toBeNull()
+      const summary = screen.getByRole('alert')
+      expect(summary).toHaveFocus()
+      expect(
+        within(summary)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual([
+        `Unhealthy message: ${UNHEALTHY}`,
+        'Unhealthy message: A second error for the same field.',
+        `Recovery message: ${RECOVERY}`,
+      ])
+    })
+
+    it('links each entry to its text area', async () => {
+      const { user } = setup()
+      await failWith(user, BOTH())
+      await user.click(screen.getByRole('link', { name: `Recovery message: ${RECOVERY}` }))
+      expect(recoveryArea()).toHaveFocus()
+      await user.click(screen.getByRole('link', { name: `Unhealthy message: ${UNHEALTHY}` }))
+      expect(unhealthyArea()).toHaveFocus()
+    })
+
+    it('editing one text area removes only its error, and editing the other removes the summary', async () => {
+      const { user } = setup()
+      await failWith(
+        user,
+        validationProblem(
+          fieldError('unhealthy_message', UNHEALTHY, 'too_long'),
+          fieldError('recovery_message', RECOVERY, 'too_long'),
+        ),
+      )
+      await user.type(unhealthyArea(), 'x')
+      expect(unhealthyArea()).not.toHaveAttribute('aria-invalid')
+      expect(recoveryArea()).toHaveAttribute('aria-invalid', 'true')
+      expect(within(screen.getByRole('alert')).getAllByRole('listitem')).toHaveLength(1)
+      await user.type(recoveryArea(), 'y')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('lists a path for settings as plain text with no link and no field error', async () => {
+      const { user } = setup()
+      await failWith(user, validationProblem(fieldError('settings', 'Not on this screen.')))
+      expect(within(screen.getByRole('alert')).queryByRole('link')).toBeNull()
+      expect(screen.getByRole('alert')).toHaveTextContent('settings: Not on this screen.')
+      expect(document.querySelector('.error-text')).toBeNull()
+    })
+
+    it('lists alerts_enabled as plain text with no link', async () => {
+      const { user } = setup()
+      await failWith(user, validationProblem(fieldError('alerts_enabled', 'Not a field here.')))
+      expect(within(screen.getByRole('alert')).queryByRole('link')).toBeNull()
+    })
+  })
+
+  describe('leaving', () => {
+    it('counts the switch off as changed, and on again as unchanged', async () => {
+      const { user } = setup()
+      await user.click(alertsSwitch())
+      expect(footerStatus()).toHaveTextContent('Unsaved changes')
+      expect(unloadPrompts()).toBe(true)
+      await user.click(cancelButton())
+      expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+      await user.click(alertsSwitch())
+      expect(footerStatus()).toBeEmptyDOMElement()
+      expect(unloadPrompts()).toBe(false)
+      await user.click(cancelButton())
+      expect(await marker()).toBeInTheDocument()
+    })
+
+    it('counts a message of one space as changed', async () => {
+      const { user } = setup()
+      await user.type(recoveryArea(), ' ')
+      expect(footerStatus()).toHaveTextContent('Unsaved changes')
+    })
   })
 })
