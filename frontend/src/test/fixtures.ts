@@ -1,4 +1,5 @@
 import { ApiError, type ProblemBody } from '../lib/api/ApiError'
+import type { PublicDashboard, PublicService } from '../lib/api/publicDashboard'
 import type { FieldError, Service, ServiceList } from '../lib/api/services'
 import type { SessionInfo } from '../lib/api/session'
 import type { EmailTarget, TargetList, WebhookTarget } from '../lib/api/targets'
@@ -95,4 +96,13 @@ export function makeWebhookTarget(overrides: Partial<WebhookTarget> = {}): Webho
 
 export function makeTargetList(...targets: TargetList): TargetList {
   return targets
+}
+
+/** A healthy public-view row; pass overrides for any field. */
+export function makePublicService(overrides: Partial<PublicService> = {}): PublicService {
+  return { name: 'API gateway', status: 'healthy', last_checked_at: '2026-11-15T14:31:52Z', ...overrides }
+}
+
+export function makePublicDashboard(...services: PublicService[]): PublicDashboard {
+  return { services }
 }

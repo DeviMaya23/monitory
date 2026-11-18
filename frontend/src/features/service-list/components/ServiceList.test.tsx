@@ -15,7 +15,7 @@ import {
 } from '../../../test/fixtures'
 import { useDeleteService } from '../hooks/useDeleteService'
 import { useServiceList } from '../hooks/useServiceList'
-import { formatTime } from '../lib/formatTime'
+import { formatTime } from '../../../lib/formatTime'
 import { ServiceList } from './ServiceList'
 
 // The real query key is kept (an automock would empty it); only the requests are mocked.
