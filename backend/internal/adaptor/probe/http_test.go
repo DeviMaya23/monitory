@@ -1164,6 +1164,9 @@ func TestCertOptions_ExpiryDays(t *testing.T) {
 		{"exactly 14 days, minimum 14", 14 * day, 14, true},
 		{"14 days 1 hour, minimum 15", 14*day + time.Hour, 15, false},
 		{"well over the minimum", 200 * day, 14, true},
+		{"one second under 14 days, minimum 14", 14*day - time.Second, 14, false},
+		{"exactly 1 day, minimum 1", day, 1, true},
+		{"under 1 day, minimum 1", day - time.Second, 1, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
