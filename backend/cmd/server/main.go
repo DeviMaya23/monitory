@@ -136,10 +136,13 @@ func run(log *slog.Logger) error {
 
 	services := usecase.NewServiceService(serviceRepo, scheduler, clock.Real{}, serviceLimits(cfg.Limits))
 	targets := usecase.NewTargetService(targetRepo, clock.Real{}, targetLimits(cfg.Limits))
+	// The same mailer and webhook sender as the dispatcher's: a test is delivered as an
+	// alert is (FR-107).
+	targetTester := usecase.NewTargetTestService(serviceRepo, mail, sender, clock.Real{}, targetLimits(cfg.Limits))
 	sessions := memstore.NewSessions(clock.Real{})
 	auth := usecase.NewAuthService(cfg.AdminUsername, cfg.AdminPassword, cfg.RequireHTTPS, sessions, clock.Real{})
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(settings, services, targets, auth, log, cfg.RequireHTTPS),
+		Server:          handler.NewServer(settings, services, targets, targetTester, auth, log, cfg.RequireHTTPS),
 		Sessions:        sessions,
 		Log:             log,
 		MaxRequestBytes: cfg.Limits.APIRequestMaxBytes,

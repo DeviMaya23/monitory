@@ -10,6 +10,8 @@ type AlertStatus string
 const (
 	AlertUnhealthy AlertStatus = "unhealthy"
 	AlertHealthy   AlertStatus = "healthy"
+	// AlertTest marks a test alert (FR-107). No status changed.
+	AlertTest AlertStatus = "test"
 )
 
 // Alert is what a status change sends to a target (FR-23): the service's name, the new
