@@ -30,6 +30,7 @@ vi.mock('../../../lib/api/targets', async (importOriginal) => ({
   listTargets: vi.fn(),
   deleteTarget: vi.fn(),
   updateTarget: vi.fn(),
+  testTarget: vi.fn(),
 }))
 vi.mock('../../../lib/api/request', () => ({ setCsrfToken: vi.fn(), setUnauthenticatedHandler: vi.fn() }))
 
