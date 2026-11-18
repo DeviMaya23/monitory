@@ -6,11 +6,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { setUnauthenticatedHandler } from './lib/api/request'
 import { createService, deleteService, listServices } from './lib/api/services'
+import { getPublicDashboard } from './lib/api/publicDashboard'
 import { listTargets } from './lib/api/targets'
 import { getSession, signIn, signOut, type SessionInfo } from './lib/api/session'
-import { makeEmailTarget, makeService, makeServiceList, problem, sessionInfo } from './test/fixtures'
+import {
+  makeEmailTarget,
+  makePublicDashboard,
+  makePublicService,
+  makeService,
+  makeServiceList,
+  problem,
+  sessionInfo,
+} from './test/fixtures'
 
 vi.mock('./lib/api/session')
+vi.mock('./lib/api/publicDashboard')
 // The real query key is kept (an automock would empty it); only the requests are mocked.
 vi.mock('./lib/api/services', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./lib/api/services')>()),
@@ -81,6 +91,7 @@ const addServiceForm = () => screen.findByRole('heading', { name: 'Add service' 
 beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(listServices).mockResolvedValue([])
+  vi.mocked(getPublicDashboard).mockResolvedValue(makePublicDashboard(makePublicService()))
 })
 afterEach(() => {
   vi.restoreAllMocks()
@@ -210,11 +221,41 @@ describe('App routes', () => {
     expect(screen.queryByRole('heading', { name: 'Sign in' })).not.toBeInTheDocument()
   })
 
-  it('/status shows its placeholder and never calls getSession', async () => {
+  const statusPage = () => screen.findByRole('heading', { name: 'Service status' })
+
+  it('/status shows the public page without signing in and never calls getSession (FR-28)', async () => {
     renderAt('/status')
-    expect(await screen.findByText('The public status page is not built yet.')).toBeInTheDocument()
+    await statusPage()
+    expect(await screen.findByText('API gateway')).toBeInTheDocument()
+    expect(getPublicDashboard).toHaveBeenCalledTimes(1)
     expect(getSession).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Sign in' })).not.toBeInTheDocument()
+  })
+
+  it('/status as a signed-in admin shows the same page, with no top bar', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    renderAt('/status')
+    await statusPage()
+    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Monitory' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('banner', { name: /./ })).not.toBeInTheDocument()
+    expect(getSession).not.toHaveBeenCalled()
+  })
+
+  it('/status with getSession answering signed out shows the page, not the sign-in form', async () => {
+    vi.mocked(getSession).mockRejectedValue(problem(401, 'unauthenticated'))
+    renderAt('/status')
+    await statusPage()
+    expect(screen.queryByRole('heading', { name: 'Sign in' })).not.toBeInTheDocument()
+  })
+
+  it('/status answered 401 shows could-not-load and does not navigate', async () => {
+    vi.mocked(getPublicDashboard).mockRejectedValue(problem(401, 'unauthenticated'))
+    renderAt('/status')
+    expect(await screen.findByText('Couldn’t load service status.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Service status' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Sign in' })).not.toBeInTheDocument()
   })
 
   it('/sign-in while signed in ends on /', async () => {

@@ -2,7 +2,7 @@ import { Link } from 'react-router'
 import { Bell, BellOff, CircleAlert, Eye, EyeOff, Trash2, TriangleAlert } from 'lucide-react'
 import type { Service } from '../../../lib/api/services'
 import { failureReasonText } from '../lib/failureReason'
-import { formatTime } from '../lib/formatTime'
+import { formatTime } from '../../../lib/formatTime'
 import { StatusBadge } from './StatusBadge'
 
 function Time({ iso, now }: { iso: string; now: Date }) {
