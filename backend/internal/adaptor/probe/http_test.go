@@ -22,7 +22,7 @@ const longTimeout = 2 * time.Second
 
 func run(t *testing.T, maxRedirects int, check domain.HTTPCheck) domain.CheckResult {
 	t.Helper()
-	res, err := NewHTTPProber(maxRedirects).CheckHTTP(context.Background(), check)
+	res, err := NewHTTPProber(maxRedirects, 65536).CheckHTTP(context.Background(), check)
 	require.NoError(t, err)
 	return res
 }
@@ -300,7 +300,7 @@ func TestCheckHTTP_CertificateProblem(t *testing.T) {
 func TestCheckHTTP_TrustedRoots(t *testing.T) {
 	secure := testutil.NewTargetServer(t, testutil.TargetTLS())
 	secure.Script("/", testutil.Route{})
-	p := NewHTTPProber(3)
+	p := NewHTTPProber(3, 65536)
 	p.roots = secure.Pool()
 
 	// The certificate names 127.0.0.1, so the address it is reached by is accepted.
@@ -325,7 +325,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 	check := get(ts.URL()+"/slow", 500*time.Millisecond)
 
 	t.Run("baseline returns a result", func(t *testing.T) {
-		res, err := NewHTTPProber(3).CheckHTTP(context.Background(), check)
+		res, err := NewHTTPProber(3, 65536).CheckHTTP(context.Background(), check)
 		require.NoError(t, err)
 		requireHealthy(t, res)
 	})
@@ -340,7 +340,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 		}
 		done := make(chan outcome, 1)
 		go func() {
-			res, err := NewHTTPProber(3).CheckHTTP(ctx, get(ts.URL()+"/slow-cancel", 500*time.Millisecond))
+			res, err := NewHTTPProber(3, 65536).CheckHTTP(ctx, get(ts.URL()+"/slow-cancel", 500*time.Millisecond))
 			done <- outcome{res, err}
 		}()
 		<-ts.Arrived("/slow-cancel")
@@ -354,7 +354,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 	t.Run("caller deadline shorter than the timeout", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 		defer cancel()
-		res, err := NewHTTPProber(3).CheckHTTP(ctx, check)
+		res, err := NewHTTPProber(3, 65536).CheckHTTP(ctx, check)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.Equal(t, domain.CheckResult{}, res)
 	})
@@ -362,7 +362,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 	t.Run("already cancelled context", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := NewHTTPProber(3).CheckHTTP(ctx, check)
+		_, err := NewHTTPProber(3, 65536).CheckHTTP(ctx, check)
 		require.ErrorIs(t, err, context.Canceled)
 	})
 }
@@ -371,7 +371,7 @@ func TestCheckHTTP_Concurrent(t *testing.T) {
 	ts := testutil.NewTargetServer(t)
 	ts.Script("/slow", testutil.Route{Delay: 100 * time.Millisecond})
 	ts.Script("/fast500", testutil.Route{Status: 500})
-	p := NewHTTPProber(3)
+	p := NewHTTPProber(3, 65536)
 
 	var wg sync.WaitGroup
 	results := make([]domain.CheckResult, 20)
@@ -402,7 +402,7 @@ func TestCheckHTTP_Concurrent(t *testing.T) {
 func TestCheckHTTP_NewConnectionPerAttempt(t *testing.T) {
 	ts := testutil.NewTargetServer(t)
 	ts.Script("/", testutil.Route{})
-	p := NewHTTPProber(3)
+	p := NewHTTPProber(3, 65536)
 	for range 2 {
 		res, err := p.CheckHTTP(context.Background(), get(ts.URL()+"/", longTimeout))
 		require.NoError(t, err)
@@ -740,7 +740,7 @@ func TestCheckHTTP_RedirectsCarrySavedRequest(t *testing.T) {
 }
 
 func TestCheckHTTP_ConcurrentHeaders(t *testing.T) {
-	p := NewHTTPProber(3)
+	p := NewHTTPProber(3, 65536)
 	var wg sync.WaitGroup
 	servers := make([]*testutil.TargetServer, 2)
 	for i := range servers {

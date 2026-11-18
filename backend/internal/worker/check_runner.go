@@ -55,6 +55,9 @@ func (r *CheckRunner) Run(ctx context.Context, service domain.Service) error {
 		Headers:     service.HTTPHeaders,
 		BodyType:    service.HTTPBodyType,
 		BodyContent: service.HTTPBodyContent,
+
+		JSONRules:    service.JSONRules,
+		JSONRuleMode: service.JSONRuleMode,
 	}
 	wait := time.Duration(service.RetryIntervalSeconds) * time.Second
 	retries := max(service.RetryCount, 0)
