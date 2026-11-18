@@ -1129,6 +1129,28 @@ describe('the Timing group (FR-41, FR-51, FR-53, FR-56, FR-57)', () => {
     })
   })
 
+  it.each(['0', '100000', '9007199254740991'])(
+    'sends %s as it is: no client minimum or maximum, only the server judges the range (FR-57)',
+    async (big) => {
+      vi.mocked(createService).mockResolvedValueOnce(makeService())
+      const { user } = setup()
+      await set(user, interval(), big)
+      await fill(user)
+      await user.click(saveButton())
+      await marker()
+      expect(sentInput().settings?.check_interval_seconds).toBe(Number(big))
+    },
+  )
+
+  it('refuses the first number above the largest safe integer, 9007199254740992, and sends nothing', async () => {
+    const { user } = setup()
+    await set(user, interval(), '9007199254740992')
+    await fill(user)
+    await user.click(saveButton())
+    expect(createService).not.toHaveBeenCalled()
+    expect(describedBy(interval())).toBe(WHOLE)
+  })
+
   describe('client checks', () => {
     it.each(['', ' ', 'abc', '-1', '1.5', '99999999999999999999'])(
       'refuses %j with a message under the field, focuses it, sends nothing, and drops the message on edit',
