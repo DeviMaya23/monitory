@@ -816,3 +816,77 @@ describe('leaving without saving', () => {
     expect(unload()).toBe(false)
   })
 })
+
+describe('limits and odd input', () => {
+  it.each([
+    [50, 50],
+    [51, 50],
+  ])('a pasted name of %i characters keeps %i, and the counter agrees', async (pasted, kept) => {
+    vi.mocked(createTarget).mockResolvedValue(makeEmailTarget())
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await userEvent.click(nameInput())
+    await userEvent.paste('n'.repeat(pasted))
+    expect(nameInput()).toHaveValue('n'.repeat(kept))
+    expect(screen.getByText(`${kept}/50`)).toBeInTheDocument()
+    await userEvent.type(addressInput(), 'a@example.com')
+    await submit()
+    expect(vi.mocked(createTarget).mock.calls[0][1]).toEqual({ type: 'email', name: 'n'.repeat(kept), address: 'a@example.com' })
+  })
+
+  it('sends a 2,049-character URL and an address with inner spaces as typed: the length is the server’s to refuse', async () => {
+    vi.mocked(createTarget).mockResolvedValue(makeEmailTarget())
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await userEvent.click(addressInput())
+    await userEvent.paste('a b@example.com')
+    await submit()
+    expect(vi.mocked(createTarget).mock.calls[0][1]).toEqual({ type: 'email', name: '', address: 'a b@example.com' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: FORM_DIALOG })).not.toBeInTheDocument())
+    await openAddDialog()
+    await chooseWebhook()
+    const url = `https://h.example.com/${'p'.repeat(2049 - 'https://h.example.com/'.length)}`
+    await userEvent.click(urlInput())
+    await userEvent.paste(url)
+    await submit()
+    const sent = vi.mocked(createTarget).mock.calls[1][1]
+    expect(sent.type === 'webhook' && sent.url.length).toBe(2049)
+  })
+
+  it('two submits in the same tick send one request', async () => {
+    pendingSave()
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await fillEmail()
+    const form = document.getElementById('target-form') as HTMLFormElement
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+    await waitFor(() => expect(createTarget).toHaveBeenCalledOnce())
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(createTarget).toHaveBeenCalledOnce()
+  })
+
+  it('a submit that fails the client check drops the previous failure banner', async () => {
+    vi.mocked(createTarget).mockRejectedValue(problem(500, 'internal_error'))
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await fillEmail('a@example.com')
+    await submit()
+    expect(await inDialog().findByText('Something went wrong.')).toBeInTheDocument()
+    await userEvent.clear(addressInput())
+    await submit()
+    expect(await screen.findByText('Enter an email address.')).toBeInTheDocument()
+    expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
+    expect(createTarget).toHaveBeenCalledOnce()
+  })
+
+  it('409 target_duplicate on an edit of a webhook shows the URL message and focuses the URL field', async () => {
+    vi.mocked(updateTarget).mockRejectedValue(problem(409, 'target_duplicate'))
+    await shown(makeTargetList(mail, hook))
+    await openEditDialog('Chat hook')
+    await submit('Save target')
+    expect(await screen.findByText('This URL is already in this service’s alert list.')).toBeInTheDocument()
+    await waitFor(() => expect(urlInput()).toHaveFocus())
+    expect(inDialog('Edit target').queryByText('Something went wrong.')).not.toBeInTheDocument()
+  })
+})
