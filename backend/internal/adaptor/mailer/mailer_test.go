@@ -316,3 +316,30 @@ func TestSendEmail_ConcurrentSends(t *testing.T) {
 	assert.NoError(t, errs[1])
 	assert.Len(t, s.Messages(), 2)
 }
+
+func TestSendEmail_LimitsAndSMTPSpecialLines(t *testing.T) {
+	tests := []struct {
+		name        string
+		serviceName string
+		message     string
+	}{
+		{"a 100-character ASCII name", strings.Repeat("n", 100), "It is down."},
+		{"a 100-character non-ASCII name", strings.Repeat("監", 100), "It is down."},
+		{"a 500-character message with a line break", "API", strings.Repeat("m", 249) + "\n" + strings.Repeat("é", 250)},
+		{"a message that is a lone dot line", "API", "before\n.\nafter"},
+		{"a message that starts with a dot", "API", ".leading dot"},
+		{"a message with CRLF line ends", "API", "one\r\ntwo\r\n.\r\nthree"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			alert := alertFor(domain.AlertUnhealthy)
+			alert.ServiceName, alert.Message = tt.serviceName, tt.message
+
+			got := sendOne(t, alert)
+
+			assert.Equal(t, tt.serviceName+" is unhealthy", got.subject)
+			wantMessage := strings.ReplaceAll(tt.message, "\r\n", "\n")
+			assert.Equal(t, "Service: "+tt.serviceName+"\nStatus: Unhealthy\nTime: 2026-11-18 14:05 UTC\n"+wantMessage+"\n", got.body)
+		})
+	}
+}

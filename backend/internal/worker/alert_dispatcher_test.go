@@ -413,3 +413,63 @@ func TestDispatch_ConcurrentServicesKeepTheirIDs(t *testing.T) {
 		assert.Equal(t, "t-"+l["service_id"].(string), l["target_id"])
 	}
 }
+
+func TestDispatch_FailureAndAbandonLogsNeverHoldTheAddress(t *testing.T) {
+	t.Run("a failing send to the secret address", func(t *testing.T) {
+		mailer := newFakeMailer()
+		mailer.behave[secretAddress] = func(context.Context) error { return errors.New("the SMTP server did not accept the message") }
+		d, buf := newDispatcher(t, mailer)
+
+		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", secretAddress)})
+		buf.waitLines(t, 1)
+		d.Close()
+
+		lines := buf.lines(t)
+		require.Len(t, lines, 1)
+		assert.Equal(t, "alert delivery failed", lines[0]["msg"], "baseline: the failure path was logged")
+		assert.NotContains(t, buf.String(), secretAddress)
+		assert.NotContains(t, buf.String(), secretService)
+		assert.NotContains(t, buf.String(), secretMessage)
+	})
+	t.Run("a send abandoned by Close to the secret address", func(t *testing.T) {
+		mailer := newFakeMailer()
+		mailer.behave[secretAddress] = func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }
+		d, buf := newDispatcher(t, mailer)
+		d.Dispatch(testAlert("svc"), []domain.Target{emailTarget("t1", secretAddress)})
+		waitFor(t, mailer.started, secretAddress)
+
+		d.Close()
+
+		lines := buf.lines(t)
+		require.Len(t, lines, 1)
+		assert.Equal(t, "alert delivery abandoned", lines[0]["msg"], "baseline: the abandon path was logged")
+		assert.NotContains(t, buf.String(), secretAddress)
+	})
+}
+
+func TestDispatch_FiveTargetsOneBlockedOneFailing(t *testing.T) {
+	mailer := newFakeMailer()
+	release := make(chan struct{})
+	mailer.behave["t1@x"] = func(context.Context) error { <-release; return nil }
+	mailer.behave["t3@x"] = func(context.Context) error { return errors.New("refused") }
+	d, buf := newDispatcher(t, mailer)
+
+	d.Dispatch(testAlert("svc"), []domain.Target{
+		emailTarget("t1", "t1@x"), emailTarget("t2", "t2@x"), emailTarget("t3", "t3@x"),
+		emailTarget("t4", "t4@x"), emailTarget("t5", "t5@x"),
+	})
+	buf.waitLines(t, 4) // every target but the blocked one has finished
+	close(release)
+	buf.waitLines(t, 1)
+	d.Close()
+
+	outcomes := map[string]string{}
+	for _, l := range buf.lines(t) {
+		outcomes[l["target_id"].(string)] = l["msg"].(string)
+	}
+	assert.Equal(t, map[string]string{
+		"t1": "alert delivered", "t2": "alert delivered", "t3": "alert delivery failed",
+		"t4": "alert delivered", "t5": "alert delivered",
+	}, outcomes)
+	assert.Len(t, mailer.callList(), 5)
+}
