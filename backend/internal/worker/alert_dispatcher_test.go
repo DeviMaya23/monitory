@@ -395,12 +395,24 @@ func TestDispatch_ReturnsWhileAWebhookSendIsBlocked(t *testing.T) {
 	release := make(chan struct{})
 	hooks.behave[secretURL] = func(context.Context) error { <-release; return nil }
 	d, _ := newDispatcherWith(t, newFakeMailer(), hooks)
+	// Runs before the dispatcher's Close, so a failing run does not hang on the send.
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
 
-	d.Dispatch(testAlert("svc"), []domain.Target{webhookTarget("w1")})
+	returned := make(chan struct{})
+	go func() {
+		d.Dispatch(testAlert("svc"), []domain.Target{webhookTarget("w1")})
+		close(returned)
+	}()
 
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Dispatch did not return while a webhook send was blocked")
+	}
 	waitFor(t, hooks.started, secretURL)
 	assert.False(t, hooks.hasReturned(secretURL))
-	close(release)
+	once.Do(func() { close(release) })
 }
 
 func TestClose_WebhookSends(t *testing.T) {
@@ -413,13 +425,21 @@ func TestClose_WebhookSends(t *testing.T) {
 				hooks := newFakeWebhooks()
 				gate := make(chan struct{})
 				cancelled := make(chan struct{})
+				bail := make(chan struct{}) // closed by Cleanup so a failing run does not hang
 				hooks.behave[secretURL] = func(ctx context.Context) error {
-					<-ctx.Done()
+					select {
+					case <-ctx.Done():
+					case <-bail:
+					}
 					close(cancelled)
-					<-gate
+					select {
+					case <-gate:
+					case <-bail:
+					}
 					return returned
 				}
 				d, buf := newDispatcherWith(t, newFakeMailer(), hooks)
+				t.Cleanup(func() { close(bail) })
 				d.Dispatch(testAlert("svc"), []domain.Target{webhookTarget("w1")})
 				waitFor(t, hooks.started, secretURL)
 				closed := make(chan struct{})
@@ -454,13 +474,32 @@ func TestClose_WebhookSends(t *testing.T) {
 		hooks := newFakeWebhooks()
 		gate := make(chan struct{})
 		cancelled := make(chan struct{})
-		hooks.behave[secretURL] = func(ctx context.Context) error { <-ctx.Done(); close(cancelled); <-gate; return nil }
+		bail := make(chan struct{})
+		hooks.behave[secretURL] = func(ctx context.Context) error {
+			select {
+			case <-ctx.Done():
+			case <-bail:
+			}
+			close(cancelled)
+			select {
+			case <-gate:
+			case <-bail:
+			}
+			return nil
+		}
 		d, buf := newDispatcherWith(t, newFakeMailer(), hooks)
+		t.Cleanup(func() { close(bail) })
 		d.Dispatch(testAlert("svc"), []domain.Target{webhookTarget("w1")})
 		waitFor(t, hooks.started, secretURL)
 
 		go func() { <-cancelled; close(gate) }()
-		d.Close()
+		closed := make(chan struct{})
+		go func() { d.Close(); close(closed) }()
+		select {
+		case <-closed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Close did not return")
+		}
 
 		lines := buf.lines(t)
 		require.Len(t, lines, 1)

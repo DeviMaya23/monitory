@@ -163,6 +163,16 @@ func TestSendWebhook_CustomHeaders(t *testing.T) {
 		h := send(t, []domain.NameValue{{Name: "USER-AGENT", Value: "Mine/1"}})
 		assert.Equal(t, []string{"Mine/1"}, h.Values("User-Agent"))
 	})
+	t.Run("20 headers of 4,096 characters arrive whole", func(t *testing.T) {
+		headers := make([]domain.NameValue, 20)
+		for i := range headers {
+			headers[i] = domain.NameValue{Name: "X-Big-" + strconv.Itoa(i), Value: long}
+		}
+		h := send(t, headers)
+		for i := range headers {
+			assert.Equal(t, []string{long}, h.Values("X-Big-"+strconv.Itoa(i)), headers[i].Name)
+		}
+	})
 	t.Run("no custom headers sends the two defaults", func(t *testing.T) {
 		h := send(t, nil)
 		assert.Equal(t, []string{"application/json"}, h.Values("Content-Type"))
@@ -299,6 +309,18 @@ func TestSendWebhook_CancelledContext(t *testing.T) {
 	assert.False(t, errors.Is(err, webhook.ErrTimedOut))
 }
 
+func TestSendWebhook_ContextAlreadyCancelled(t *testing.T) {
+	ts := receiver(t)
+	ts.Script("/hook", testutil.Route{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := newSender(t, 5*time.Second).SendWebhook(ctx, ts.URL()+"/hook", nil, testAlert())
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, ts.Requests())
+}
+
 func TestSendWebhook_FailureTextsHoldNoSecrets(t *testing.T) {
 	secretHeader := domain.NameValue{Name: "X-Secret-Name", Value: "secret-value-123"}
 	alert := testAlert()
@@ -307,6 +329,7 @@ func TestSendWebhook_FailureTextsHoldNoSecrets(t *testing.T) {
 	closed, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	closedAddr := closed.Addr().String()
+	closedURL := "http://" + closedAddr
 	require.NoError(t, closed.Close())
 
 	plain := receiver(t)
@@ -327,6 +350,7 @@ func TestSendWebhook_FailureTextsHoldNoSecrets(t *testing.T) {
 		"certificate": {tlsServer.URL() + "/secret-path?token=abc", []domain.NameValue{secretHeader}, 5 * time.Second},
 		"timeout":     {plain.URL() + "/slow?token=abc", []domain.NameValue{secretHeader}, 30 * time.Millisecond},
 		"malformed":   {"http://[::1/secret-path?token=abc", []domain.NameValue{secretHeader}, 5 * time.Second},
+		"user info":   {strings.Replace(closedURL, "http://", "http://user:pass@", 1) + "/secret-path?token=abc", []domain.NameValue{secretHeader}, 5 * time.Second},
 		"header":      {plain.URL() + "/secret-path?token=abc", []domain.NameValue{{Name: "X-Secret Name", Value: "secret-value-123"}}, 5 * time.Second},
 	}
 	for name, c := range cases {
@@ -338,7 +362,7 @@ func TestSendWebhook_FailureTextsHoldNoSecrets(t *testing.T) {
 			hostPort := strings.TrimPrefix(strings.TrimPrefix(c.url, "https://"), "http://")
 			hostPort, _, _ = strings.Cut(hostPort, "/")
 			host, port, _ := net.SplitHostPort(hostPort)
-			for _, secret := range []string{c.url, "token=abc", "secret-path", hostPort, host, port, "X-Secret", "secret-value-123", "secret message text", "127.0.0.1"} {
+			for _, secret := range []string{c.url, "token=abc", "secret-path", hostPort, host, port, "X-Secret", "secret-value-123", "secret message text", "127.0.0.1", "user:pass", "pass"} {
 				if secret == "" {
 					continue
 				}
