@@ -1,6 +1,7 @@
 package usecase_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ func savedState(status domain.Status) domain.ServiceState {
 func record(t *testing.T, saved domain.ServiceState, result domain.CheckResult) domain.ServiceState {
 	t.Helper()
 	states := newFakeStates(saved)
-	svc := usecase.NewCheckResultService(states, clock.NewFake(tNow))
+	svc := usecase.NewCheckResultService(states, &fakeFinder{}, &fakeLister{}, &spyDispatcher{}, clock.NewFake(tNow))
 	require.NoError(t, svc.RecordCheckResult(t.Context(), svcID, result))
 	return states.states[svcID]
 }
@@ -109,7 +110,7 @@ func TestRecordCheckResult_FailureColumns(t *testing.T) {
 func TestRecordCheckResult_UnhealthyHealthyUnhealthySequence(t *testing.T) {
 	states := newFakeStates(savedState(domain.StatusNotYetChecked))
 	fake := clock.NewFake(t0)
-	svc := usecase.NewCheckResultService(states, fake)
+	svc := usecase.NewCheckResultService(states, &fakeFinder{}, &fakeLister{}, &spyDispatcher{}, fake)
 	steps := []struct {
 		result     domain.CheckResult
 		wantStatus domain.Status
@@ -142,7 +143,7 @@ func TestRecordCheckResult_RejectsInconsistentResult(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			saved := savedState(domain.StatusHealthy)
 			states := newFakeStates(saved)
-			svc := usecase.NewCheckResultService(states, clock.NewFake(tNow))
+			svc := usecase.NewCheckResultService(states, &fakeFinder{}, &fakeLister{}, &spyDispatcher{}, clock.NewFake(tNow))
 
 			require.Error(t, svc.RecordCheckResult(t.Context(), svcID, tt.result))
 			assert.Equal(t, saved, states.states[svcID])
@@ -152,14 +153,14 @@ func TestRecordCheckResult_RejectsInconsistentResult(t *testing.T) {
 
 func TestRecordCheckResult_DeletedService(t *testing.T) {
 	states := newFakeStates()
-	svc := usecase.NewCheckResultService(states, clock.NewFake(tNow))
+	svc := usecase.NewCheckResultService(states, &fakeFinder{}, &fakeLister{}, &spyDispatcher{}, clock.NewFake(tNow))
 
 	require.NoError(t, svc.RecordCheckResult(t.Context(), "gone", healthyResult()))
 	assert.Empty(t, states.states)
 
 	// Baseline: the same call for a service that exists writes.
 	states = newFakeStates(savedState(domain.StatusNotYetChecked))
-	svc = usecase.NewCheckResultService(states, clock.NewFake(tNow))
+	svc = usecase.NewCheckResultService(states, &fakeFinder{}, &fakeLister{}, &spyDispatcher{}, clock.NewFake(tNow))
 	require.NoError(t, svc.RecordCheckResult(t.Context(), svcID, healthyResult()))
 	assert.Equal(t, domain.StatusHealthy, states.states[svcID].Status)
 }
@@ -167,7 +168,7 @@ func TestRecordCheckResult_DeletedService(t *testing.T) {
 func TestRecordCheckResult_RepositoryError(t *testing.T) {
 	states := newFakeStates(savedState(domain.StatusHealthy))
 	states.err = errBoom
-	svc := usecase.NewCheckResultService(states, clock.NewFake(tNow))
+	svc := usecase.NewCheckResultService(states, &fakeFinder{}, &fakeLister{}, &spyDispatcher{}, clock.NewFake(tNow))
 
 	require.ErrorIs(t, svc.RecordCheckResult(t.Context(), svcID, healthyResult()), errBoom)
 }
@@ -175,7 +176,7 @@ func TestRecordCheckResult_RepositoryError(t *testing.T) {
 func TestRecordCheckResult_TimeFromClock(t *testing.T) {
 	zone := time.FixedZone("x", 3*3600)
 	states := newFakeStates(savedState(domain.StatusNotYetChecked))
-	svc := usecase.NewCheckResultService(states, clock.NewFake(time.Date(2031, 1, 2, 3, 4, 5, 0, zone)))
+	svc := usecase.NewCheckResultService(states, &fakeFinder{}, &fakeLister{}, &spyDispatcher{}, clock.NewFake(time.Date(2031, 1, 2, 3, 4, 5, 0, zone)))
 
 	require.NoError(t, svc.RecordCheckResult(t.Context(), svcID, healthyResult()))
 
@@ -183,4 +184,228 @@ func TestRecordCheckResult_TimeFromClock(t *testing.T) {
 	want := time.Date(2031, 1, 2, 0, 4, 5, 0, time.UTC)
 	assert.Equal(t, want, *got.LastCheckedAt)
 	assert.Equal(t, want, *got.LastStatusChangeAt)
+}
+
+// alertSetup is one service with alerts on and an email target, ready to record results.
+type alertSetup struct {
+	states *fakeStates
+	finder *fakeFinder
+	lister *fakeLister
+	spy    *spyDispatcher
+	svc    *usecase.CheckResultService
+	clock  *clock.Fake
+}
+
+var emailTarget = domain.Target{ID: "t-1", ServiceID: svcID, Type: domain.TargetTypeEmail, Value: "ops@example.com"}
+
+func alertService() domain.Service {
+	return domain.Service{ID: svcID, Name: "API", AlertsEnabled: true}
+}
+
+func newAlertSetup(saved domain.Status, service domain.Service, targets ...domain.Target) *alertSetup {
+	a := &alertSetup{
+		states: newFakeStates(savedState(saved)),
+		finder: newFakeFinder(service),
+		lister: newFakeLister(svcID, targets...),
+		clock:  clock.NewFake(tNow),
+	}
+	a.spy = &spyDispatcher{states: a.states}
+	a.svc = usecase.NewCheckResultService(a.states, a.finder, a.lister, a.spy, a.clock)
+	return a
+}
+
+func unhealthyResult() domain.CheckResult { return failedResult(domain.FailureTimedOut, nil, nil) }
+
+func TestRecordCheckResult_AlertDecision(t *testing.T) {
+	tests := []struct {
+		name   string
+		saved  domain.Status
+		result domain.CheckResult
+		want   domain.AlertStatus // empty: no alert
+	}{
+		{"first check unhealthy (FR-24)", domain.StatusNotYetChecked, unhealthyResult(), domain.AlertUnhealthy},
+		{"healthy to unhealthy (FR-21)", domain.StatusHealthy, unhealthyResult(), domain.AlertUnhealthy},
+		{"unhealthy to healthy (FR-22)", domain.StatusUnhealthy, healthyResult(), domain.AlertHealthy},
+		{"first check healthy (FR-24)", domain.StatusNotYetChecked, healthyResult(), ""},
+		{"healthy stays healthy", domain.StatusHealthy, healthyResult(), ""},
+		{"unhealthy stays unhealthy (FR-25)", domain.StatusUnhealthy, unhealthyResult(), ""},
+		{"unhealthy stays unhealthy, other reason", domain.StatusUnhealthy, failedResult(domain.FailureCouldNotConnect, nil, nil), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := newAlertSetup(tt.saved, alertService(), emailTarget)
+
+			require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, tt.result))
+
+			if tt.want == "" {
+				assert.Empty(t, a.spy.calls)
+				return
+			}
+			require.Len(t, a.spy.calls, 1)
+			assert.Equal(t, tt.want, a.spy.calls[0].alert.Status)
+			assert.Equal(t, []domain.Target{emailTarget}, a.spy.calls[0].targets)
+		})
+	}
+}
+
+func TestRecordCheckResult_AlertsOffThenOn(t *testing.T) {
+	service := alertService()
+	service.AlertsEnabled = false
+	a := newAlertSetup(domain.StatusHealthy, service, emailTarget)
+
+	require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()))
+	assert.Empty(t, a.spy.calls, "alerts off at the change")
+
+	service.AlertsEnabled = true
+	a.finder.services[svcID] = service
+	require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()))
+	assert.Empty(t, a.spy.calls, "turned on while still unhealthy (FR-25)")
+
+	require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, healthyResult()))
+	require.Len(t, a.spy.calls, 1)
+	assert.Equal(t, domain.AlertHealthy, a.spy.calls[0].alert.Status)
+}
+
+func TestRecordCheckResult_Targets(t *testing.T) {
+	t.Run("an empty list dispatches nothing", func(t *testing.T) {
+		a := newAlertSetup(domain.StatusHealthy, alertService())
+		require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()))
+		assert.Empty(t, a.spy.calls)
+		assert.Equal(t, 1, len(a.lister.ctxErrs), "baseline: the list was read")
+	})
+	t.Run("one dispatch with every target in list order", func(t *testing.T) {
+		webhook := domain.Target{ID: "t-2", ServiceID: svcID, Type: domain.TargetTypeWebhook, Value: "https://hook.example"}
+		a := newAlertSetup(domain.StatusHealthy, alertService(), emailTarget, webhook)
+		require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()))
+		require.Len(t, a.spy.calls, 1)
+		assert.Equal(t, []domain.Target{emailTarget, webhook}, a.spy.calls[0].targets)
+	})
+}
+
+func TestRecordCheckResult_AlertContent(t *testing.T) {
+	service := alertService()
+	a := newAlertSetup(domain.StatusHealthy, service, emailTarget)
+
+	require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()))
+
+	require.Len(t, a.spy.calls, 1)
+	saved := a.states.states[svcID]
+	require.NotNil(t, saved.LastStatusChangeAt)
+	assert.Equal(t, tNow, *saved.LastStatusChangeAt)
+	assert.Equal(t, domain.Alert{
+		ServiceID:   svcID,
+		ServiceName: "API",
+		Status:      domain.AlertUnhealthy,
+		ChangedAt:   tNow,
+		Message:     usecase.DefaultUnhealthyMessage,
+	}, a.spy.calls[0].alert)
+}
+
+func TestRecordCheckResult_StateSavedBeforeDispatch(t *testing.T) {
+	a := newAlertSetup(domain.StatusHealthy, alertService(), emailTarget)
+
+	require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()))
+
+	require.Len(t, a.spy.calls, 1)
+	assert.Equal(t, domain.StatusUnhealthy, a.spy.calls[0].stateAtCall[svcID].Status)
+}
+
+func TestRecordCheckResult_CancelledAfterSave(t *testing.T) {
+	a := newAlertSetup(domain.StatusHealthy, alertService(), emailTarget)
+	ctx, cancel := context.WithCancel(t.Context())
+	a.states.afterApply = func(updateCtx context.Context) {
+		assert.Equal(t, ctx, updateCtx)
+		cancel()
+	}
+
+	require.NoError(t, a.svc.RecordCheckResult(ctx, svcID, unhealthyResult()))
+
+	require.Error(t, ctx.Err(), "baseline: the sequence's context was cancelled")
+	assert.Equal(t, []error{nil}, a.finder.ctxErrs)
+	assert.Equal(t, []error{nil}, a.lister.ctxErrs)
+	assert.Len(t, a.spy.calls, 1)
+}
+
+func TestRecordCheckResult_AlertErrors(t *testing.T) {
+	t.Run("a failing update is returned and nothing is dispatched", func(t *testing.T) {
+		a := newAlertSetup(domain.StatusHealthy, alertService(), emailTarget)
+		a.states.err = errBoom
+		require.ErrorIs(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()), errBoom)
+		assert.Empty(t, a.spy.calls)
+		assert.Empty(t, a.finder.ctxErrs)
+	})
+	t.Run("a deleted service is dropped without a read", func(t *testing.T) {
+		a := newAlertSetup(domain.StatusHealthy, alertService(), emailTarget)
+		delete(a.states.states, svcID)
+		require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()))
+		assert.Empty(t, a.spy.calls)
+		assert.Empty(t, a.finder.ctxErrs)
+	})
+	t.Run("a service gone since the save", func(t *testing.T) {
+		a := newAlertSetup(domain.StatusHealthy, alertService(), emailTarget)
+		delete(a.finder.services, svcID)
+		require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()))
+		assert.Empty(t, a.spy.calls)
+		assert.Equal(t, domain.StatusUnhealthy, a.states.states[svcID].Status)
+	})
+	t.Run("targets gone since the save", func(t *testing.T) {
+		a := newAlertSetup(domain.StatusHealthy, alertService(), emailTarget)
+		delete(a.lister.targets, svcID)
+		require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()))
+		assert.Empty(t, a.spy.calls)
+	})
+	t.Run("a failing find is wrapped, the state is saved", func(t *testing.T) {
+		a := newAlertSetup(domain.StatusHealthy, alertService(), emailTarget)
+		a.finder.err = errBoom
+		require.ErrorIs(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()), errBoom)
+		assert.Empty(t, a.spy.calls)
+		assert.Equal(t, domain.StatusUnhealthy, a.states.states[svcID].Status)
+	})
+	t.Run("a failing list is wrapped, the state is saved", func(t *testing.T) {
+		a := newAlertSetup(domain.StatusHealthy, alertService(), emailTarget)
+		a.lister.err = errBoom
+		require.ErrorIs(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()), errBoom)
+		assert.Empty(t, a.spy.calls)
+		assert.Equal(t, domain.StatusUnhealthy, a.states.states[svcID].Status)
+	})
+}
+
+func TestRecordCheckResult_InconsistentResultDoesNotDispatch(t *testing.T) {
+	a := newAlertSetup(domain.StatusHealthy, alertService(), emailTarget)
+
+	require.Error(t, a.svc.RecordCheckResult(t.Context(), svcID, domain.CheckResult{}))
+	assert.Empty(t, a.spy.calls)
+
+	// Baseline: a consistent result for the same setup alerts.
+	require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, unhealthyResult()))
+	assert.Len(t, a.spy.calls, 1)
+}
+
+func TestRecordCheckResult_RestartUsesSavedStatusOnly(t *testing.T) {
+	tests := []struct {
+		name   string
+		saved  domain.Status
+		result domain.CheckResult
+		want   domain.AlertStatus
+	}{
+		{"unhealthy, still unhealthy", domain.StatusUnhealthy, unhealthyResult(), ""},
+		{"unhealthy, recovered", domain.StatusUnhealthy, healthyResult(), domain.AlertHealthy},
+		{"healthy, now unhealthy", domain.StatusHealthy, unhealthyResult(), domain.AlertUnhealthy},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := newAlertSetup(tt.saved, alertService(), emailTarget)
+			// A second usecase over the same saved states, as after a restart.
+			second := usecase.NewCheckResultService(a.states, a.finder, a.lister, a.spy, a.clock)
+
+			require.NoError(t, second.RecordCheckResult(t.Context(), svcID, tt.result))
+
+			if tt.want == "" {
+				assert.Empty(t, a.spy.calls)
+				return
+			}
+			require.Len(t, a.spy.calls, 1)
+			assert.Equal(t, tt.want, a.spy.calls[0].alert.Status)
+		})
+	}
 }

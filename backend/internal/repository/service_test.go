@@ -575,3 +575,47 @@ func TestServiceDelete_SurvivesReopeningTheDatabase(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "kept", got[0].Service.Name)
 }
+
+func TestServiceFind_ReturnsTheSavedService(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	zone := time.FixedZone("x", 7*3600)
+	want := httpService("id-1", "Find Me")
+	want.AlertsEnabled = true
+	want.UnhealthyMessage, want.RecoveryMessage = "down", "up"
+	want.CreatedAt = time.Date(2026, 5, 6, 14, 8, 9, 0, zone)
+	want.UpdatedAt = time.Date(2026, 5, 6, 15, 8, 9, 0, zone)
+	require.NoError(t, repo.Create(t.Context(), want, noLimit))
+	require.NoError(t, repo.Create(t.Context(), httpService("id-2", "Other"), noLimit))
+
+	got, err := repo.Find(t.Context(), "id-1")
+
+	require.NoError(t, err)
+	assert.Equal(t, "Find Me", got.Name)
+	assert.True(t, got.AlertsEnabled)
+	assert.Equal(t, "down", got.UnhealthyMessage)
+	assert.Equal(t, "up", got.RecoveryMessage)
+	assert.Equal(t, time.UTC, got.CreatedAt.Location())
+	assert.Equal(t, time.UTC, got.UpdatedAt.Location())
+	assert.True(t, want.CreatedAt.Equal(got.CreatedAt))
+	assert.True(t, want.UpdatedAt.Equal(got.UpdatedAt))
+}
+
+func TestServiceFind_UnknownAndDeletedIDsAreNotFound(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	require.NoError(t, repo.Create(t.Context(), httpService("id-1", "A"), noLimit))
+
+	_, err := repo.Find(t.Context(), "id-1")
+	require.NoError(t, err, "baseline: the service is found before it is deleted")
+
+	_, err = repo.Find(t.Context(), "nope")
+	require.ErrorIs(t, err, domain.ErrNotFound)
+
+	require.NoError(t, repo.Delete(t.Context(), "id-1"))
+	services, states := count(t, db, &domain.Service{}), count(t, db, &domain.ServiceState{})
+	_, err = repo.Find(t.Context(), "id-1")
+	require.ErrorIs(t, err, domain.ErrNotFound)
+	assert.Equal(t, services, count(t, db, &domain.Service{}))
+	assert.Equal(t, states, count(t, db, &domain.ServiceState{}))
+}
