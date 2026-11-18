@@ -41,7 +41,7 @@ You may change only:
 
 You may not change anything else: not `backend/migration/**`, `backend/internal/api/**`, `backend/internal/handler/**`, `backend/internal/domain/**`, `backend/internal/usecase/**`, `backend/internal/repository/**`, `backend/internal/adaptor/**`, `backend/internal/testutil/**`, `backend/internal/platform/config/**`, `pkg/**`, `.env.example`, `backend/go.mod`, `backend/go.sum`, `Makefile`, `frontend/**`, `docs/**` (except your own plan file, `docs/tasks/delivery-retry.plan.md`). No configuration key is added or renamed.
 
-Shared files this task touches, all owned by this task while it runs: `worker/alert_dispatcher.go` and its test, `cmd/server/main.go`. `delivery-outcome` and `test-target` change the same files and wait for this one. Tasks that may run at the same time: `service-form-alerts` and `target-delivery-notice` (frontend only).
+Shared files this task touches, all owned by this task while it runs: `worker/alert_dispatcher.go` and its test, `cmd/server/main.go`. `delivery-outcome` changes the same files and waits for this one. `test-target` also changes `main.go` (not the dispatcher) and may run beside this one; the user resolves a conflict there when merging. Tasks that may run at the same time: `test-target` (backend, `main.go` only in common); `service-form-alerts` and `target-delivery-notice` (frontend only).
 
 ## Operations used
 

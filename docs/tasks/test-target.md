@@ -24,7 +24,7 @@ Out of scope:
 
 ## Prerequisite
 
-`webhook-sender`, `delivery-retry` and `delivery-outcome` are merged: the first gives the webhook sender this task reuses; the other two change `cmd/server/main.go` and `worker/alert_dispatcher.go`, which this task's wiring must be built on, not beside. The builder checks first that these exist on the default branch, and stops to ask if any is missing (it never creates them):
+`webhook-sender` is merged: it gives the webhook sender this task reuses. `delivery-retry` and `delivery-outcome` may still be open: they change `cmd/server/main.go` (the dispatcher's constructor call) and `worker/alert_dispatcher.go`, which this task does not read or change. Their only overlap with this task is `main.go`; the builder works from the current default branch, and before it pushes it rebases onto the default branch as it then is, so that whichever of the three merged first is already in. The builder checks first that these exist on the default branch, and stops to ask if any is missing (it never creates them):
 
 - `adaptor/webhook.Sender` with `SendWebhook(ctx, url string, headers []domain.NameValue, alert domain.Alert) error`, and the error values `ErrInvalidHeader`, `ErrCouldNotConnect`, `ErrCertificate`, `ErrTimedOut` and `*StatusError` with their texts (`webhook-sender`).
 - `adaptor/mailer.Mailer` with `SendEmail(ctx, to string, alert domain.Alert) error`, `ErrNotConfigured` (`no SMTP account configured`) and `ErrNotAccepted` (`the SMTP server did not accept the message`), and its layout functions `subject` and `body` (`alert-dispatch`).
@@ -46,7 +46,7 @@ You may change only:
 
 You may not change anything else: not `backend/migration/**`, `backend/internal/api/**` (generated), `backend/internal/handler/stubs.go` (a method on `Server` shadows the stub), the rest of `backend/internal/domain/**`, the rest of `backend/internal/usecase/**`, `backend/internal/repository/**`, `backend/internal/worker/**`, `backend/internal/testutil/**`, `backend/internal/platform/config/**`, `pkg/**`, `.env.example`, `backend/go.mod`, `backend/go.sum`, `Makefile`, `frontend/**`, `docs/**` (except your own plan file, `docs/tasks/test-target.plan.md`). No configuration key is added or renamed.
 
-Shared files this task touches, all owned by this task while it runs: `cmd/server/main.go`, `handler/server.go`, `handler/helpers_test.go`, `adaptor/mailer/mailer.go`, `domain/alert.go`, `usecase/alert.go`. No other task runs in the backend beside it (the delivery chain is serial and this is its last task); `target-test-row` (frontend) waits for it.
+Shared files this task touches, all owned by this task while it runs: `cmd/server/main.go`, `handler/server.go`, `handler/helpers_test.go`, `adaptor/mailer/mailer.go`, `domain/alert.go`, `usecase/alert.go`. `delivery-retry` and `delivery-outcome` may run beside it: their shared file with this task is `cmd/server/main.go` only (each adds its own lines to the constructor calls there), and the user resolves a conflict there when merging; neither changes `handler/`, `usecase/`, `domain/` or the mailer. `target-test-row` (frontend) waits for it.
 
 ## Operations used
 
@@ -204,7 +204,7 @@ Every criterion is a test that fails if the behavior were removed, except those 
 
 - The contract (`docs/openapi.yaml`), a requirement, or this file conflict with each other.
 - You think you need a change outside your paths, a dependency, a migration, a configuration key, a change to `handler/stubs.go` or the generated API, or an edit to a spec file.
-- `webhook-sender`, `delivery-retry` or `delivery-outcome` is not merged, or a name this file takes from them is missing.
+- `webhook-sender` is not merged, or a name this file takes from it is missing; or `delivery-retry` or `delivery-outcome` has changed `handler/`, `usecase/`, `domain/` or the mailer in a way that conflicts with this file.
 - The webhook sender or the mailer cannot give the result this file describes without a change that is not listed (for example, the sender writes a fixed status in the body).
 - A convention in `CONVENTIONS.md` seems to prevent what this file asks for.
 

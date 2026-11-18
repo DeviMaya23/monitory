@@ -44,7 +44,7 @@ You may change only:
 
 You may not change anything else: not `backend/migration/**`, `backend/internal/api/**`, `backend/internal/handler/**`, `backend/internal/domain/**`, the rest of `backend/internal/usecase/**` (in particular not `target_repository.go` or `fakes_test.go`), the rest of `backend/internal/repository/**`, `backend/internal/adaptor/**`, `backend/internal/testutil/**`, `backend/internal/platform/config/**`, `pkg/**`, `.env.example`, `backend/go.mod`, `backend/go.sum`, `Makefile`, `frontend/**`, `docs/**` (except your own plan file, `docs/tasks/delivery-outcome.plan.md`). No configuration key is added or renamed.
 
-Shared files this task touches, all owned by this task while it runs: `worker/alert_dispatcher.go` and its test, `cmd/server/main.go`, `repository/target.go` and its test. `test-target` changes `main.go` and waits for this one. Tasks that may run at the same time: none in the backend (the delivery chain is serial); `select-test-flake` (frontend only).
+Shared files this task touches, all owned by this task while it runs: `worker/alert_dispatcher.go` and its test, `cmd/server/main.go`, `repository/target.go` and its test. `test-target` also changes `main.go` (it adds the test usecase and a `NewServer` argument, not the dispatcher's constructor call) and may run beside this one; the user resolves a conflict there when merging. Tasks that may run at the same time: `test-target` (backend, `main.go` only in common); `select-test-flake` (frontend only).
 
 ## Operations used
 
