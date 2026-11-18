@@ -18,6 +18,10 @@ const VALUES: ServiceFormValues = {
   alerts_enabled: true,
   unhealthy_message: '',
   recovery_message: '',
+  check_interval: '60',
+  timeout: '10',
+  retries: '2',
+  retry_interval: '10',
 }
 
 function setup() {
@@ -71,6 +75,32 @@ describe('a 201', () => {
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
+      settings: {
+        check_interval_seconds: 60,
+        timeout_seconds: 10,
+        retry_count: 2,
+        retry_interval_seconds: 10,
+      },
+    })
+  })
+
+  it('sends the four timing texts as integers, trimmed (FR-41, FR-51, FR-53, FR-57)', async () => {
+    vi.mocked(createService).mockResolvedValue(makeService())
+    const { result } = setup()
+    await act(() =>
+      result.current.submit({
+        ...VALUES,
+        check_interval: '45',
+        timeout: ' 5 ',
+        retries: '0',
+        retry_interval: '007',
+      }),
+    )
+    expect(vi.mocked(createService).mock.calls[0][0].settings).toStrictEqual({
+      check_interval_seconds: 45,
+      timeout_seconds: 5,
+      retry_count: 0,
+      retry_interval_seconds: 7,
     })
   })
 

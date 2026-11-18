@@ -5,6 +5,10 @@ export const FIELD_IDS: Record<FieldTarget, string> = {
   name: 'service-name',
   'check.method': 'service-method',
   'check.url': 'service-url',
+  'settings.check_interval_seconds': 'service-check-interval',
+  'settings.timeout_seconds': 'service-timeout',
+  'settings.retry_count': 'service-retries',
+  'settings.retry_interval_seconds': 'service-retry-interval',
   unhealthy_message: 'service-unhealthy-message',
   recovery_message: 'service-recovery-message',
 }
