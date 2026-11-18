@@ -14,6 +14,7 @@ import (
 
 	"monitory/internal/adaptor/mailer"
 	"monitory/internal/adaptor/probe"
+	"monitory/internal/adaptor/webhook"
 	"monitory/internal/domain"
 	"monitory/internal/handler"
 	"monitory/internal/memstore"
@@ -116,7 +117,13 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	dispatcher := worker.NewAlertDispatcher(mail, log)
+	sender, err := webhook.New(webhook.Config{
+		Timeout: time.Duration(cfg.Limits.WebhookTimeoutSeconds) * time.Second,
+	})
+	if err != nil {
+		return err
+	}
+	dispatcher := worker.NewAlertDispatcher(mail, sender, log)
 	// Deferred after the database's, so it runs before the database is closed, and before
 	// the scheduler's, so that the scheduler closes first (deferred calls run last in,
 	// first out): no new result, then the attempts in flight are cancelled and waited for.

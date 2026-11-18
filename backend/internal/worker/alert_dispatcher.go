@@ -14,12 +14,20 @@ type Mailer interface {
 	SendEmail(ctx context.Context, to string, alert domain.Alert) error
 }
 
+// WebhookSender sends one alert to a webhook URL with the target's custom headers. The
+// text of a returned error is the reason: it is logged as it is, so it must hold no URL,
+// header or message.
+type WebhookSender interface {
+	SendWebhook(ctx context.Context, url string, headers []domain.NameValue, alert domain.Alert) error
+}
+
 // AlertDispatcher delivers an alert to every target of a list, each in its own
 // goroutine, with one attempt (FR-83, NFR-5). It owns the goroutines it starts; Close
 // stops and waits for them.
 type AlertDispatcher struct {
-	mailer Mailer
-	log    *slog.Logger
+	mailer   Mailer
+	webhooks WebhookSender
+	log      *slog.Logger
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -30,9 +38,9 @@ type AlertDispatcher struct {
 }
 
 // NewAlertDispatcher returns an AlertDispatcher.
-func NewAlertDispatcher(mailer Mailer, log *slog.Logger) *AlertDispatcher {
+func NewAlertDispatcher(mailer Mailer, webhooks WebhookSender, log *slog.Logger) *AlertDispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &AlertDispatcher{mailer: mailer, log: log, ctx: ctx, cancel: cancel}
+	return &AlertDispatcher{mailer: mailer, webhooks: webhooks, log: log, ctx: ctx, cancel: cancel}
 }
 
 // Dispatch starts the delivery to every target and returns at once. After Close it
@@ -60,11 +68,16 @@ func (d *AlertDispatcher) Dispatch(alert domain.Alert, targets []domain.Target) 
 // an address, a URL, a name or the message (CONVENTIONS.md, Logging).
 func (d *AlertDispatcher) deliver(alert domain.Alert, target domain.Target) {
 	log := d.log.With("service_id", alert.ServiceID, "target_id", target.ID, "status", string(alert.Status))
-	if target.Type != domain.TargetTypeEmail {
-		log.Warn("alert not delivered", "reason", "webhook delivery is not built yet")
+	var err error
+	switch target.Type {
+	case domain.TargetTypeEmail:
+		err = d.mailer.SendEmail(d.ctx, target.Value, alert)
+	case domain.TargetTypeWebhook:
+		err = d.webhooks.SendWebhook(d.ctx, target.Value, target.Headers, alert)
+	default:
+		log.Warn("alert not delivered", "reason", "unknown target type")
 		return
 	}
-	err := d.mailer.SendEmail(d.ctx, target.Value, alert)
 	switch {
 	case err == nil:
 		log.Info("alert delivered")
