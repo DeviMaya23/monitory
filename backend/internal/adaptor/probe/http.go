@@ -10,8 +10,10 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"monitory/internal/domain"
+	"monitory/pkg/clock"
 )
 
 // userAgent is the one header the probe sets itself.
@@ -87,15 +89,20 @@ type HTTPProber struct {
 	maxBodyBytes int
 	// roots are the trusted roots; nil means the system's roots. Tests set it.
 	roots *x509.CertPool
+	clock clock.Clock
 
-	once   sync.Once
-	client *http.Client
+	// once builds both clients: client verifies certificates, lenientClient (used only
+	// for a check that ignores certificate errors) does not.
+	once          sync.Once
+	client        *http.Client
+	lenientClient *http.Client
 }
 
 // NewHTTPProber returns a prober that follows up to maxRedirects redirects and reads
-// at most maxBodyBytes of a body for a check with JSON rules.
-func NewHTTPProber(maxRedirects, maxBodyBytes int) *HTTPProber {
-	return &HTTPProber{maxRedirects: maxRedirects, maxBodyBytes: maxBodyBytes}
+// at most maxBodyBytes of a body for a check with JSON rules. clk is "now" for the
+// certificate expiry check and for chain verification.
+func NewHTTPProber(maxRedirects, maxBodyBytes int, clk clock.Clock) *HTTPProber {
+	return &HTTPProber{maxRedirects: maxRedirects, maxBodyBytes: maxBodyBytes, clock: clk}
 }
 
 // CheckHTTP makes one request and judges the final response. The only error it returns
@@ -128,7 +135,7 @@ func (p *HTTPProber) CheckHTTP(ctx context.Context, check domain.HTTPCheck) (dom
 	}
 	applyHeaders(req.Header, check.Headers)
 
-	resp, err := p.httpClient().Do(req)
+	resp, err := p.httpClient(check.IgnoreCertificateErrors).Do(req)
 	if err != nil {
 		return p.classify(ctx, probeCtx, err)
 	}
@@ -136,6 +143,11 @@ func (p *HTTPProber) CheckHTTP(ctx context.Context, check domain.HTTPCheck) (dom
 		// A close error does not change a result already in hand.
 		_ = resp.Body.Close()
 	}()
+	// A certificate too close to expiry is the connection's problem and comes before
+	// the body and the status.
+	if check.CertificateCheck && p.certificateTooClose(resp, check.CertMinDaysLeft) {
+		return failure(domain.FailureCertificateProblem), nil
+	}
 	status := resp.StatusCode
 	ok2xx := status >= 200 && status <= 299
 	statusFailure := domain.CheckResult{Failure: &domain.CheckFailure{
@@ -184,32 +196,56 @@ func (p *HTTPProber) CheckHTTP(ctx context.Context, check domain.HTTPCheck) (dom
 	}
 }
 
-// httpClient returns the prober's client, built on first use: no proxy, no keep-alive,
-// no cookie jar, and a redirect policy that enforces the limit.
-func (p *HTTPProber) httpClient() *http.Client {
+// httpClient returns the verifying client, or, when ignoreCertErrs is set, the one
+// that accepts any certificate. Both are built on first use.
+func (p *HTTPProber) httpClient(ignoreCertErrs bool) *http.Client {
 	p.once.Do(func() {
-		p.client = &http.Client{
-			Transport: &http.Transport{
-				Proxy:             nil,
-				DisableKeepAlives: true,
-				TLSClientConfig: &tls.Config{
-					MinVersion: tls.VersionTLS12,
-					RootCAs:    p.roots,
-				},
-			},
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) > p.maxRedirects {
-					return errTooManyRedirects
-				}
-				// Saved headers go with every hop (FR-58), replacing what the
-				// library copied or stripped.
-				saved, _ := req.Context().Value(savedHeadersKey{}).([]domain.NameValue)
-				applyHeaders(req.Header, saved)
-				return nil
-			},
-		}
+		p.client = p.newClient(false)
+		p.lenientClient = p.newClient(true)
 	})
+	if ignoreCertErrs {
+		return p.lenientClient
+	}
 	return p.client
+}
+
+// newClient builds a client with no proxy, no keep-alive, no cookie jar and a redirect
+// policy that enforces the limit. The two clients differ only in skipVerify.
+func (p *HTTPProber) newClient(skipVerify bool) *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy:             nil,
+			DisableKeepAlives: true,
+			TLSClientConfig: &tls.Config{
+				MinVersion:         tls.VersionTLS12,
+				RootCAs:            p.roots,
+				Time:               p.clock.Now,
+				InsecureSkipVerify: skipVerify, // FR-64: only for a service that asks for it
+			},
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > p.maxRedirects {
+				return errTooManyRedirects
+			}
+			// Saved headers go with every hop (FR-58), replacing what the
+			// library copied or stripped.
+			saved, _ := req.Context().Value(savedHeadersKey{}).([]domain.NameValue)
+			applyHeaders(req.Header, saved)
+			return nil
+		},
+	}
+}
+
+// certificateTooClose reports whether the leaf certificate of resp's connection has
+// fewer than minDays whole days left. A response not received over TLS is never too
+// close; an expired certificate has 0 days left.
+func (p *HTTPProber) certificateTooClose(resp *http.Response, minDays int) bool {
+	if resp.TLS == nil || len(resp.TLS.PeerCertificates) == 0 {
+		return false
+	}
+	left := resp.TLS.PeerCertificates[0].NotAfter.Sub(p.clock.Now())
+	days := max(int(left/(24*time.Hour)), 0)
+	return days < minDays
 }
 
 // classify turns a failure to get a response into a result, in the order the task

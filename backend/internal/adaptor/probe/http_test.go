@@ -17,13 +17,14 @@ import (
 
 	"monitory/internal/domain"
 	"monitory/internal/testutil"
+	"monitory/pkg/clock"
 )
 
 const longTimeout = 2 * time.Second
 
 func run(t *testing.T, maxRedirects int, check domain.HTTPCheck) domain.CheckResult {
 	t.Helper()
-	res, err := NewHTTPProber(maxRedirects, 65536).CheckHTTP(context.Background(), check)
+	res, err := NewHTTPProber(maxRedirects, 65536, clock.Real{}).CheckHTTP(context.Background(), check)
 	require.NoError(t, err)
 	return res
 }
@@ -301,7 +302,7 @@ func TestCheckHTTP_CertificateProblem(t *testing.T) {
 func TestCheckHTTP_TrustedRoots(t *testing.T) {
 	secure := testutil.NewTargetServer(t, testutil.TargetTLS())
 	secure.Script("/", testutil.Route{})
-	p := NewHTTPProber(3, 65536)
+	p := NewHTTPProber(3, 65536, clock.Real{})
 	p.roots = secure.Pool()
 
 	// The certificate names 127.0.0.1, so the address it is reached by is accepted.
@@ -326,7 +327,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 	check := get(ts.URL()+"/slow", 500*time.Millisecond)
 
 	t.Run("baseline returns a result", func(t *testing.T) {
-		res, err := NewHTTPProber(3, 65536).CheckHTTP(context.Background(), check)
+		res, err := NewHTTPProber(3, 65536, clock.Real{}).CheckHTTP(context.Background(), check)
 		require.NoError(t, err)
 		requireHealthy(t, res)
 	})
@@ -341,7 +342,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 		}
 		done := make(chan outcome, 1)
 		go func() {
-			res, err := NewHTTPProber(3, 65536).CheckHTTP(ctx, get(ts.URL()+"/slow-cancel", 500*time.Millisecond))
+			res, err := NewHTTPProber(3, 65536, clock.Real{}).CheckHTTP(ctx, get(ts.URL()+"/slow-cancel", 500*time.Millisecond))
 			done <- outcome{res, err}
 		}()
 		<-ts.Arrived("/slow-cancel")
@@ -355,7 +356,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 	t.Run("caller deadline shorter than the timeout", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 		defer cancel()
-		res, err := NewHTTPProber(3, 65536).CheckHTTP(ctx, check)
+		res, err := NewHTTPProber(3, 65536, clock.Real{}).CheckHTTP(ctx, check)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.Equal(t, domain.CheckResult{}, res)
 	})
@@ -363,7 +364,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 	t.Run("already cancelled context", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := NewHTTPProber(3, 65536).CheckHTTP(ctx, check)
+		_, err := NewHTTPProber(3, 65536, clock.Real{}).CheckHTTP(ctx, check)
 		require.ErrorIs(t, err, context.Canceled)
 	})
 }
@@ -372,7 +373,7 @@ func TestCheckHTTP_Concurrent(t *testing.T) {
 	ts := testutil.NewTargetServer(t)
 	ts.Script("/slow", testutil.Route{Delay: 100 * time.Millisecond})
 	ts.Script("/fast500", testutil.Route{Status: 500})
-	p := NewHTTPProber(3, 65536)
+	p := NewHTTPProber(3, 65536, clock.Real{})
 
 	var wg sync.WaitGroup
 	results := make([]domain.CheckResult, 20)
@@ -403,7 +404,7 @@ func TestCheckHTTP_Concurrent(t *testing.T) {
 func TestCheckHTTP_NewConnectionPerAttempt(t *testing.T) {
 	ts := testutil.NewTargetServer(t)
 	ts.Script("/", testutil.Route{})
-	p := NewHTTPProber(3, 65536)
+	p := NewHTTPProber(3, 65536, clock.Real{})
 	for range 2 {
 		res, err := p.CheckHTTP(context.Background(), get(ts.URL()+"/", longTimeout))
 		require.NoError(t, err)
@@ -741,7 +742,7 @@ func TestCheckHTTP_RedirectsCarrySavedRequest(t *testing.T) {
 }
 
 func TestCheckHTTP_ConcurrentHeaders(t *testing.T) {
-	p := NewHTTPProber(3, 65536)
+	p := NewHTTPProber(3, 65536, clock.Real{})
 	var wg sync.WaitGroup
 	servers := make([]*testutil.TargetServer, 2)
 	for i := range servers {
@@ -787,7 +788,7 @@ func withRules(check domain.HTTPCheck, mode domain.JSONRuleMode, rules ...domain
 
 func runLimit(t *testing.T, limit int, check domain.HTTPCheck) domain.CheckResult {
 	t.Helper()
-	res, err := NewHTTPProber(3, limit).CheckHTTP(context.Background(), check)
+	res, err := NewHTTPProber(3, limit, clock.Real{}).CheckHTTP(context.Background(), check)
 	require.NoError(t, err)
 	return res
 }
@@ -992,8 +993,284 @@ func TestCheckHTTP_JSONBodyReadInsideTimeout(t *testing.T) {
 			<-started
 			cancel()
 		}()
-		res, err := NewHTTPProber(3, 65536).CheckHTTP(ctx, withRules(get(url, longTimeout), "", rules...))
+		res, err := NewHTTPProber(3, 65536, clock.Real{}).CheckHTTP(ctx, withRules(get(url, longTimeout), "", rules...))
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Equal(t, domain.CheckResult{}, res)
 	})
+}
+
+// certProber returns a prober on a fake clock set to `before` ahead of the receiver's
+// certificate expiry (negative: after it), trusting the receiver's certificate when
+// trusted is set.
+func certProber(t *testing.T, ts *testutil.TargetServer, trusted bool, before time.Duration) *HTTPProber {
+	t.Helper()
+	p := NewHTTPProber(3, 65536, clock.NewFake(certNotAfter(t, ts).Add(-before)))
+	if trusted {
+		p.roots = ts.Pool()
+	}
+	return p
+}
+
+func certNotAfter(t *testing.T, ts *testutil.TargetServer) time.Time {
+	t.Helper()
+	resp, err := ts.Client().Get(ts.URL() + "/")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.NotEmpty(t, resp.TLS.PeerCertificates)
+	return resp.TLS.PeerCertificates[0].NotAfter
+}
+
+func certCheck(url string, ignore bool, minDays int) domain.HTTPCheck {
+	c := get(url, longTimeout)
+	c.IgnoreCertificateErrors = ignore
+	if minDays > 0 {
+		c.CertificateCheck = true
+		c.CertMinDaysLeft = minDays
+	}
+	return c
+}
+
+func probeOne(t *testing.T, p *HTTPProber, check domain.HTTPCheck) domain.CheckResult {
+	t.Helper()
+	res, err := p.CheckHTTP(context.Background(), check)
+	require.NoError(t, err)
+	return res
+}
+
+const (
+	day  = 24 * time.Hour
+	year = 365 * day
+)
+
+func TestCertOptions_IgnoreErrors(t *testing.T) {
+	t.Run("untrusted certificate", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+		ts.Script("/", testutil.Route{})
+		p := NewHTTPProber(3, 65536, clock.Real{})
+		requireFailed(t, probeOne(t, p, certCheck(ts.URL()+"/", false, 0)), domain.FailureCertificateProblem)
+		requireHealthy(t, probeOne(t, p, certCheck(ts.URL()+"/", true, 0)))
+	})
+	t.Run("host name mismatch", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+		ts.Script("/", testutil.Route{})
+		p := certProber(t, ts, true, year)
+		other := strings.Replace(ts.URL(), "127.0.0.1", "localhost", 1) + "/"
+		requireFailed(t, probeOne(t, p, certCheck(other, false, 0)), domain.FailureCertificateProblem)
+		requireHealthy(t, probeOne(t, p, certCheck(other, true, 0)))
+	})
+	t.Run("expired certificate", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+		ts.Script("/", testutil.Route{})
+		p := certProber(t, ts, true, -day)
+		requireFailed(t, probeOne(t, p, certCheck(ts.URL()+"/", false, 0)), domain.FailureCertificateProblem)
+		requireHealthy(t, probeOne(t, p, certCheck(ts.URL()+"/", true, 0)))
+	})
+	t.Run("redirect from plain http", func(t *testing.T) {
+		secure := testutil.NewTargetServer(t, testutil.TargetTLS())
+		secure.Script("/", testutil.Route{})
+		plain := testutil.NewTargetServer(t)
+		plain.Script("/go", testutil.Route{RedirectTo: secure.URL() + "/"})
+		p := NewHTTPProber(3, 65536, clock.Real{})
+		requireFailed(t, probeOne(t, p, certCheck(plain.URL()+"/go", false, 0)), domain.FailureCertificateProblem)
+		requireHealthy(t, probeOne(t, p, certCheck(plain.URL()+"/go", true, 0)))
+	})
+	t.Run("second hop is untrusted", func(t *testing.T) {
+		secure := testutil.NewTargetServer(t, testutil.TargetTLS())
+		secure.Script("/", testutil.Route{})
+		plain := testutil.NewTargetServer(t)
+		plain.Script("/a", testutil.Route{RedirectTo: "/b"})
+		plain.Script("/b", testutil.Route{RedirectTo: secure.URL() + "/"})
+		p := NewHTTPProber(3, 65536, clock.Real{})
+		requireFailed(t, probeOne(t, p, certCheck(plain.URL()+"/a", false, 0)), domain.FailureCertificateProblem)
+		requireHealthy(t, probeOne(t, p, certCheck(plain.URL()+"/a", true, 0)))
+	})
+	t.Run("a TLS to TLS redirect chain", func(t *testing.T) {
+		first := testutil.NewTargetServer(t, testutil.TargetTLS())
+		second := testutil.NewTargetServer(t, testutil.TargetTLS())
+		second.Script("/", testutil.Route{})
+		first.Script("/go", testutil.Route{RedirectTo: second.URL() + "/"})
+		p := NewHTTPProber(3, 65536, clock.Real{})
+		requireHealthy(t, probeOne(t, p, certCheck(first.URL()+"/go", true, 0)))
+	})
+	t.Run("a 500 is still non_2xx_status", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+		ts.Script("/", testutil.Route{Status: 500})
+		res := probeOne(t, NewHTTPProber(3, 65536, clock.Real{}), certCheck(ts.URL()+"/", true, 0))
+		requireStatus(t, res, 500)
+	})
+	t.Run("saved headers go on the redirected request", func(t *testing.T) {
+		secure := testutil.NewTargetServer(t, testutil.TargetTLS())
+		secure.Script("/", testutil.Route{})
+		plain := testutil.NewTargetServer(t)
+		plain.Script("/go", testutil.Route{RedirectTo: secure.URL() + "/"})
+		check := certCheck(plain.URL()+"/go", true, 0)
+		check.Headers = nv("X-Key", "k1", "User-Agent", "Mine")
+		requireHealthy(t, probeOne(t, NewHTTPProber(3, 65536, clock.Real{}), check))
+		reqs := secure.Requests()
+		require.Len(t, reqs, 1)
+		assert.Equal(t, []string{"k1"}, reqs[0].Header.Values("X-Key"))
+		assert.Equal(t, []string{"Mine"}, reqs[0].Header.Values("User-Agent"))
+	})
+	t.Run("the redirect limit still applies", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+		ts.Script("/end", testutil.Route{})
+		for i := range 4 {
+			next := "/end"
+			if i < 3 {
+				next = fmt.Sprintf("/r%d", i+1)
+			}
+			ts.Script(fmt.Sprintf("/r%d", i), testutil.Route{Status: 307, RedirectTo: next})
+		}
+		p := NewHTTPProber(3, 65536, clock.Real{})
+		requireFailed(t, probeOne(t, p, certCheck(ts.URL()+"/r0", true, 0)), domain.FailureTooManyRedirects)
+	})
+	t.Run("concurrent checks with different settings", func(t *testing.T) {
+		ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+		ts.Script("/", testutil.Route{})
+		p := NewHTTPProber(3, 65536, clock.Real{})
+		const n = 8
+		results := make([]domain.CheckResult, n)
+		var wg sync.WaitGroup
+		for i := range n {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				res, err := p.CheckHTTP(context.Background(), certCheck(ts.URL()+"/", i%2 == 0, 0))
+				assert.NoError(t, err)
+				results[i] = res
+			}()
+		}
+		wg.Wait()
+		for i, res := range results {
+			if i%2 == 0 {
+				requireHealthy(t, res)
+			} else {
+				requireFailed(t, res, domain.FailureCertificateProblem)
+			}
+		}
+	})
+}
+
+func TestCertOptions_ExpiryDays(t *testing.T) {
+	ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+	ts.Script("/", testutil.Route{})
+	tests := []struct {
+		name    string
+		left    time.Duration
+		minDays int
+		healthy bool
+	}{
+		{"13 days 23 hours, minimum 14", 13*day + 23*time.Hour, 14, false},
+		{"exactly 14 days, minimum 14", 14 * day, 14, true},
+		{"14 days 1 hour, minimum 15", 14*day + time.Hour, 15, false},
+		{"well over the minimum", 200 * day, 14, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, ignore := range []bool{true, false} {
+				p := certProber(t, ts, !ignore, tt.left)
+				res := probeOne(t, p, certCheck(ts.URL()+"/", ignore, tt.minDays))
+				if tt.healthy {
+					requireHealthy(t, res)
+				} else {
+					requireFailed(t, res, domain.FailureCertificateProblem)
+				}
+			}
+		})
+	}
+}
+
+func TestCertOptions_ExpiredCountsAsZero(t *testing.T) {
+	ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+	ts.Script("/", testutil.Route{})
+	for _, after := range []time.Duration{time.Second, 400 * day} {
+		p := certProber(t, ts, false, -after)
+		requireFailed(t, probeOne(t, p, certCheck(ts.URL()+"/", true, 1)), domain.FailureCertificateProblem)
+	}
+}
+
+func TestCertOptions_CheckOffIgnored(t *testing.T) {
+	ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+	ts.Script("/", testutil.Route{})
+	// Check off: a certificate one day from expiry is healthy.
+	requireHealthy(t, probeOne(t, certProber(t, ts, false, day), certCheck(ts.URL()+"/", true, 0)))
+	requireHealthy(t, probeOne(t, certProber(t, ts, true, day), certCheck(ts.URL()+"/", false, 0)))
+	// Baseline: the same receiver fails with the check on.
+	requireFailed(t, probeOne(t, certProber(t, ts, true, day), certCheck(ts.URL()+"/", false, 2)), domain.FailureCertificateProblem)
+}
+
+func TestCertOptions_UntrustedWithExpiryCheck(t *testing.T) {
+	ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+	ts.Script("/", testutil.Route{})
+	p := certProber(t, ts, false, 100*day)
+	requireFailed(t, probeOne(t, p, certCheck(ts.URL()+"/", false, 14)), domain.FailureCertificateProblem)
+	requireHealthy(t, probeOne(t, p, certCheck(ts.URL()+"/", true, 14)))
+}
+
+func TestCertOptions_ExpiryBeforeBodyAndStatus(t *testing.T) {
+	rules := []domain.JSONRule{{Field: "status", FailingValue: "down"}}
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		// baselineHealthy: with enough days left the response is healthy.
+		baselineHealthy bool
+	}{
+		{"200 with a body no rule matches", 200, `{"status":"up"}`, true},
+		{"500", 500, `{"status":"up"}`, false},
+		{"a matching rule", 200, `{"status":"down"}`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+			ts.Script("/", testutil.Route{Status: tt.status, Body: tt.body})
+			check := withRules(certCheck(ts.URL()+"/", true, 14), "", rules...)
+			requireFailed(t, probeOne(t, certProber(t, ts, false, 3*day), check), domain.FailureCertificateProblem)
+			// Baseline: with enough days the same response is judged by body and status.
+			res := probeOne(t, certProber(t, ts, false, 30*day), check)
+			if tt.baselineHealthy {
+				requireHealthy(t, res)
+				return
+			}
+			require.NotNil(t, res.Failure)
+			assert.NotEqual(t, domain.FailureCertificateProblem, res.Failure.Code)
+		})
+	}
+}
+
+func TestCertOptions_RedirectToPlainHTTPSkipsExpiry(t *testing.T) {
+	plain := testutil.NewTargetServer(t)
+	plain.Script("/", testutil.Route{})
+	secure := testutil.NewTargetServer(t, testutil.TargetTLS())
+	secure.Script("/go", testutil.Route{RedirectTo: plain.URL() + "/"})
+	p := certProber(t, secure, false, day)
+	requireHealthy(t, probeOne(t, p, certCheck(secure.URL()+"/go", true, 14)))
+	// The final response's status decides.
+	plain.Script("/", testutil.Route{Status: 503})
+	requireStatus(t, probeOne(t, p, certCheck(secure.URL()+"/go", true, 14)), 503)
+	// Baseline: without the redirect the same certificate fails the check.
+	secure.Script("/", testutil.Route{})
+	requireFailed(t, probeOne(t, p, certCheck(secure.URL()+"/", true, 14)), domain.FailureCertificateProblem)
+}
+
+func TestCertOptions_UsesInjectedClock(t *testing.T) {
+	ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+	ts.Script("/", testutil.Route{})
+	notAfter := certNotAfter(t, ts)
+	fake := clock.NewFake(notAfter.Add(-20 * day))
+	p := NewHTTPProber(3, 65536, fake)
+	check := certCheck(ts.URL()+"/", true, 14)
+	requireHealthy(t, probeOne(t, p, check))
+	fake.Advance(7 * day)
+	requireFailed(t, probeOne(t, p, check), domain.FailureCertificateProblem)
+}
+
+func TestCertOptions_ZeroMinNeverFails(t *testing.T) {
+	ts := testutil.NewTargetServer(t, testutil.TargetTLS())
+	ts.Script("/", testutil.Route{})
+	check := certCheck(ts.URL()+"/", true, 0)
+	check.CertificateCheck = true
+	requireHealthy(t, probeOne(t, certProber(t, ts, false, -day), check))
+	check.CertMinDaysLeft = 1
+	requireFailed(t, probeOne(t, certProber(t, ts, false, -day), check), domain.FailureCertificateProblem)
 }

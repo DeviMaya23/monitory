@@ -632,3 +632,80 @@ func TestRun_RecordsJSONRuleField(t *testing.T) {
 		assert.True(t, r.recorder.list()[0].result.Healthy)
 	})
 }
+
+func TestRun_PassesCertificateOptions(t *testing.T) {
+	svc := httpService(2, 5)
+	svc.CertCheck = true
+	svc.CertMinDaysLeft = ptr(14)
+	svc.IgnoreCertErrs = true
+	r := newRig(failed(domain.FailureCertificateProblem), failed(domain.FailureCertificateProblem), healthy())
+	done := r.run(t.Context(), svc)
+	for i := 1; i <= 2; i++ {
+		r.prober.waitForCall(t)
+		assert.Equal(t, 5*time.Second, r.clock.waitForTimer(t))
+		r.clock.Advance(5 * time.Second)
+	}
+	r.prober.waitForCall(t)
+	require.NoError(t, r.finish(t, done))
+
+	require.Len(t, r.prober.checks, 3)
+	for _, c := range r.prober.checks {
+		assert.True(t, c.CertificateCheck)
+		assert.Equal(t, 14, c.CertMinDaysLeft)
+		assert.True(t, c.IgnoreCertificateErrors)
+	}
+}
+
+func TestRun_CertificateOptionsOffOrNilMinimum(t *testing.T) {
+	tests := []struct {
+		name        string
+		certCheck   bool
+		minDays     *int
+		wantCheck   bool
+		wantMinDays int
+	}{
+		{"off with a minimum", false, ptr(14), false, 0},
+		{"off with no minimum", false, nil, false, 0},
+		{"on with no minimum", true, nil, true, 0},
+		{"on with a minimum", true, ptr(3), true, 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := httpService(0, 0)
+			svc.CertCheck = tt.certCheck
+			svc.CertMinDaysLeft = tt.minDays
+			r := newRig(healthy())
+			require.NoError(t, r.finish(t, r.run(t.Context(), svc)))
+			require.Len(t, r.prober.checks, 1)
+			assert.Equal(t, tt.wantCheck, r.prober.checks[0].CertificateCheck)
+			assert.Equal(t, tt.wantMinDays, r.prober.checks[0].CertMinDaysLeft)
+			assert.False(t, r.prober.checks[0].IgnoreCertificateErrors)
+		})
+	}
+}
+
+func TestRun_CertificateProblemRetried(t *testing.T) {
+	t.Run("a later healthy attempt is recorded healthy", func(t *testing.T) {
+		r := newRig(failed(domain.FailureCertificateProblem), healthy())
+		done := r.run(t.Context(), httpService(1, 5))
+		r.prober.waitForCall(t)
+		assert.Equal(t, 5*time.Second, r.clock.waitForTimer(t))
+		r.clock.Advance(5 * time.Second)
+		r.prober.waitForCall(t)
+		require.NoError(t, r.finish(t, done))
+		require.Len(t, r.recorder.list(), 1)
+		assert.True(t, r.recorder.list()[0].result.Healthy)
+	})
+	t.Run("every attempt failing records certificate_problem", func(t *testing.T) {
+		r := newRig(failed(domain.FailureCertificateProblem), failed(domain.FailureCertificateProblem))
+		done := r.run(t.Context(), httpService(1, 5))
+		r.prober.waitForCall(t)
+		assert.Equal(t, 5*time.Second, r.clock.waitForTimer(t))
+		r.clock.Advance(5 * time.Second)
+		r.prober.waitForCall(t)
+		require.NoError(t, r.finish(t, done))
+		require.Len(t, r.recorder.list(), 1)
+		require.NotNil(t, r.recorder.list()[0].result.Failure)
+		assert.Equal(t, domain.FailureCertificateProblem, r.recorder.list()[0].result.Failure.Code)
+	})
+}
