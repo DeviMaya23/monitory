@@ -123,7 +123,10 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	dispatcher := worker.NewAlertDispatcher(mail, sender, log)
+	dispatcher := worker.NewAlertDispatcher(mail, sender, clock.Real{}, worker.RetryPolicy{
+		Retries:  cfg.Limits.AlertDeliveryRetries,
+		Interval: time.Duration(cfg.Limits.AlertDeliveryRetryIntervalSeconds) * time.Second,
+	}, log)
 	// Deferred after the database's, so it runs before the database is closed, and before
 	// the scheduler's, so that the scheduler closes first (deferred calls run last in,
 	// first out): no new result, then the attempts in flight are cancelled and waited for.
