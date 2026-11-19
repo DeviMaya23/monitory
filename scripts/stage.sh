@@ -249,4 +249,5 @@ echo "worktree: $path" >&2
 echo "branch:   $branch (from origin/$base)" >&2
 
 cd "$path"
-exec claude "$prompt"
+claude "$prompt"
+clear
