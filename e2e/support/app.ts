@@ -34,6 +34,13 @@ export function appEnv(dbPath: string, port: number): Record<string, string> {
     TIMEOUT_MIN_SECONDS: '1',
     RETRY_COUNT_DEFAULT: '1',
     RETRY_INTERVAL_DEFAULT_SECONDS: '1',
+    SMTP_HOST: '127.0.0.1',
+    SMTP_PORT: '1025',
+    SMTP_TLS: 'none',
+    SMTP_FROM: 'monitory@e2e.test',
+    ALERT_DELIVERY_RETRIES: '2',
+    ALERT_DELIVERY_RETRY_INTERVAL_SECONDS: '2',
+    WEBHOOK_TIMEOUT_SECONDS: '2',
   }
 }
 
@@ -74,6 +81,7 @@ export class App {
   private log = ''
   private dir = ''
   private port = 0
+  private overrides: Record<string, string> = {}
 
   get baseURL(): string {
     return `http://127.0.0.1:${this.port}`
@@ -84,14 +92,14 @@ export class App {
     return this.log + (this.proc?.output() ?? '')
   }
 
-  async init(): Promise<void> {
+  async init(overrides: Record<string, string> = {}): Promise<void> {
     this.dir = await mkdtemp(path.join(os.tmpdir(), 'monitory-e2e-'))
     // First start: the port is picked here; a taken port is retried up to 3 times.
     let lastError: unknown
     for (let attempt = 0; attempt < 3; attempt++) {
       this.port = await freePort()
       try {
-        await this.launch()
+        await this.launch(overrides)
         return
       } catch (err) {
         lastError = err
@@ -107,6 +115,7 @@ export class App {
   }
 
   private async launch(overrides: Record<string, string> = {}): Promise<void> {
+    this.overrides = overrides
     const env = { ...appEnv(path.join(this.dir, 'monitory.db'), this.port), ...overrides }
     const proc = spawnApp(env)
     this.proc = proc
@@ -140,9 +149,10 @@ export class App {
     this.proc = null
   }
 
+  /** Stops and starts again on the same database and port, with the overrides of the previous start. */
   async restart(): Promise<void> {
     await this.stop()
-    await this.start()
+    await this.start(this.overrides)
   }
 
   async dispose(): Promise<void> {
