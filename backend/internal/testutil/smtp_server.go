@@ -218,7 +218,7 @@ func (s *SMTPServer) serve(c net.Conn) {
 			return
 		}
 		tc := tls.Server(c, s.tlsCfg)
-		if err := tc.Handshake(); err != nil {
+		if err := tc.HandshakeContext(context.Background()); err != nil {
 			return
 		}
 		s.mu.Lock()
