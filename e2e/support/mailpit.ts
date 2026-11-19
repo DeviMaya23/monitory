@@ -80,3 +80,11 @@ export async function waitForMessages(address: string, n: number): Promise<Mail[
     `expected at least ${n} message(s) to ${address}, found ${found.length}: ${JSON.stringify(found.map((m) => m.subject))}`,
   )
 }
+
+/** True when `text` holds `YYYY-MM-DD HH:MM UTC` within `minutes` of now. */
+export function utcStampNear(text: string, minutes = 3): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}) UTC$/.exec(text)
+  if (!m) return false
+  const at = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])
+  return Math.abs(Date.now() - at) <= minutes * 60_000 + 60_000
+}

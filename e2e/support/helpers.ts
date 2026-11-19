@@ -95,9 +95,14 @@ export interface TargetInput {
   headers?: { name: string; value: string }[]
 }
 
+/** The target dialog (toasts have the role `dialog` too, so the name tells them apart). */
+export function targetDialog(page: Page): Locator {
+  return page.getByRole('dialog', { name: /^(Add|Edit) target$/ })
+}
+
 /** Fills the open target dialog, without pressing its primary button. */
 export async function fillTarget(page: Page, target: TargetInput): Promise<void> {
-  const dialog = page.getByRole('dialog')
+  const dialog = targetDialog(page)
   if (target.name !== undefined) await dialog.getByLabel('Name').fill(target.name)
   if (target.type === 'webhook') {
     await dialog.getByRole('radio', { name: 'Webhook' }).check()
@@ -117,9 +122,9 @@ export async function fillTarget(page: Page, target: TargetInput): Promise<void>
 export async function addTarget(page: Page, target: TargetInput): Promise<void> {
   await page.getByRole('button', { name: 'Add target' }).click()
   await fillTarget(page, target)
-  await page.getByRole('dialog').getByRole('button', { name: 'Add target' }).click()
+  await targetDialog(page).getByRole('button', { name: 'Add target' }).click()
   await expect(page.getByText('Target added.')).toBeVisible()
-  await expect(page.getByRole('dialog')).toBeHidden()
+  await expect(targetDialog(page)).toBeHidden()
 }
 
 /** A target row is the list item of the list named Notification targets whose text holds the label. */
