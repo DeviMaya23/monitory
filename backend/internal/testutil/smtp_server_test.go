@@ -2,6 +2,8 @@ package testutil_test
 
 import (
 	"bufio"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"net"
@@ -188,4 +190,87 @@ func TestSMTPServer_FreesItsPortWhenTheTestEnds(t *testing.T) {
 	l, err := net.Listen("tcp", addr)
 	require.NoError(t, err, "the port is free again")
 	_ = l.Close()
+}
+
+func dialTLS(t *testing.T, s *testutil.SMTPServer, pool *x509.CertPool, serverName string) (*client, error) {
+	t.Helper()
+	d := &net.Dialer{Timeout: 2 * time.Second}
+	c, err := tls.DialWithDialer(d, "tcp", s.Addr(), &tls.Config{RootCAs: pool, ServerName: serverName, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return &client{t: t, c: c, r: bufio.NewReader(c)}, nil
+}
+
+func TestSMTPServer_TLS(t *testing.T) {
+	t.Run("a client that trusts the pool completes the handshake and a conversation", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true})
+		c, err := dialTLS(t, s, s.Pool(), "127.0.0.1")
+		require.NoError(t, err)
+
+		assert.True(t, strings.HasPrefix(c.deliver("to@x"), "250"))
+
+		require.Len(t, s.Messages(), 1)
+		assert.Equal(t, 1, s.Connections())
+		assert.Equal(t, 1, s.Handshakes())
+	})
+	t.Run("the certificate names localhost too", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true})
+		_, err := dialTLS(t, s, s.Pool(), "localhost")
+		require.NoError(t, err)
+	})
+	t.Run("CertNames replaces the default names", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true, CertNames: []string{"smtp.example.test"}})
+		_, err := dialTLS(t, s, s.Pool(), "127.0.0.1")
+		require.Error(t, err)
+		_, err = dialTLS(t, s, s.Pool(), "smtp.example.test")
+		require.NoError(t, err)
+	})
+	t.Run("a client that trusts nothing is refused at the handshake", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true})
+
+		_, err := dialTLS(t, s, nil, "127.0.0.1")
+
+		require.Error(t, err)
+		assert.Empty(t, s.Messages())
+		assert.Zero(t, s.Handshakes())
+	})
+	t.Run("a plain-text client gets no greeting it can read", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true})
+		c := dial(t, s)
+		require.NoError(t, c.c.SetReadDeadline(time.Now().Add(2*time.Second)))
+		_, err := fmt.Fprint(c.c, "EHLO client\r\n")
+		require.NoError(t, err)
+
+		line, _ := c.r.ReadString('\n')
+
+		assert.False(t, strings.HasPrefix(line, "220"))
+		assert.Empty(t, s.Messages())
+		assert.Zero(t, s.Handshakes())
+	})
+	t.Run("a stalled handshake never completes and the server frees the port at the end", func(t *testing.T) {
+		var addr string
+		t.Run("server", func(t *testing.T) {
+			s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true, StallHandshake: true})
+			addr = s.Addr()
+			raw, err := net.DialTimeout("tcp", addr, 2*time.Second)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = raw.Close() })
+			require.NoError(t, raw.SetDeadline(time.Now().Add(150*time.Millisecond)))
+			tc := tls.Client(raw, &tls.Config{RootCAs: s.Pool(), ServerName: "127.0.0.1"})
+
+			require.Error(t, tc.Handshake(), "the client gives up at its deadline")
+			assert.Zero(t, s.Handshakes())
+			assert.Equal(t, 1, s.Connections())
+			assert.Empty(t, s.Messages())
+		}) // the server's cleanup runs here and would hang if it did not end the connection
+
+		_, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		require.Error(t, err, "the port is free")
+	})
+	t.Run("the plain mode has no certificate pool", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{})
+		assert.Nil(t, s.Pool())
+	})
 }
