@@ -35,11 +35,13 @@ test.describe('M2 journey 4: a failed webhook, its retries and the notice', () =
     stub.setStatus(503)
     await waitForStatus(page, name, 'Unhealthy')
     // One failing target does not hold up the other (FR-83).
-    await waitForMessages(address, 1)
+    const mails = await waitForMessages(address, 1)
 
     await waitForCount(() => receiver.hookCount(), 3)
     const hooks = receiver.hookRequests()
     expect(hooks).toHaveLength(3)
+    // ...and the mail was in before the webhook's last attempt, not after its retries (FR-83).
+    expect(Date.parse(mails[0].created)).toBeLessThan(hooks[2].at)
     for (const hook of hooks) {
       expect(hook.json?.status).toBe('unhealthy')
       expect(hook.json?.service_name).toBe(name)
