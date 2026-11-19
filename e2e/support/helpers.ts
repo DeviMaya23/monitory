@@ -181,8 +181,8 @@ export async function settle(page: Page): Promise<void> {
 
 /** The service's id, read from `GET /api/services` with the page's own session. */
 export async function serviceId(page: Page, name: string): Promise<string> {
-  const body = (await (await page.request.get('/api/services')).json()) as { items?: { id: string; name: string }[] }
-  const found = (body.items ?? []).find((s) => s.name === name)
+  const body = (await (await page.request.get('/api/services')).json()) as { id: string; name: string }[]
+  const found = body.find((s) => s.name === name)
   expect(found, `service ${name} in the list`).toBeTruthy()
   return found!.id
 }
@@ -196,6 +196,5 @@ export interface TargetBody {
 export async function listTargets(page: Page, id: string): Promise<TargetBody[]> {
   const res = await page.request.get(`/api/services/${id}/targets`)
   expect(res.ok()).toBe(true)
-  const body = (await res.json()) as { items?: TargetBody[] } | TargetBody[]
-  return Array.isArray(body) ? body : (body.items ?? [])
+  return (await res.json()) as TargetBody[]
 }
