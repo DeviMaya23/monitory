@@ -22,12 +22,10 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
 | FR-7, FR-39, FR-66 | `getService`, `updateService` | Edit a service | State kept, no check at save, schedule restarted |
-| FR-37, FR-38 | `createService`, `updateService` | Service form rows | Query parameters, headers, body; every limit from the configuration; the 1 MB request limit. The check sends the saved values (`http-request-send`) |
-| FR-44 to FR-48, FR-69, FR-73 | `createService`, `updateService` | JSON rules | The rows in the service form. Rule evaluation, any-or-all and the body read limit are `http-json-rules` |
-| FR-34, FR-50, FR-64 | `createService`, `updateService` | Certificate options | The switches and the days field in the service form. The probe's expiry check and "ignore certificate errors" are `http-certificate-options` |
+| FR-37, FR-38 | `createService`, `updateService` | Service form rows | Query parameters, headers, body rows in the form; the server's limit errors shown on the rows. `createService` and the check that sends the saved values are built (`create-service-api`, `http-request-send`). Left: the add-form rows, then the edit form |
+| FR-44 to FR-48, FR-69, FR-73 | `createService`, `updateService` | JSON rules | The rows in the service form. Rule evaluation, any-or-all, the body read limit and the save-time validation are built (`http-json-rules`, `create-service-api`) |
+| FR-34, FR-50, FR-64 | `createService`, `updateService` | Certificate options | The switches and the days field in the service form. The probe's expiry check, "ignore certificate errors" and the save-time validation are built (`http-certificate-options`, `create-service-api`) |
 | FR-33, FR-49, FR-52 | `createService`, `updateService` | Type switch, TCP fields | TCP probe |
-| FR-74 | `createService`, `updateService` | Field errors | The remaining validation cases |
-| FR-61 | `listServices`, `getService` | Failure reason wording | All seven reasons and the JSON-rule precedence, as the screens word them. The probe produces `json_rule_matched` and `invalid_or_missing_json` after `http-json-rules` |
 | FR-75 to FR-79 | `pauseService`, `resumeService` | Dashboard row actions | Cancels a running check |
 | FR-104, FR-105, FR-106, NFR-7 | `testServiceCheck` | Test result area | Takes no repository that can write |
 | Milestone journeys | all of the above | Service form | Each failure reason produced on purpose; limits and validation |
@@ -57,7 +55,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - Left out of `check-sequence-and-state`: its runner does nothing for a TCP service, so one stays `not_yet_checked`; the `scheduler` task still gives a TCP service a timer, whose every sequence does nothing. The task that builds the TCP probe (FR-49, FR-52, milestone 3) makes the runner call it with the same retry rule.
 
-- Left out of `add-service-screen`: the "Discard unsaved changes?" prompt on the top-bar brand link, the browser's Back and Forward, and Sign out (it covers only the form's Cancel and back link, and the browser's own prompt on closing the tab). Blocking in-app navigation needs react-router's `useBlocker`, which needs a data router instead of `BrowserRouter`. Needs: the user, a decision on the router. Decide by: the edit-form task is drafted, since it builds the same prompt for the edit form.
+- Left out of `add-service-screen`: the "Discard unsaved changes?" prompt on the top-bar brand link, the browser's Back and Forward, and Sign out (it covers only the form's Cancel and back link, and the browser's own prompt on closing the tab). Blocking in-app navigation needs react-router's `useBlocker`, which needs a data router instead of `BrowserRouter`. Decided by the user: the edit-screen task moves the app to a data router and adds the prompt to both forms.
 
 - Left out of `add-service-screen`: the form has no `Type` control, no test panel and none of the rows below Request. The type switch comes with the TCP form task, the test panel with `testServiceCheck`, and the other rows with the milestone 3 form tasks (all already rows above).
 
@@ -67,7 +65,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - Left out of `target-form-dialog` (by the user's decision, the alert-list feature keeps its own copies): the discard dialog, the `422` error summary with its server-error hook, and the failure banners exist twice, in `service-form` and in `alert-list`. Promote them to shared places (`components/`, `lib/`). Matters when: a third form needs them, or the wording or behaviour of one copy changes and the other is forgotten. Needs: the user's approval of the shared components (`CONVENTIONS.md`, "Matching existing shapes").
 
-- Left out of `target-form-dialog`: its custom header rows (`alert-list/components/HeaderRows.tsx`) are the feature's own, built before the service form has request headers. The milestone 3 task that builds the service form's headers (FR-37, FR-38) promotes them to `components/` instead of writing a second copy (`CONVENTIONS.md`, "No duplicated logic across entry points"). Matters when: that task is drafted. Needs: the user's approval of the shared component.
+- Left out of `target-form-dialog`: its custom header rows (`alert-list/components/HeaderRows.tsx`) are the feature's own, built before the service form has request headers. The milestone 3 task that builds the service form's headers (FR-37, FR-38) promotes them to `components/` instead of writing a second copy (`CONVENTIONS.md`, "No duplicated logic across entry points"). Matters when: that task is drafted. The user approved promoting `HeaderRows` only; the discard dialog, summary and banners stay as two copies (line above).
 
 - Production, after the first deploy (`deploy/RUNBOOK.md`): a payment method on the Fly.io account so the machine stays up; the certificate and DNS record for the custom domain; the release workflow with its deploy token; a redeploy that shows data survives; `Fly-Client-IP` checked once sign-in exists. Needs: the user. Deadline: before first real use.
 
@@ -95,6 +93,9 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - `service-form-alerts`: `TargetDialog.test.tsx` "adds a header row… (FR-92)" timed out once at 5000 ms in a full parallel run (1 of 3 runs); it is not part of that diff. Matters when: the same case times out again on CI or on another task's branch; then raise its timeout in that file.
 
+- `http-certificate-options`: an expired or untrusted certificate and a certificate too close to expiry are both `certificate_problem`, and the days left are not recorded. Matters when: the task that words the failure reason for the admin wants to show which of the two it was. Needs: the user (a second code is a contract change).
+- `http-certificate-options`: `testServiceCheck` builds an `HTTPCheck` from the form values and must set the three certificate fields. Matters when: the `testServiceCheck` task is drafted (it carries this).
+
 - `webhook-sender`: a custom webhook header the HTTP library controls (`Host`, `Content-Length`, `Transfer-Encoding`, `Trailer`) is accepted on save and silently not sent, and a value loses its surrounding spaces. Matters when: an admin enters one of these names and expects it to reach the receiver; best fixed with the save-time header rule (the `targets-api` line above). Needs: the user's approval of that rule.
 
 ## Decisions waiting on the user
@@ -102,7 +103,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 Each needs a decision, or to be dropped, by the next milestone.
 
 - `updatePublicViewSettings` with `{}` counts as off, because `enabled` then reads as false. Reject it as `validation_failed`, or keep. Decide by: the milestone 4 settings task is drafted.
-- Where the shared service-input normalization lives. `create-service-api` trims surrounding whitespace from the name, URL, host, query parameter names, header names and values, rule fields and the two messages in a private `normalizeServiceInput` in `usecase/service_validation.go`, before validating, and saves the trimmed text. `updateService` must apply the same rules or an edited name could differ from a created one, so it needs the function shared (a new shared place, which needs your approval); `testServiceCheck` should probably trim the URL and host too, so a test run matches what would be saved. Decide by: the first milestone 3 task that touches `updateService` or `testServiceCheck` is drafted.
 - SMTP provider for production. Decide by: before the first alert task is deployed.
 - What watches the app from outside (the Fly.io health check alone, or an external monitor on `/health`). Decide by: before first real use.
 
