@@ -47,11 +47,11 @@ export function TargetErrorSummary({ entries, onGoToField, ref }: SummaryProps) 
 }
 
 type Props = {
-  /** The last save's failure; only the kinds that are banners show here. */
+  /** The failure of the action started last; only the kinds that are banners show here. */
   failure: SaveFailure | null
   /** An edit is open: `full` is not a banner there. */
   editing: boolean
-  /** "Try again": submit the form again as it is. */
+  /** "Try again": repeat the action that failed, the save or the test, as the form is. */
   onRetry: () => void
   /** "Close and refresh" of a target that is gone. */
   onCloseAndRefresh: () => void

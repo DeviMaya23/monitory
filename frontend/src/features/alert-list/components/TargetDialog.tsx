@@ -8,19 +8,21 @@ import { useSaveTarget, type SaveFailure } from '../hooks/useSaveTarget'
 import type { TargetDialogState } from '../hooks/useTargetDialog'
 import { useTargetLeaveGuard } from '../hooks/useTargetLeaveGuard'
 import { useTargetServerErrors } from '../hooks/useTargetServerErrors'
+import { useTestTarget } from '../hooks/useTestTarget'
 import { FIELD_IDS, NAME_MAX_LENGTH, headerInputId, headerPath } from '../lib/targetFields'
-import { EMPTY_VALUES, toInput, usesPlainHttp, valuesOf, type TargetFormValues } from '../lib/targetForm'
+import { EMPTY_VALUES, sameValues, toInput, usesPlainHttp, valuesOf, type TargetFormValues } from '../lib/targetForm'
 import { FieldErrorText } from './FieldErrorText'
 import { HeaderRows } from './HeaderRows'
 import { TargetDialogBanners, TargetErrorSummary } from './TargetDialogBanners'
 import { TargetDiscardDialog } from './TargetDiscardDialog'
+import { TargetTestRow } from './TargetTestRow'
 
 /** How the dialog ended, for the screen to decide where focus goes and what to fetch. */
 export type TargetDialogOutcome =
   | { kind: 'left' }
   | { kind: 'added'; id: string }
   | { kind: 'saved'; id: string }
-  /** An add was answered 404: the service may be gone, so the list is fetched again. */
+  /** A save of an add, or a test of an add or an edit, was answered 404: the service may be gone, so the list is fetched again. */
   | { kind: 'gone' }
   /** "Close and refresh" of a target that is gone. */
   | { kind: 'refresh'; targetId: string }
@@ -66,6 +68,8 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
     control,
     handleSubmit,
     clearErrors,
+    trigger,
+    getValues,
     formState: { errors: clientErrors },
   } = useForm<TargetFormValues>({
     defaultValues: initial,
@@ -82,7 +86,13 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
   })
   const values: TargetFormValues = { name, type, address, url, headers }
 
-  const { saving, failure, submit, clearFailure } = useSaveTarget(serviceId)
+  const { saving, failure: saveFailure, submit, clearFailure } = useSaveTarget(serviceId)
+  const test = useTestTarget(serviceId)
+  // Which action started last: only its failure is shown (a UI choice, not server data).
+  const [lastAction, setLastAction] = useState<'save' | 'test'>('save')
+  const answered = lastAction === 'test' ? test.failure : saveFailure
+  // A test's 404 closes the dialog; it never reaches the banners.
+  const failure: SaveFailure | null = answered?.kind === 'not-found' && lastAction === 'test' ? null : answered
   const serverErrors = useTargetServerErrors(failure?.kind === 'field-errors' ? failure.errors : null)
   const guard = useTargetLeaveGuard({
     initial,
@@ -94,19 +104,26 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
   const nameRef = useRef<HTMLInputElement | null>(null)
   const summaryRef = useRef<HTMLDivElement>(null)
   const saveRef = useRef<HTMLButtonElement>(null)
+  const testRef = useRef<HTMLButtonElement>(null)
   const refreshRef = useRef<HTMLButtonElement>(null)
   // A duplicate's message goes when its field is edited; this is the failure it was cleared for.
   const [dupCleared, setDupCleared] = useState<SaveFailure | null>(null)
 
-  // Focus goes where the outcome of a save is.
+  // Focus goes where the outcome of the action started last is. A test's answers that are not
+  // a 422 or a 404 leave focus where it is (on the test button, which never loses it).
   useEffect(() => {
-    if (failure === null) return
-    switch (failure.kind) {
+    if (answered === null) return
+    if (lastAction === 'test') {
+      if (answered.kind === 'field-errors') summaryRef.current?.focus()
+      if (answered.kind === 'not-found') onFinish({ kind: 'gone' })
+      return
+    }
+    switch (answered.kind) {
       case 'field-errors':
         summaryRef.current?.focus()
         break
       case 'duplicate':
-        focusById(failure.type === 'email' ? FIELD_IDS.address : FIELD_IDS.url)
+        focusById(answered.type === 'email' ? FIELD_IDS.address : FIELD_IDS.url)
         break
       case 'not-found':
         if (editing) refreshRef.current?.focus()
@@ -117,7 +134,7 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
     }
     // Only a new failure moves focus; `editing` and `onFinish` do not change within one dialog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [failure])
+  }, [answered])
 
   const save = handleSubmit(async (submitted) => {
     const saved = await submit(toInput(submitted), editing?.id ?? null)
@@ -127,9 +144,29 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
   const onSubmit = (event?: BaseSyntheticEvent) => {
     event?.preventDefault()
     if (saving) return
+    setLastAction('save')
     clearFailure()
+    test.clear()
     void save(event)
   }
+
+  /** A test: what the last action left goes first, then the contact is checked, then the request. */
+  const onTest = async () => {
+    if (test.testing) return
+    setLastAction('test')
+    clearFailure()
+    test.clear()
+    if (!(await trigger(getValues('type') === 'email' ? 'address' : 'url', { shouldFocus: true }))) return
+    // A copy: `getValues` hands out the form's own, live object, which later edits change in place.
+    const current = getValues()
+    const sent: TargetFormValues = {
+      ...current,
+      headers: current.headers.map(({ name: headerName, value }) => ({ name: headerName, value })),
+    }
+    await test.run(toInput(sent), sent)
+  }
+  // The result belongs to the values it was sent with; any edit hides it, putting them back shows it again.
+  const testResult = test.sent !== null && sameValues(values, test.sent) ? test.result : null
 
   const duplicateFor = (field: 'email' | 'webhook') =>
     failure?.kind === 'duplicate' && failure.type === field && dupCleared !== failure ? DUPLICATE_MESSAGE[field] : null
@@ -198,7 +235,7 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
         <TargetDialogBanners
           failure={failure}
           editing={editing !== null}
-          onRetry={onSubmit}
+          onRetry={lastAction === 'test' ? () => void onTest() : onSubmit}
           onCloseAndRefresh={() => editing && onFinish({ kind: 'refresh', targetId: editing.id })}
           refreshRef={refreshRef}
         >
@@ -327,6 +364,13 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
             />
           </>
         )}
+
+        <TargetTestRow
+          testing={test.testing}
+          result={testResult}
+          onSend={() => void onTest()}
+          buttonRef={testRef}
+        />
       </form>
 
       <TargetDiscardDialog open={guard.questionOpen} onKeep={guard.keepEditing} onDiscard={guard.discard} />

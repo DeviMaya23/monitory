@@ -11,9 +11,11 @@ import { getSession } from '../../../lib/api/session'
 import {
   createTarget,
   listTargets,
+  testTarget,
   updateTarget,
   type Target,
   type TargetList,
+  type TargetTestResult,
 } from '../../../lib/api/targets'
 import AlertListPage from '../../../pages/AlertListPage'
 import {
@@ -40,6 +42,7 @@ vi.mock('../../../lib/api/targets', async (importOriginal) => ({
   deleteTarget: vi.fn(),
   createTarget: vi.fn(),
   updateTarget: vi.fn(),
+  testTarget: vi.fn(),
 }))
 vi.mock('../../../lib/api/request', () => ({ setCsrfToken: vi.fn(), setUnauthenticatedHandler: vi.fn() }))
 
@@ -89,9 +92,21 @@ function pendingSave(which: typeof createTarget | typeof updateTarget = createTa
   return settle
 }
 
+type TestSettle = { resolve: (result: TargetTestResult) => void; reject: (error: unknown) => void }
+function pendingTest(): TestSettle {
+  const settle: TestSettle = { resolve: () => {}, reject: () => {} }
+  vi.mocked(testTarget).mockReturnValueOnce(
+    new Promise<TargetTestResult>((resolve, reject) => {
+      settle.resolve = resolve
+      settle.reject = reject
+    }),
+  )
+  return settle
+}
+
 const toastShown = async (text: string) => expect((await screen.findAllByText(text)).length).toBeGreaterThan(0)
 const FORM_DIALOG = /^(Add|Edit) target$/
-const dialog = (name = 'Add target') => screen.getByRole('dialog', { name })
+const dialog = (name: string | RegExp = 'Add target') => screen.getByRole('dialog', { name })
 const inDialog = (name?: string) => within(dialog(name))
 const primary = (name = 'Add target') => inDialog(name === 'Save target' ? 'Edit target' : 'Add target').getByRole('button', { name })
 const nameInput = () => screen.getByRole('textbox', { name: 'Name (optional)' })
@@ -140,7 +155,7 @@ afterEach(() => {
 })
 
 describe('opening the add dialog', () => {
-  it('shows the board’s form: Email chosen, Name focused, counter, label, no rows, footer, Close, no test row (FR-14, FR-80, FR-81)', async () => {
+  it('shows the board’s form: Email chosen, Name focused, counter, label, no rows, footer, Close, the test row (FR-14, FR-80, FR-81)', async () => {
     await shown(makeTargetList(mail))
     await openAddDialog()
     expect(screen.getByRole('radio', { name: 'Email' })).toBeChecked()
@@ -154,7 +169,8 @@ describe('opening the add dialog', () => {
     expect(inDialog().getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     expect(primary()).toBeInTheDocument()
     expect(inDialog().getByRole('button', { name: 'Close' })).toBeInTheDocument()
-    expect(screen.queryByText(/Send test alert/)).not.toBeInTheDocument()
+    expect(inDialog().getByRole('button', { name: 'Send test alert' })).toBeEnabled()
+    expect(inDialog().getByText('Sends one alert to this target only, using the values above. Nothing is saved.')).toBeInTheDocument()
     expect(document.querySelector('.dialog--wide.dialog--sheet')).not.toBeNull()
   })
 
@@ -888,5 +904,488 @@ describe('limits and odd input', () => {
     expect(await screen.findByText('This URL is already in this service’s alert list.')).toBeInTheDocument()
     await waitFor(() => expect(urlInput()).toHaveFocus())
     expect(inDialog('Edit target').queryByText('Something went wrong.')).not.toBeInTheDocument()
+  })
+})
+
+describe('the test row', () => {
+  const inForm = () => within(screen.getByRole('dialog', { name: FORM_DIALOG }))
+  const testButton = () => inForm().getByRole('button', { name: /^(Send test alert|Sending…)$/ })
+  const press = () => userEvent.click(testButton())
+  const HINT = 'Sends one alert to this target only, using the values above. Nothing is saved.'
+  const delivered: TargetTestResult = { delivered: true }
+  const failed: TargetTestResult = { delivered: false, failure_reason: 'no SMTP account configured' }
+  const form = () => document.getElementById('target-form') as HTMLElement
+  const noSideEffects = () => {
+    expect(createTarget).not.toHaveBeenCalled()
+    expect(updateTarget).not.toHaveBeenCalled()
+    expect(listTargets).toHaveBeenCalledTimes(1)
+  }
+
+  it.each([
+    ['an email add', async () => openAddDialog()],
+    ['a webhook add', async () => { await openAddDialog(); await chooseWebhook(); await userEvent.click(inForm().getByRole('button', { name: 'Add header' })) }],
+    ['an email edit', async () => openEditDialog('Ops mailbox')],
+    ['a webhook edit', async () => openEditDialog('Chat hook')],
+  ])('is the last element of the form’s body in %s (FR-107)', async (_name, open) => {
+    await shown(makeTargetList(mail, hook))
+    await open()
+    const last = form().lastElementChild as HTMLElement
+    expect(last).toHaveClass('test-row')
+    expect(within(last).getByRole('button', { name: 'Send test alert' })).toBeInTheDocument()
+    expect(form().querySelectorAll('.test-row')).toHaveLength(1)
+  })
+
+  it('comes after the header rows and the warning for a webhook', async () => {
+    await shown(makeTargetList(hook))
+    await openEditDialog('Chat hook')
+    const children = [...form().children]
+    const row = children.findIndex((c) => c.classList.contains('test-row'))
+    expect(row).toBe(children.length - 1)
+    expect(children.findIndex((c) => c.contains(screen.getByLabelText('Header 2 value')))).toBeLessThan(row)
+  })
+
+  it('is reached by Tab after the last field, and works with Enter and Space (NFR-4)', async () => {
+    vi.mocked(testTarget).mockResolvedValue(delivered)
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await userEvent.click(addressInput())
+    await userEvent.type(addressInput(), 'a@example.com')
+    await userEvent.tab()
+    expect(testButton()).toHaveFocus()
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(testTarget).toHaveBeenCalledTimes(1))
+    await userEvent.keyboard(' ')
+    await waitFor(() => expect(testTarget).toHaveBeenCalledTimes(2))
+    await userEvent.tab()
+    expect(inForm().getByRole('button', { name: 'Cancel' })).toHaveFocus()
+  })
+
+  it('sends the email as typed through testTarget, with a pending state, then shows Delivered. and keeps focus (FR-107)', async () => {
+    const answer = pendingTest()
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await userEvent.type(addressInput(), 'a@example.com')
+    await press()
+    expect(testTarget).toHaveBeenCalledOnce()
+    expect(testTarget).toHaveBeenCalledWith('s1', { type: 'email', name: '', address: 'a@example.com' })
+    const button = testButton()
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    expect(button).toHaveAttribute('aria-busy', 'true')
+    expect(button).toHaveTextContent('Sending…')
+    expect(inForm().getByText('Sending one test alert…')).toBeInTheDocument()
+    await userEvent.click(button)
+    expect(testTarget).toHaveBeenCalledOnce()
+    // The form stays editable and the footer's button enabled.
+    expect(addressInput()).not.toHaveAttribute('readonly')
+    await userEvent.type(nameInput(), 'Ops')
+    await userEvent.clear(nameInput())
+    expect(primary()).toBeEnabled()
+    await act(async () => answer.resolve(delivered))
+    expect(await inForm().findByText('Delivered.')).toBeInTheDocument()
+    expect(testButton()).toHaveTextContent('Send test alert')
+  })
+
+  it('shows Failed: and the reason for a failed result', async () => {
+    vi.mocked(testTarget).mockResolvedValue(failed)
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await fillEmail()
+    await press()
+    expect(await inForm().findByText('no SMTP account configured')).toBeInTheDocument()
+    expect(inForm().getByText(/^Failed:/)).toBeInTheDocument()
+    expect(testButton()).toHaveFocus()
+  })
+
+  it('sends a webhook as { type, name, url, headers } with the rows in order, and nothing of the email', async () => {
+    vi.mocked(testTarget).mockResolvedValue(delivered)
+    await shown(makeTargetList(mail, hook))
+    await openAddDialog()
+    await userEvent.type(addressInput(), 'left@example.com')
+    await chooseWebhook()
+    await userEvent.type(nameInput(), 'Hook')
+    await userEvent.type(urlInput(), 'https://x.example.com')
+    await userEvent.click(inForm().getByRole('button', { name: 'Add header' }))
+    await userEvent.type(screen.getByLabelText('Header 1 name'), 'A')
+    await userEvent.type(screen.getByLabelText('Header 1 value'), '1')
+    await userEvent.click(inForm().getByRole('button', { name: 'Add header' }))
+    await userEvent.type(screen.getByLabelText('Header 2 name'), 'B')
+    await press()
+    expect(testTarget).toHaveBeenCalledWith('s1', {
+      type: 'webhook',
+      name: 'Hook',
+      url: 'https://x.example.com',
+      headers: [
+        { name: 'A', value: '1' },
+        { name: 'B', value: '' },
+      ],
+    })
+  })
+
+  it('sends headers: [] with no rows', async () => {
+    vi.mocked(testTarget).mockResolvedValue(delivered)
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await chooseWebhook()
+    await userEvent.type(urlInput(), 'https://x.example.com')
+    await press()
+    expect(testTarget).toHaveBeenCalledWith('s1', { type: 'webhook', name: '', url: 'https://x.example.com', headers: [] })
+  })
+
+  it.each([
+    ['email', 'Enter an email address.', addressInput, async () => {}],
+    ['webhook', 'Enter a URL that starts with http:// or https://.', urlInput, chooseWebhook],
+  ])('a blank %s contact shows the save’s message, focuses the field, sends nothing and clears on edit (FR-108)', async (_t, message, field, prepare) => {
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await prepare()
+    await userEvent.type(field(), '   ')
+    await press()
+    expect(await inForm().findByText(message)).toBeInTheDocument()
+    expect(field()).toHaveFocus()
+    expect(testTarget).not.toHaveBeenCalled()
+    await userEvent.type(field(), 'x')
+    expect(screen.queryByText(message)).not.toBeInTheDocument()
+  })
+
+  it('a blank Name and empty header rows do not stop the test', async () => {
+    vi.mocked(testTarget).mockResolvedValue(delivered)
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await chooseWebhook()
+    await userEvent.type(urlInput(), 'https://x.example.com')
+    await userEvent.click(inForm().getByRole('button', { name: 'Add header' }))
+    await press()
+    expect(testTarget).toHaveBeenCalledOnce()
+  })
+
+  it('saves nothing: no create, update, list fetch or toast, and the form, footer and leave guard behave as before (FR-108)', async () => {
+    vi.mocked(testTarget).mockResolvedValueOnce(delivered).mockResolvedValueOnce(failed)
+    await shown(makeTargetList(mail))
+    const before = rowsText()
+    await openAddDialog()
+    await press()
+    // An untouched form with a blank contact does not send; fill and test twice.
+    await userEvent.type(addressInput(), 'a@example.com')
+    await press()
+    await inForm().findByText('Delivered.')
+    await press()
+    await inForm().findByText(/^Failed:/)
+    noSideEffects()
+    expect(document.querySelector('.toast, [data-toast]')).toBeNull()
+    expect(primary()).toBeEnabled()
+    expect(addressInput()).toHaveValue('a@example.com')
+    await userEvent.click(inForm().getByRole('button', { name: 'Cancel' }))
+    expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: FORM_DIALOG })).not.toBeInTheDocument())
+    expect(rowsText()).toEqual(before)
+  })
+
+  it('leaves an untouched form closable at once after a test', async () => {
+    vi.mocked(testTarget).mockResolvedValue(delivered)
+    await shown(makeTargetList(mail))
+    await openEditDialog('Ops mailbox')
+    await press()
+    await inForm().findByText('Delivered.')
+    await userEvent.click(inForm().getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: FORM_DIALOG })).not.toBeInTheDocument())
+    noSideEffects()
+  })
+
+  it('does not block Cancel, Close or Esc while testing: they open the discard question for a changed form, and close an untouched one', async () => {
+    pendingTest()
+    pendingTest()
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await userEvent.type(addressInput(), 'a@example.com')
+    await press()
+    await userEvent.click(inForm().getByRole('button', { name: 'Cancel' }))
+    expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await userEvent.click(inForm().getByRole('button', { name: 'Close' }))
+    expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await userEvent.keyboard('{Escape}')
+    expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: FORM_DIALOG })).not.toBeInTheDocument())
+  })
+
+  it('closes an untouched edit form at once on Cancel while a test is pending', async () => {
+    pendingTest()
+    await shown(makeTargetList(mail))
+    await openEditDialog('Ops mailbox')
+    await press()
+    expect(testButton()).toHaveAttribute('aria-busy', 'true')
+    await userEvent.click(inForm().getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: FORM_DIALOG })).not.toBeInTheDocument())
+  })
+
+  describe('the result and the values', () => {
+    it.each([
+      ['the name', async () => userEvent.type(nameInput(), 'x'), async () => userEvent.clear(nameInput())],
+      ['the contact', async () => userEvent.type(addressInput(), 'x'), async () => userEvent.type(addressInput(), '{Backspace}')],
+      [
+        'the type',
+        async () => userEvent.click(screen.getByRole('radio', { name: 'Webhook' })),
+        async () => userEvent.click(screen.getByRole('radio', { name: 'Email' })),
+      ],
+    ])('hides the result after an edit of %s and shows it again when put back', async (_what, edit, undo) => {
+      vi.mocked(testTarget).mockResolvedValue(failed)
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await userEvent.type(addressInput(), 'a@example.com')
+      await press()
+      await inForm().findByText(/^Failed:/)
+      await edit()
+      expect(inForm().getByText(HINT)).toBeInTheDocument()
+      expect(screen.queryByText(/^Failed:/)).not.toBeInTheDocument()
+      await undo()
+      expect(await inForm().findByText(/^Failed:/)).toBeInTheDocument()
+    })
+
+    it('hides the result after an edit of a header row, and shows it again when put back', async () => {
+      vi.mocked(testTarget).mockResolvedValue(delivered)
+      await shown(makeTargetList(hook))
+      await openEditDialog('Chat hook')
+      await press()
+      await inForm().findByText('Delivered.')
+      await userEvent.type(screen.getByLabelText('Header 1 value'), 'x')
+      expect(inForm().getByText(HINT)).toBeInTheDocument()
+      await userEvent.type(screen.getByLabelText('Header 1 value'), '{Backspace}')
+      expect(await inForm().findByText('Delivered.')).toBeInTheDocument()
+    })
+
+    it('does not show a result that arrives after an edit, and a new test after the edit shows its own', async () => {
+      const first = pendingTest()
+      vi.mocked(testTarget).mockResolvedValueOnce(failed)
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await userEvent.type(addressInput(), 'a@example.com')
+      await press()
+      await userEvent.type(addressInput(), 'm')
+      await act(async () => first.resolve(delivered))
+      await waitFor(() => expect(testButton()).toHaveTextContent('Send test alert'))
+      expect(screen.queryByText('Delivered.')).not.toBeInTheDocument()
+      expect(inForm().getByText(HINT)).toBeInTheDocument()
+      await press()
+      expect(await inForm().findByText(/^Failed:/)).toBeInTheDocument()
+      expect(testTarget).toHaveBeenLastCalledWith('s1', { type: 'email', name: '', address: 'a@example.comm' })
+    })
+  })
+
+  describe('a test and a save together', () => {
+    it('a test pressed while a save is in flight is sent, and the save still closes the dialog', async () => {
+      const save = pendingSave()
+      vi.mocked(testTarget).mockResolvedValue(delivered)
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await fillEmail()
+      await submit()
+      expect(testButton()).not.toHaveAttribute('aria-disabled')
+      await press()
+      expect(testTarget).toHaveBeenCalledWith('s1', { type: 'email', name: '', address: 'new@example.com' })
+      await act(async () => save.resolve(makeEmailTarget({ address: 'new@example.com' })))
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: FORM_DIALOG })).not.toBeInTheDocument())
+    })
+
+    it('a save pressed while a test is in flight sends the save', async () => {
+      pendingTest()
+      vi.mocked(createTarget).mockResolvedValue(makeEmailTarget({ address: 'new@example.com' }))
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await fillEmail()
+      await press()
+      await submit()
+      expect(createTarget).toHaveBeenCalledOnce()
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: FORM_DIALOG })).not.toBeInTheDocument())
+    })
+
+    it('shows only the failure of the action started last when both fail', async () => {
+      const save = pendingSave()
+      const test = pendingTest()
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await fillEmail()
+      await submit()
+      await press()
+      await act(async () => save.reject(problem(500, 'internal_error')))
+      expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
+      await act(async () => test.reject(problem(403, 'csrf_failed')))
+      expect(await inForm().findByText('The request wasn’t accepted.')).toBeInTheDocument()
+      expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
+    })
+
+    it('a failed older save does not show after a test that started later answers', async () => {
+      const save = pendingSave()
+      const test = pendingTest()
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await fillEmail()
+      await press()
+      await submit()
+      await act(async () => test.reject(problem(500, 'internal_error')))
+      expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
+      await act(async () => save.reject(problem(403, 'csrf_failed')))
+      expect(await inForm().findByText('The request wasn’t accepted.')).toBeInTheDocument()
+    })
+  })
+
+  describe('after the dialog has closed', () => {
+    it.each([
+      ['a result', (t: TestSettle) => t.resolve(delivered)],
+      ['a 422', (t: TestSettle) => t.reject(validationProblem(fieldError('address', 'No.')))],
+      ['a 500', (t: TestSettle) => t.reject(problem(500, 'internal_error'))],
+      ['a 404', (t: TestSettle) => t.reject(problem(404, 'not_found'))],
+    ])('drops the late answer: %s shows nothing, calls nothing and fetches no list', async (_what, answer) => {
+      const test = pendingTest()
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await press()
+      // A blank contact does not send; type one first.
+      await userEvent.type(addressInput(), 'a@example.com')
+      await press()
+      expect(testTarget).toHaveBeenCalledOnce()
+      await userEvent.click(inForm().getByRole('button', { name: 'Cancel' }))
+      await userEvent.click(await screen.findByRole('button', { name: 'Discard changes' }))
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: FORM_DIALOG })).not.toBeInTheDocument())
+      await act(async () => answer(test))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
+      noSideEffects()
+      expect(rowsText()).toHaveLength(1)
+    })
+  })
+
+  describe('failures', () => {
+    it('a 422 shows the summary and field messages as for a save, focuses the summary, shows the hint, clears on edit, and a good test clears it (FR-82, FR-89, FR-110)', async () => {
+      vi.mocked(testTarget)
+        .mockRejectedValueOnce(
+          validationProblem(fieldError('address', 'Not an address.'), fieldError('name', 'Name is too odd.')),
+        )
+        .mockResolvedValueOnce(delivered)
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await userEvent.type(addressInput(), 'bad')
+      await press()
+      expect(await inForm().findByText('2 fields need fixing before this can be saved.')).toBeInTheDocument()
+      expect(inForm().getAllByRole('link').map((a) => a.textContent)).toEqual([
+        'Email address: Not an address.',
+        'Name: Name is too odd.',
+      ])
+      const summary = inForm().getByText('2 fields need fixing before this can be saved.').closest('[role="alert"]')
+      await waitFor(() => expect(summary).toHaveFocus())
+      expect(addressInput()).toHaveAttribute('aria-invalid', 'true')
+      expect(document.getElementById('target-address-error')).toHaveTextContent('Not an address.')
+      expect(inForm().getByText(HINT)).toBeInTheDocument()
+      await userEvent.type(addressInput(), 'x')
+      expect(inForm().getByText('1 field needs fixing before this can be saved.')).toBeInTheDocument()
+      await press()
+      expect(await inForm().findByText('Delivered.')).toBeInTheDocument()
+      expect(screen.queryByText(/needs? fixing/)).not.toBeInTheDocument()
+      expect(createTarget).not.toHaveBeenCalled()
+    })
+
+    it('a 404 on an add closes the dialog, fetches the list again, and a 404 there shows service not found with its heading focused', async () => {
+      vi.mocked(testTarget).mockRejectedValue(problem(404, 'not_found'))
+      await shown(makeTargetList(mail))
+      vi.mocked(listTargets).mockRejectedValueOnce(problem(404, 'not_found'))
+      await openAddDialog()
+      await fillEmail()
+      await press()
+      const heading = await screen.findByRole('heading', { name: 'This service no longer exists' })
+      expect(listTargets).toHaveBeenCalledTimes(2)
+      expect(screen.queryByRole('dialog', { name: FORM_DIALOG })).not.toBeInTheDocument()
+      await waitFor(() => expect(heading).toHaveFocus())
+    })
+
+    it('a 404 on an edit closes the dialog and fetches again, with no “no longer exists” banner', async () => {
+      vi.mocked(testTarget).mockRejectedValue(problem(404, 'not_found'))
+      await shown(makeTargetList(mail))
+      await openEditDialog('Ops mailbox')
+      await press()
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: FORM_DIALOG })).not.toBeInTheDocument())
+      expect(listTargets).toHaveBeenCalledTimes(2)
+      expect(screen.queryByText('This target no longer exists.')).not.toBeInTheDocument()
+    })
+
+    it('a 403 csrf_failed shows the banner with Reload, which reloads once, and focus stays on the button (NFR-8)', async () => {
+      const reload = vi.fn()
+      vi.stubGlobal('location', { ...window.location, reload })
+      vi.mocked(testTarget).mockRejectedValue(problem(403, 'csrf_failed'))
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await fillEmail()
+      await press()
+      expect(await inForm().findByText('The request wasn’t accepted.')).toBeInTheDocument()
+      expect(inForm().getByText('Reload the page and try again.')).toBeInTheDocument()
+      expect(testButton()).toHaveFocus()
+      await userEvent.click(inForm().getByRole('button', { name: 'Reload' }))
+      expect(reload).toHaveBeenCalledOnce()
+      vi.unstubAllGlobals()
+    })
+
+    it.each([
+      ['a 500', problem(500, 'internal_error')],
+      ['a network error', new TypeError('Failed to fetch')],
+    ])('%s shows Something went wrong. and Try again sends the test again, not a save', async (_name, error) => {
+      vi.mocked(testTarget).mockRejectedValueOnce(error).mockResolvedValueOnce(delivered)
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await fillEmail('a@example.com', 'Keep')
+      await press()
+      expect(await inForm().findByText('Something went wrong.')).toBeInTheDocument()
+      expect(nameInput()).toHaveValue('Keep')
+      expect(testButton()).toHaveFocus()
+      await userEvent.click(inForm().getByRole('button', { name: 'Try again' }))
+      expect(await inForm().findByText('Delivered.')).toBeInTheDocument()
+      expect(testTarget).toHaveBeenCalledTimes(2)
+      expect(createTarget).not.toHaveBeenCalled()
+      expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
+    })
+
+    it('a save failure’s Try again still saves; a new test clears it, and a new save clears a test failure', async () => {
+      vi.mocked(createTarget).mockRejectedValue(problem(500, 'internal_error'))
+      vi.mocked(testTarget).mockRejectedValueOnce(problem(403, 'csrf_failed'))
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await fillEmail()
+      await submit()
+      await inForm().findByText('Something went wrong.')
+      await userEvent.click(inForm().getByRole('button', { name: 'Try again' }))
+      await waitFor(() => expect(createTarget).toHaveBeenCalledTimes(2))
+      expect(testTarget).not.toHaveBeenCalled()
+      await inForm().findByText('Something went wrong.')
+      await press()
+      expect(await inForm().findByText('The request wasn’t accepted.')).toBeInTheDocument()
+      expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
+      await submit()
+      expect(await inForm().findByText('Something went wrong.')).toBeInTheDocument()
+      expect(screen.queryByText('The request wasn’t accepted.')).not.toBeInTheDocument()
+    })
+
+    it('a 401 shows the sign-in form through the shell, with no banner and no result', async () => {
+      vi.mocked(getSession).mockResolvedValue(sessionInfo)
+      vi.mocked(listTargets).mockResolvedValue(makeTargetList(mail))
+      vi.mocked(testTarget).mockImplementationOnce(() => {
+        const handler = vi.mocked(setUnauthenticatedHandler).mock.calls.filter(([h]) => h !== null).at(-1)?.[0]
+        handler?.()
+        return Promise.reject(problem(401, 'unauthenticated'))
+      })
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter initialEntries={['/services/s1/alerts']}>
+            <App />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      )
+      await screen.findByRole('list', { name: 'Notification targets' })
+      await openAddDialog()
+      await fillEmail()
+      await press()
+      expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
+      expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
+      expect(screen.queryByText('Delivered.')).not.toBeInTheDocument()
+    })
   })
 })
