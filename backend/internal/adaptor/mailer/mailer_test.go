@@ -2,6 +2,7 @@ package mailer_test
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -298,10 +299,10 @@ func TestSendEmail_ContextCancelledWhileTheGreetingIsDelayed(t *testing.T) {
 	}
 }
 
-// go-mail v0.8.1 negotiates PLAIN and LOGIN only on an encrypted connection, and the
-// fake server offers only PLAIN and makes no TLS, so an authenticated send that succeeds
-// cannot be tested here (it is listed as untested in the report). What can be pinned is
-// that the mailer does not send credentials in the clear to get around it.
+// go-mail v0.8.1 negotiates PLAIN and LOGIN only on an encrypted connection. An
+// authenticated send that succeeds is tested over "tls" against the fake in TLS mode;
+// the cases here pin that the mailer does not send credentials in the clear to get
+// around it, and that a wrong password is refused.
 func TestSendEmail_Authentication(t *testing.T) {
 	t.Run("a username on an unencrypted connection is refused before any credential is sent", func(t *testing.T) {
 		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{Username: "user", Password: "secret"})
@@ -312,6 +313,26 @@ func TestSendEmail_Authentication(t *testing.T) {
 		require.ErrorIs(t, err, mailer.ErrNotAccepted)
 		assert.Equal(t, notAcceptedText, err.Error())
 		assert.Zero(t, s.AuthCommands())
+		assert.Empty(t, s.Messages())
+	})
+	t.Run("over tls the credentials are accepted", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true, Username: "user", Password: "secret"})
+		m := newTLSMailer(t, s, func(c *mailer.Config) { c.Username, c.Password = "user", "secret" })
+
+		require.NoError(t, m.SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy)))
+
+		assert.Positive(t, s.AuthCommands())
+		assert.Len(t, s.Messages(), 1)
+	})
+	t.Run("over tls a wrong password is refused", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true, Username: "user", Password: "secret"})
+		m := newTLSMailer(t, s, func(c *mailer.Config) { c.Username, c.Password = "user", "wrong" })
+
+		err := m.SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy))
+
+		require.ErrorIs(t, err, mailer.ErrNotAccepted)
+		assert.Equal(t, notAcceptedText, err.Error())
+		assert.Positive(t, s.AuthCommands())
 		assert.Empty(t, s.Messages())
 	})
 	t.Run("an empty username sends no AUTH", func(t *testing.T) {
@@ -374,4 +395,155 @@ func TestSendEmail_LimitsAndSMTPSpecialLines(t *testing.T) {
 			assert.Equal(t, "Service: "+tt.serviceName+"\nStatus: Unhealthy\nTime: 2026-11-18 14:05 UTC\n"+wantMessage+"\n", got.body)
 		})
 	}
+}
+
+// newTLSMailer is a mailer in "tls" mode for a server made with SMTPOptions.TLS, trusting
+// that server's certificate.
+func newTLSMailer(t *testing.T, s *testutil.SMTPServer, mutate func(*mailer.Config)) *mailer.Mailer {
+	t.Helper()
+	return newMailer(t, s, func(c *mailer.Config) {
+		c.TLS = "tls"
+		c.RootCAs = s.Pool()
+		if mutate != nil {
+			mutate(c)
+		}
+	})
+}
+
+func TestSendEmail_ImplicitTLS(t *testing.T) {
+	t.Run("a send succeeds well within the attempt timeout", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true})
+		m := newTLSMailer(t, s, func(c *mailer.Config) { c.AttemptTimeout = 200 * time.Millisecond })
+
+		start := time.Now()
+		require.NoError(t, m.SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy)))
+		assert.Less(t, time.Since(start), 150*time.Millisecond)
+
+		msgs := s.Messages()
+		require.Len(t, msgs, 1)
+		got := decode(t, msgs[0])
+		assert.Equal(t, "alerts@monitory.test", got.from)
+		assert.Equal(t, "ops@example.com", got.to)
+		assert.Equal(t, "API is unhealthy", got.subject)
+		assert.Equal(t, "Service: API\nStatus: Unhealthy\nTime: 2026-11-18 14:05 UTC\nIt is down.\n", got.body)
+	})
+	t.Run("the send used TLS on one connection", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true})
+
+		require.NoError(t, newTLSMailer(t, s, nil).SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy)))
+
+		assert.Equal(t, 1, s.Connections())
+		assert.Equal(t, 1, s.Handshakes())
+	})
+	t.Run("two concurrent sends each use their own connection", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true})
+		m := newTLSMailer(t, s, nil)
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		for i := range errs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				errs[i] = m.SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy))
+			}()
+		}
+		wg.Wait()
+
+		assert.NoError(t, errs[0])
+		assert.NoError(t, errs[1])
+		assert.Len(t, s.Messages(), 2)
+		assert.Equal(t, 2, s.Connections())
+		assert.Equal(t, 2, s.Handshakes())
+	})
+}
+
+func TestSendEmail_ImplicitTLSVerifiesTheServer(t *testing.T) {
+	const to = "private.person@example.com"
+	other := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true})
+	tests := []struct {
+		name   string
+		opts   testutil.SMTPOptions
+		mutate func(*mailer.Config)
+	}{
+		{"no RootCAs keeps the system roots", testutil.SMTPOptions{TLS: true}, func(c *mailer.Config) { c.RootCAs = nil }},
+		{"a pool of another certificate", testutil.SMTPOptions{TLS: true}, func(c *mailer.Config) { c.RootCAs = other.Pool() }},
+		{"a certificate that does not name the host", testutil.SMTPOptions{TLS: true, CertNames: []string{"smtp.example.test"}}, nil},
+		{"an empty pool", testutil.SMTPOptions{TLS: true}, func(c *mailer.Config) { c.RootCAs = x509.NewCertPool() }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := testutil.NewSMTPServer(t, tt.opts)
+			m := newTLSMailer(t, s, tt.mutate)
+
+			err := m.SendEmail(t.Context(), to, alertFor(domain.AlertUnhealthy))
+
+			require.ErrorIs(t, err, mailer.ErrNotAccepted)
+			assert.Equal(t, notAcceptedText, err.Error())
+			assert.NotContains(t, err.Error(), to)
+			assert.NotContains(t, err.Error(), "certificate")
+			assert.Empty(t, s.Messages())
+			assert.Zero(t, s.Handshakes())
+		})
+	}
+}
+
+func TestSendEmail_ImplicitTLSModeMismatches(t *testing.T) {
+	t.Run("a plain server on a tls mailer fails promptly", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{})
+		m := newMailer(t, s, func(c *mailer.Config) { c.TLS = "tls"; c.AttemptTimeout = 2 * time.Second })
+
+		start := time.Now()
+		err := m.SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy))
+
+		require.ErrorIs(t, err, mailer.ErrNotAccepted)
+		assert.Equal(t, notAcceptedText, err.Error())
+		assert.Less(t, time.Since(start), time.Second)
+		assert.Empty(t, s.Messages())
+	})
+	for _, mode := range []string{"none", "starttls"} {
+		t.Run("a TLS server on a "+mode+" mailer", func(t *testing.T) {
+			s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true})
+			m := newMailer(t, s, func(c *mailer.Config) { c.TLS = mode; c.AttemptTimeout = 200 * time.Millisecond })
+
+			err := m.SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy))
+
+			require.ErrorIs(t, err, mailer.ErrNotAccepted)
+			assert.Equal(t, notAcceptedText, err.Error())
+			assert.Empty(t, s.Messages())
+		})
+	}
+}
+
+func TestSendEmail_ImplicitTLSStalledHandshake(t *testing.T) {
+	t.Run("ends at the attempt timeout", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true, StallHandshake: true})
+		m := newTLSMailer(t, s, func(c *mailer.Config) { c.AttemptTimeout = 200 * time.Millisecond })
+
+		start := time.Now()
+		err := m.SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy))
+
+		require.ErrorIs(t, err, mailer.ErrNotAccepted)
+		assert.Equal(t, notAcceptedText, err.Error())
+		assert.GreaterOrEqual(t, time.Since(start), 150*time.Millisecond)
+		assert.Empty(t, s.Messages())
+		assert.Zero(t, s.Handshakes())
+	})
+	t.Run("a cancelled context ends it at once", func(t *testing.T) {
+		s := testutil.NewSMTPServer(t, testutil.SMTPOptions{TLS: true, StallHandshake: true})
+		m := newTLSMailer(t, s, func(c *mailer.Config) { c.AttemptTimeout = 10 * time.Second })
+		ctx, cancel := context.WithCancel(t.Context())
+		errs := make(chan error, 1)
+		go func() { errs <- m.SendEmail(ctx, "ops@example.com", alertFor(domain.AlertUnhealthy)) }()
+		require.Eventually(t, func() bool { return s.Connections() == 1 }, 2*time.Second, 5*time.Millisecond)
+
+		cancel()
+
+		select {
+		case err := <-errs:
+			require.ErrorIs(t, err, context.Canceled)
+			assert.NotErrorIs(t, err, mailer.ErrNotAccepted)
+		case <-time.After(2 * time.Second):
+			t.Fatal("the handshake did not end when the context was cancelled")
+		}
+	})
 }

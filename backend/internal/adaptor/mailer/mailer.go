@@ -2,6 +2,8 @@ package mailer
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"strings"
@@ -66,6 +68,9 @@ type Config struct {
 	From     string
 	// AttemptTimeout is the deadline of one send; zero means 10 seconds.
 	AttemptTimeout time.Duration
+	// RootCAs are the roots that verify the server's certificate; nil means the
+	// system's. It never turns verification off.
+	RootCAs *x509.CertPool
 }
 
 // Mailer sends alert emails. It keeps no connection: each send makes its own.
@@ -111,7 +116,15 @@ func (m *Mailer) SendEmail(ctx context.Context, to string, alert domain.Alert) e
 	// go-mail ends a read it is blocked in only at a deadline, so the connection is
 	// closed when the context ends, which wakes the read at once.
 	var held heldConn
-	client, err := m.client(held.dial)
+	dial := held.dial
+	if m.cfg.TLS == tlsImplicit {
+		dial = held.dialTLS(&tls.Config{
+			ServerName: m.cfg.Host,
+			MinVersion: tls.VersionTLS12,
+			RootCAs:    m.cfg.RootCAs,
+		})
+	}
+	client, err := m.client(dial)
 	if err != nil {
 		return notAccepted(err)
 	}
@@ -150,6 +163,25 @@ func (h *heldConn) dial(ctx context.Context, network, address string) (net.Conn,
 	return c, nil
 }
 
+// dialTLS returns a dial function for implicit TLS: it dials as dial does, then runs the
+// TLS client handshake under ctx before it returns the connection. The connection held
+// is the raw one, so closing it ends a handshake in progress as well as a read. It
+// returns the *tls.Conn itself so that go-mail recognizes the connection as encrypted.
+func (h *heldConn) dialTLS(cfg *tls.Config) mail.DialContextFunc {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		raw, err := h.dial(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		conn := tls.Client(raw, cfg)
+		if err := conn.HandshakeContext(ctx); err != nil {
+			_ = raw.Close()
+			return nil, err
+		}
+		return conn, nil
+	}
+}
+
 func (h *heldConn) close() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -169,7 +201,10 @@ func (m *Mailer) client(dial mail.DialContextFunc) (*mail.Client, error) {
 	case tlsStartTLS:
 		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
 	case tlsImplicit:
-		opts = append(opts, mail.WithSSL())
+		// Not WithSSL: with a custom dial function it only turns go-mail's own TLS
+		// handling off. The dial function returns a TLS connection, and the
+		// opportunistic policy lets go-mail read its state and treat it as encrypted.
+		opts = append(opts, mail.WithTLSPolicy(mail.TLSOpportunistic))
 	default:
 		opts = append(opts, mail.WithTLSPolicy(mail.NoTLS))
 	}
