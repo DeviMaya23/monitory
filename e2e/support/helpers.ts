@@ -123,7 +123,8 @@ export async function addTarget(page: Page, target: TargetInput): Promise<void> 
   await page.getByRole('button', { name: 'Add target' }).click()
   await fillTarget(page, target)
   await targetDialog(page).getByRole('button', { name: 'Add target' }).click()
-  await expect(page.getByText('Target added.')).toBeVisible()
+  // An earlier toast may still be up, so more than one can match; the dialog closes only when the save worked.
+  await expect(page.getByText('Target added.').first()).toBeVisible()
   await expect(targetDialog(page)).toBeHidden()
 }
 
