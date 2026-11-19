@@ -3,8 +3,16 @@ package testutil
 import (
 	"bufio"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"fmt"
+	"io"
+	"math/big"
 	"net"
 	"strconv"
 	"strings"
@@ -25,6 +33,15 @@ type SMTPOptions struct {
 	// with them before it takes a message.
 	Username string
 	Password string
+	// TLS makes the server speak implicit TLS: each connection runs a TLS handshake
+	// before the greeting, with a self-signed certificate made when the server starts.
+	TLS bool
+	// StallHandshake (only with TLS) accepts the connection and never answers the
+	// handshake: it reads and discards what arrives until the connection closes.
+	StallHandshake bool
+	// CertNames (only with TLS) are the DNS names or IP addresses the certificate is
+	// valid for. Empty means 127.0.0.1 and localhost.
+	CertNames []string
 }
 
 // SMTPMessage is one message a SMTPServer received.
@@ -34,14 +51,17 @@ type SMTPMessage struct {
 	Data string // the DATA section as sent, dot-unstuffed, lines ended by "\r\n"
 }
 
-// SMTPServer is an in-process SMTP server for tests. It makes no TLS and advertises no
-// STARTTLS, SIZE or 8BITMIME. It serves several connections at once.
+// SMTPServer is an in-process SMTP server for tests. It makes TLS only with
+// SMTPOptions.TLS (implicit TLS), and advertises no STARTTLS, SIZE or 8BITMIME in either
+// mode. It serves several connections at once.
 type SMTPServer struct {
 	// Host and Port are where it listens.
 	Host string
 	Port int
 
 	opts     SMTPOptions
+	tlsCfg   *tls.Config
+	pool     *x509.CertPool
 	listener net.Listener
 	stop     chan struct{}
 	wg       sync.WaitGroup
@@ -50,6 +70,7 @@ type SMTPServer struct {
 	messages []SMTPMessage
 	conns    int
 	authCmds int
+	shakes   int
 	conn     map[net.Conn]struct{}
 }
 
@@ -65,6 +86,9 @@ func NewSMTPServer(t testing.TB, opts SMTPOptions) *SMTPServer {
 	s := &SMTPServer{
 		Host: "127.0.0.1", Port: addr.Port, opts: opts, listener: l,
 		stop: make(chan struct{}), conn: map[net.Conn]struct{}{},
+	}
+	if opts.TLS {
+		s.tlsCfg, s.pool = newTLSConfig(t, opts.CertNames)
 	}
 	s.wg.Add(1)
 	go s.accept()
@@ -91,6 +115,61 @@ func (s *SMTPServer) AuthCommands() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.authCmds
+}
+
+// Handshakes returns how many TLS handshakes the server completed.
+func (s *SMTPServer) Handshakes() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.shakes
+}
+
+// Pool returns a pool that trusts the server's certificate. It is nil without TLS.
+func (s *SMTPServer) Pool() *x509.CertPool { return s.pool }
+
+// newTLSConfig makes a self-signed ECDSA P-256 certificate, valid from a minute ago for
+// an hour, for names (127.0.0.1 and localhost when empty).
+func newTLSConfig(t testing.TB, names []string) (*tls.Config, *x509.CertPool) {
+	t.Helper()
+	if len(names) == 0 {
+		names = []string{"127.0.0.1", "localhost"}
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("smtp server: key: %v", err)
+	}
+	now := time.Now()
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "smtp test server"},
+		NotBefore:             now.Add(-time.Minute),
+		NotAfter:              now.Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	for _, n := range names {
+		if ip := net.ParseIP(n); ip != nil {
+			tmpl.IPAddresses = append(tmpl.IPAddresses, ip)
+		} else {
+			tmpl.DNSNames = append(tmpl.DNSNames, n)
+		}
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("smtp server: certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("smtp server: parse certificate: %v", err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(cert)
+	return &tls.Config{
+		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
+		MinVersion:   tls.VersionTLS12,
+	}, pool
 }
 
 func (s *SMTPServer) close() {
@@ -132,6 +211,20 @@ func (s *SMTPServer) accept() {
 func (s *SMTPServer) serve(c net.Conn) {
 	if s.opts.CloseAtConnect {
 		return
+	}
+	if s.opts.TLS {
+		if s.opts.StallHandshake {
+			_, _ = io.Copy(io.Discard, c)
+			return
+		}
+		tc := tls.Server(c, s.tlsCfg)
+		if err := tc.HandshakeContext(context.Background()); err != nil {
+			return
+		}
+		s.mu.Lock()
+		s.shakes++
+		s.mu.Unlock()
+		c = tc
 	}
 	if s.opts.GreetingDelay > 0 {
 		select {
