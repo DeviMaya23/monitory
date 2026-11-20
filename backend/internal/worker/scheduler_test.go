@@ -69,8 +69,10 @@ type countingTimer struct {
 }
 
 func (t *countingTimer) Stop() bool {
+	// Stop the inner timer first: a test that gets the signal sees it stopped.
+	stopped := t.Timer.Stop()
 	t.stopped <- struct{}{}
-	return t.Timer.Stop()
+	return stopped
 }
 
 // waitTimer waits until the code under test has made a timer.
@@ -492,11 +494,22 @@ func TestStop_FromInsideSequence(t *testing.T) {
 func TestStart_ReplacesRunningService(t *testing.T) {
 	s := newSchedSetup(t)
 	oldCancelled := false
+	// The second sequence reads the totals itself when it starts: reading them after
+	// Start returns is too late, the new sequence may have run by then.
+	type totalsAtSecond struct{ started, ended int }
+	atSecond := make(chan totalsAtSecond, 1)
 	s.seq.behave = func(ctx context.Context, service domain.Service, c call) error {
 		if c.n == 1 {
 			err := blockOnContext(ctx, service, c)
 			oldCancelled = true
 			return err
+		}
+		if c.n == 2 {
+			started, ended := s.seq.totals()
+			select {
+			case atSecond <- totalsAtSecond{started, ended}:
+			default:
+			}
 		}
 		return nil
 	}
@@ -505,13 +518,17 @@ func TestStart_ReplacesRunningService(t *testing.T) {
 
 	s.sched.Start(svc("a", 70))
 	// Start returned: the old sequence has returned.
-	started, ended := s.seq.totals()
 	assert.True(t, oldCancelled)
-	assert.Equal(t, 1, started)
-	assert.Equal(t, 1, ended)
 
 	second := s.seq.wait(t)
 	assert.Equal(t, 2, second.n)
+	select {
+	case got := <-atSecond:
+		assert.Equal(t, 2, got.started, "the second sequence is counted as started")
+		assert.Equal(t, 1, got.ended, "the old sequence had returned when the new one began")
+	case <-time.After(guard):
+		t.Fatal("the second sequence did not report the totals")
+	}
 	s.clk.waitTimer(t)
 	assert.Equal(t, 1, s.clk.timersMade())
 
@@ -635,13 +652,22 @@ func TestScheduler_ContextWinsOverFiredTimer(t *testing.T) {
 	// are ready; repeated so a random choice between them would show.
 	for range 50 {
 		s := newSchedSetup(t)
+		hookDone := make(chan struct{}, 1)
 		s.clk.onTimer = func() {
 			s.clk.Advance(30 * time.Second)
 			s.sched.Stop("a")
+			select {
+			case hookDone <- struct{}{}:
+			default:
+			}
 		}
 		s.sched.Start(svc("a", 30))
 		s.seq.wait(t)
-		s.clk.waitTimer(t)
+		select {
+		case <-hookDone:
+		case <-time.After(guard):
+			t.Fatal("the timer hook did not finish")
+		}
 		s.sched.Close()
 
 		assert.Equal(t, 1, s.seq.count("a"))
