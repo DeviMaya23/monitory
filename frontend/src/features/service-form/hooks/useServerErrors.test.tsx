@@ -81,14 +81,14 @@ describe('useServerErrors', () => {
   })
 
   it('lists a path with no field in the summary with no target, and editing does not remove it', () => {
-    const { result } = setup([fieldError('check.headers[0].value', 'Not a value.'), fieldError('name', 'Needed.')])
+    const { result } = setup([fieldError('check.type', 'Not a value.'), fieldError('name', 'Needed.')])
     expect(result.current.entries[0]).toMatchObject({
-      label: 'check.headers[0].value',
+      label: 'check.type',
       message: 'Not a value.',
       target: null,
     })
     act(() => result.current.clearField('name'))
-    expect(result.current.entries.map((entry) => entry.label)).toEqual(['check.headers[0].value'])
+    expect(result.current.entries.map((entry) => entry.label)).toEqual(['check.type'])
     expect(result.current.count).toBe(1)
   })
 

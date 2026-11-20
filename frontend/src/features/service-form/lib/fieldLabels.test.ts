@@ -17,7 +17,7 @@ describe('fieldLabel', () => {
     expect(fieldLabel(path)).toEqual({ label, target: path })
   })
 
-  it.each(['check.headers[2].value', 'toString'])('maps %s to itself with no target', (path) => {
+  it.each(['check.type', 'toString'])('maps %s to itself with no target', (path) => {
     expect(fieldLabel(path)).toEqual({ label: path, target: null })
   })
 })

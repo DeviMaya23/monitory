@@ -9,12 +9,14 @@ import { useCreateService, type ServiceFormValues } from '../hooks/useCreateServ
 import { DEFAULT_METHOD, useLeaveGuard } from '../hooks/useLeaveGuard'
 import { useServerErrors } from '../hooks/useServerErrors'
 import { errorId, FIELD_IDS, focusField } from '../lib/fieldIds'
+import { DEFAULT_BODY_TYPE } from '../lib/requestRows'
 import { TIMING_DEFAULTS, TIMING_FIELDS, TIMING_NAMES, type TimingName } from '../lib/timingGroup'
 import { AlertsGroup } from './AlertsGroup'
 import { DiscardDialog } from './DiscardDialog'
 import { ErrorSummary } from './ErrorSummary'
 import { FieldErrorText } from './FieldErrorText'
 import { FormBanners } from './FormBanners'
+import { RequestRowsGroup } from './RequestRowsGroup'
 import { TimingGroup } from './TimingGroup'
 import '../service-form.css'
 
@@ -25,6 +27,7 @@ const METHOD_OPTIONS = METHODS.map((method) => ({ value: method, label: method }
 const SAVING = 'Saving…'
 const NAME_TAKEN = 'Another service already uses this name (names ignore case).'
 const URL_HINT_ID = 'service-url-hint'
+const URL_HINT = 'Starts with http:// or https://. Query parameters can go here or below.'
 
 const filled = (value: string) => value.trim() !== ''
 
@@ -43,6 +46,10 @@ export function AddServiceForm() {
       name: '',
       method: DEFAULT_METHOD,
       url: '',
+      query_params: [],
+      headers: [],
+      body_type: DEFAULT_BODY_TYPE,
+      body_content: '',
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
@@ -56,15 +63,43 @@ export function AddServiceForm() {
     void navigate('/')
   })
   const serverErrors = useServerErrors(failure?.kind === 'field-errors' ? failure.errors : null)
-  const [name, method, url, alertsEnabled, unhealthyMessage, recoveryMessage, ...timingTexts] = useWatch({
+  const [
+    name,
+    method,
+    url,
+    queryParams,
+    headers,
+    bodyType,
+    bodyContent,
+    alertsEnabled,
+    unhealthyMessage,
+    recoveryMessage,
+    ...timingTexts
+  ] = useWatch({
     control,
-    name: ['name', 'method', 'url', 'alerts_enabled', 'unhealthy_message', 'recovery_message', ...TIMING_NAMES],
+    name: [
+      'name',
+      'method',
+      'url',
+      'query_params',
+      'headers',
+      'body_type',
+      'body_content',
+      'alerts_enabled',
+      'unhealthy_message',
+      'recovery_message',
+      ...TIMING_NAMES,
+    ],
   })
   const timing = Object.fromEntries(TIMING_NAMES.map((key, i) => [key, timingTexts[i]])) as Record<TimingName, string>
   const guard = useLeaveGuard({
     name,
     method,
     url,
+    queryRowCount: queryParams.length,
+    headerRowCount: headers.length,
+    bodyType,
+    bodyContent,
     alertsEnabled,
     unhealthyMessage,
     recoveryMessage,
@@ -167,51 +202,54 @@ export function AddServiceForm() {
 
             <fieldset className="group">
               <legend className="group__legend">Request</legend>
-              <div className="url-row">
-                <div className="field">
-                  <Controller
-                    name="method"
-                    control={control}
-                    render={({ field }) => (
-                      <Select
-                        id={FIELD_IDS['check.method']}
-                        label="Method"
-                        value={field.value}
-                        onValueChange={(next) => {
-                          field.onChange(next)
-                          serverErrors.clearField('check.method')
-                        }}
-                        options={METHOD_OPTIONS}
-                        disabled={saving}
-                        invalid={methodError !== null}
-                        aria-describedby={methodError ? errorId(FIELD_IDS['check.method']) : undefined}
-                      />
+              <div className="stack">
+                <div className="url-row">
+                  <div className="field">
+                    <Controller
+                      name="method"
+                      control={control}
+                      render={({ field }) => (
+                        <Select
+                          id={FIELD_IDS['check.method']}
+                          label="Method"
+                          value={field.value}
+                          onValueChange={(next) => {
+                            field.onChange(next)
+                            serverErrors.clearField('check.method')
+                          }}
+                          options={METHOD_OPTIONS}
+                          disabled={saving}
+                          invalid={methodError !== null}
+                          aria-describedby={methodError ? errorId(FIELD_IDS['check.method']) : undefined}
+                        />
+                      )}
+                    />
+                    {methodError && <FieldErrorText id={errorId(FIELD_IDS['check.method'])} message={methodError} />}
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor={FIELD_IDS['check.url']}>
+                      URL
+                    </label>
+                    <input
+                      className="input input--mono"
+                      id={FIELD_IDS['check.url']}
+                      type="url"
+                      placeholder="https://"
+                      readOnly={saving}
+                      aria-invalid={urlError ? 'true' : undefined}
+                      aria-describedby={urlError ? errorId(FIELD_IDS['check.url']) : URL_HINT_ID}
+                      {...urlField}
+                    />
+                    {urlError ? (
+                      <FieldErrorText id={errorId(FIELD_IDS['check.url'])} message={urlError} />
+                    ) : (
+                      <p className="hint" id={URL_HINT_ID}>
+                        {URL_HINT}
+                      </p>
                     )}
-                  />
-                  {methodError && <FieldErrorText id={errorId(FIELD_IDS['check.method'])} message={methodError} />}
+                  </div>
                 </div>
-                <div className="field">
-                  <label className="label" htmlFor={FIELD_IDS['check.url']}>
-                    URL
-                  </label>
-                  <input
-                    className="input input--mono"
-                    id={FIELD_IDS['check.url']}
-                    type="url"
-                    placeholder="https://"
-                    readOnly={saving}
-                    aria-invalid={urlError ? 'true' : undefined}
-                    aria-describedby={urlError ? errorId(FIELD_IDS['check.url']) : URL_HINT_ID}
-                    {...urlField}
-                  />
-                  {urlError ? (
-                    <FieldErrorText id={errorId(FIELD_IDS['check.url'])} message={urlError} />
-                  ) : (
-                    <p className="hint" id={URL_HINT_ID}>
-                      Starts with http:// or https://.
-                    </p>
-                  )}
-                </div>
+                <RequestRowsGroup control={control} register={register} saving={saving} serverErrors={serverErrors} />
               </div>
             </fieldset>
 

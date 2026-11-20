@@ -1,5 +1,6 @@
 import { useEffect, useState, type MouseEvent } from 'react'
 import type { HttpMethod } from '../../../lib/api/services'
+import { DEFAULT_BODY_TYPE } from '../lib/requestRows'
 import { TIMING_DEFAULTS, TIMING_NAMES, type TimingTexts } from '../lib/timingGroup'
 
 /** The method a new service starts with. */
@@ -10,6 +11,11 @@ type Options = {
   name: string
   method: string
   url: string
+  /** How many query parameter and header rows there are (an empty row counts). */
+  queryRowCount: number
+  headerRowCount: number
+  bodyType: string
+  bodyContent: string
   alertsEnabled: boolean
   unhealthyMessage: string
   recoveryMessage: string
@@ -31,6 +37,10 @@ export function useLeaveGuard({
   name,
   method,
   url,
+  queryRowCount,
+  headerRowCount,
+  bodyType,
+  bodyContent,
   alertsEnabled,
   unhealthyMessage,
   recoveryMessage,
@@ -44,6 +54,10 @@ export function useLeaveGuard({
     name !== '' ||
     url !== '' ||
     method !== DEFAULT_METHOD ||
+    queryRowCount > 0 ||
+    headerRowCount > 0 ||
+    bodyType !== DEFAULT_BODY_TYPE ||
+    bodyContent !== '' ||
     !alertsEnabled ||
     unhealthyMessage !== '' ||
     recoveryMessage !== '' ||

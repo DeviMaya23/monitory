@@ -108,7 +108,7 @@ describe('idle', () => {
     expect(methodTrigger()).toHaveTextContent('GET')
     expect(urlInput()).toHaveAttribute('placeholder', 'https://')
     expect(urlInput()).toHaveAttribute('type', 'url')
-    expect(describedBy(urlInput())).toBe('Starts with http:// or https://.')
+    expect(describedBy(urlInput())).toBe('Starts with http:// or https://. Query parameters can go here or below.')
     expect(cancelButton()).toBeEnabled()
     expect(saveButton()).toBeEnabled()
     expect(saveButton()).toHaveTextContent('Save service')
@@ -122,9 +122,15 @@ describe('idle', () => {
   it('has no Type control and no test button', () => {
     setup()
     expect(screen.queryByText('Type')).not.toBeInTheDocument()
-    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
-    expect(screen.queryByRole('radio')).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Cancel', 'Save service'])
+    // The only choice is the body's.
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(1)
+    expect(screen.getByRole('radiogroup', { name: 'Body type' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Add parameter',
+      'Add header',
+      'Cancel',
+      'Save service',
+    ])
   })
 })
 
@@ -138,7 +144,7 @@ describe('saving a valid form (FR-6, FR-12)', () => {
     expect(createService).toHaveBeenCalledTimes(1)
     expect(sentInput()).toStrictEqual({
       name: '  Search API ',
-      check: { type: 'http', method: 'GET', url: URL_VALUE },
+      check: { type: 'http', method: 'GET', url: URL_VALUE, query_params: [], headers: [] },
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
@@ -220,6 +226,8 @@ describe('the method (FR-36)', () => {
       type: 'http',
       method: 'PATCH',
       url: URL_VALUE,
+      query_params: [],
+      headers: [],
     })
   })
 
@@ -233,6 +241,8 @@ describe('the method (FR-36)', () => {
       type: 'http',
       method: 'GET',
       url: URL_VALUE,
+      query_params: [],
+      headers: [],
     })
   })
 })
@@ -342,7 +352,7 @@ describe('client checks', () => {
     await user.type(urlInput(), 'h')
     expect(screen.queryByText('Enter a URL.')).not.toBeInTheDocument()
     expect(urlInput()).not.toHaveAttribute('aria-invalid')
-    expect(describedBy(urlInput())).toBe('Starts with http:// or https://.')
+    expect(describedBy(urlInput())).toBe('Starts with http:// or https://. Query parameters can go here or below.')
   })
 
   it('does not check the scheme: a URL that is not http(s) is sent', async () => {
@@ -355,6 +365,8 @@ describe('client checks', () => {
       type: 'http',
       method: 'GET',
       url: 'ftp://files.example.com',
+      query_params: [],
+      headers: [],
     })
   })
 })
@@ -415,7 +427,7 @@ describe('422 validation_failed (FR-12, FR-74, NFR-4)', () => {
 
     await user.type(urlInput(), 'x')
     expect(urlInput()).not.toHaveAttribute('aria-invalid')
-    expect(describedBy(urlInput())).toBe('Starts with http:// or https://.')
+    expect(describedBy(urlInput())).toBe('Starts with http:// or https://. Query parameters can go here or below.')
     const summary = screen.getByRole('alert')
     expect(summary).toHaveTextContent('2 fields need fixing before this can be saved.')
     expect(
@@ -441,10 +453,10 @@ describe('422 validation_failed (FR-12, FR-74, NFR-4)', () => {
 
   it('lists an unmapped path as plain text with no link, and no field shows an error', async () => {
     const { user } = setup()
-    await failWith(user, validationProblem(fieldError('check.headers[0].value', 'The value is not allowed.')))
+    await failWith(user, validationProblem(fieldError('check.type', 'The value is not allowed.')))
     const summary = screen.getByRole('alert')
     expect(summary).toHaveTextContent('1 field needs fixing before this can be saved.')
-    expect(within(summary).getByRole('listitem')).toHaveTextContent('check.headers[0].value: The value is not allowed.')
+    expect(within(summary).getByRole('listitem')).toHaveTextContent('check.type: The value is not allowed.')
     expect(within(summary).queryByRole('link')).not.toBeInTheDocument()
     expect(summary).toHaveFocus()
     expect(document.querySelector('[aria-invalid]')).toBeNull()
@@ -508,7 +520,7 @@ describe('the banners', () => {
     await failWith(user, problem(413, 'payload_too_large'))
     const banner = screen.getByRole('alert')
     expect(banner).toHaveTextContent('The service is too large to save.')
-    expect(banner).toHaveTextContent('Together its fields are over 1 MB. Shorten the name or the URL.')
+    expect(banner).toHaveTextContent('Together its fields are over 1 MB. Shorten the body or the header values.')
     expect(within(banner).queryByRole('button')).not.toBeInTheDocument()
     expect(nameInput()).toHaveValue('Search API')
     expect(urlInput()).toHaveValue(URL_VALUE)
@@ -548,7 +560,7 @@ describe('the banners', () => {
     expect(sentInput(1)).toStrictEqual(sentInput(0))
     expect(sentInput(1)).toStrictEqual({
       name: 'Search API',
-      check: { type: 'http', method: 'GET', url: URL_VALUE },
+      check: { type: 'http', method: 'GET', url: URL_VALUE, query_params: [], headers: [] },
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
@@ -788,7 +800,7 @@ describe('the Alerts group (FR-20, FR-65)', () => {
 
   it('shows after the Request group: the switch on and described, two text areas with counters at 0/500', () => {
     setup()
-    const legends = Array.from(document.querySelectorAll('legend')).map((legend) => legend.textContent)
+    const legends = Array.from(document.querySelectorAll('legend.group__legend')).map((legend) => legend.textContent)
     expect(legends).toEqual(['Service', 'Request', 'Timing', 'Alerts'])
     expect(alertsSwitch()).toHaveAttribute('aria-checked', 'true')
     expect(alertsSwitch()).toHaveAccessibleDescription('To this service’s alert list when it goes down or recovers.')
@@ -800,7 +812,12 @@ describe('the Alerts group (FR-20, FR-65)', () => {
     }
     expect(counters()).toEqual(['0/500', '0/500'])
     expect(footerStatus()).toBeEmptyDOMElement()
-    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Cancel', 'Save service'])
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Add parameter',
+      'Add header',
+      'Cancel',
+      'Save service',
+    ])
   })
 
   it('counts the characters of the field being typed in only, and an emoji as one', async () => {
@@ -837,7 +854,7 @@ describe('the Alerts group (FR-20, FR-65)', () => {
     await marker()
     expect(sentInput()).toStrictEqual({
       name: 'Search API',
-      check: { type: 'http', method: 'GET', url: URL_VALUE },
+      check: { type: 'http', method: 'GET', url: URL_VALUE, query_params: [], headers: [] },
       alerts_enabled: false,
       unhealthy_message: '  down ',
       recovery_message: '<b>x</b>',
@@ -925,9 +942,9 @@ describe('the Alerts group (FR-20, FR-65)', () => {
 
     it('lists a header path as plain text with no link and no field error', async () => {
       const { user } = setup()
-      await failWith(user, validationProblem(fieldError('check.headers[0].value', 'Not on this screen.')))
+      await failWith(user, validationProblem(fieldError('check.type', 'Not on this screen.')))
       expect(within(screen.getByRole('alert')).queryByRole('link')).toBeNull()
-      expect(screen.getByRole('alert')).toHaveTextContent('check.headers[0].value: Not on this screen.')
+      expect(screen.getByRole('alert')).toHaveTextContent('check.type: Not on this screen.')
       expect(document.querySelector('.error-text')).toBeNull()
     })
 
@@ -968,13 +985,11 @@ describe('the Alerts group: boundaries and keyboard (FR-20, FR-65, NFR-4)', () =
   const alertsSwitch = () => screen.getByRole('switch', { name: 'Send alerts' })
   const counters = () => Array.from(document.querySelectorAll('.counter')).map((counter) => counter.textContent)
 
-  it('is reached by Tab in the order URL, the four timing inputs, switch, Unhealthy message, Recovery message, Cancel, Save; Space toggles the switch', async () => {
+  it('is reached by Tab in the order URL, the rows’ Add buttons, Body type, the four timing inputs, switch, Unhealthy message, Recovery message, Cancel, Save; Space toggles the switch', async () => {
     const { user } = setup()
     await user.click(urlInput())
-    await user.tab()
-    await user.tab()
-    await user.tab()
-    await user.tab()
+    // Add parameter, Add header, the Body type choice, then the four timing inputs.
+    for (let stop = 0; stop < 3 + 4; stop++) await user.tab()
     await user.tab()
     expect(alertsSwitch()).toHaveFocus()
     await user.keyboard(' ')
@@ -1328,6 +1343,7 @@ describe('the Timing group (FR-41, FR-51, FR-53, FR-56, FR-57)', () => {
   it('is reached by Tab from the URL: the four inputs in order, then the alert switch', async () => {
     const { user } = setup()
     await user.click(urlInput())
+    for (let stop = 0; stop < 3; stop++) await user.tab() // Add parameter, Add header, Body type
     for (const input of inputs()) {
       await user.tab()
       expect(input).toHaveFocus()

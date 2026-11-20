@@ -8,12 +8,19 @@ import {
   type HttpMethod,
   type Service,
 } from '../../../lib/api/services'
+import { requestParts, type BodyType } from '../lib/requestRows'
 
 /** What the form sends: the values on this screen. The two messages are sent as typed. */
 export type ServiceFormValues = {
   name: string
   method: HttpMethod
   url: string
+  /** The query parameter and header rows, as typed. */
+  query_params: { name: string; value: string }[]
+  headers: { name: string; value: string }[]
+  /** The body's type and text; the text is kept while the type is `none`, and not sent. */
+  body_type: BodyType
+  body_content: string
   alerts_enabled: boolean
   unhealthy_message: string
   recovery_message: string
@@ -73,6 +80,10 @@ export function useCreateService(onCreated: (service: Service) => void) {
     name,
     method,
     url,
+    query_params,
+    headers,
+    body_type,
+    body_content,
     alerts_enabled,
     unhealthy_message,
     recovery_message,
@@ -88,7 +99,12 @@ export function useCreateService(onCreated: (service: Service) => void) {
     try {
       const service = await createService({
         name,
-        check: { type: 'http', method, url },
+        check: {
+          type: 'http',
+          method,
+          url,
+          ...requestParts({ query_params, headers, body_type, body_content }),
+        },
         alerts_enabled,
         unhealthy_message,
         recovery_message,

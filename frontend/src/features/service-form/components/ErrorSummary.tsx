@@ -1,7 +1,7 @@
 import type { Ref } from 'react'
 import { CircleAlert } from 'lucide-react'
 import type { SummaryEntry } from '../hooks/useServerErrors'
-import { FIELD_IDS } from '../lib/fieldIds'
+import { fieldId } from '../lib/fieldIds'
 import { summaryTitle, type FieldTarget } from '../lib/fieldLabels'
 
 type Props = {
@@ -29,7 +29,7 @@ export function ErrorSummary({ entries, onGoToField, ref }: Props) {
                 </>
               ) : (
                 <a
-                  href={`#${FIELD_IDS[target]}`}
+                  href={`#${fieldId(target)}`}
                   onClick={(event) => {
                     event.preventDefault()
                     onGoToField(target)

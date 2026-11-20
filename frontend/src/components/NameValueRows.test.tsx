@@ -168,7 +168,12 @@ describe('two NameValueRows on one page', () => {
       const b = useForm<Values>({ defaultValues: { rows: [] } })
       const fa = useFieldArray({ control: a.control, name: 'rows' })
       const fb = useFieldArray({ control: b.control, name: 'rows' })
-      const common = { readOnly: false, onAdd: () => undefined, onRemove: () => undefined, emptyText: 'e' }
+      const common = {
+        readOnly: false,
+        onAdd: () => undefined,
+        onRemove: () => undefined,
+        emptyText: 'e',
+      }
       return (
         <>
           <NameValueRows
