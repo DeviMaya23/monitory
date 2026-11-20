@@ -820,3 +820,82 @@ func TestServiceUpdate_NameRules(t *testing.T) {
 		assert.EqualValues(t, 2, count(t, db, &domain.Service{}))
 	})
 }
+
+func TestServiceSetPaused_PausesAndResumesKeepingEverythingElse(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	createAll(t, repo, httpService("id-7", "Seven"))
+	checked := time.Date(2026, 5, 6, 8, 0, 0, 0, time.UTC)
+	changedAt := checked.Add(-time.Hour)
+	code, status := domain.FailureNon2xxStatus, 502
+	state := domain.ServiceState{
+		ServiceID: "id-7", Status: domain.StatusUnhealthy, LastCheckedAt: &checked, LastStatusChangeAt: &changedAt,
+		FailureCode: &code, FailureHTTPStatus: &status,
+	}
+	setState(t, db, state)
+	before := readService(t, db, "id-7")
+	zone := time.FixedZone("x", 3*3600)
+	first := time.Date(2026, 7, 8, 9, 10, 11, 0, zone)
+
+	view, changed, err := repo.SetPaused(t.Context(), "id-7", true, first)
+
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.True(t, view.Service.Paused)
+	assert.True(t, first.Equal(view.Service.UpdatedAt))
+	assert.Equal(t, time.UTC, view.Service.UpdatedAt.Location())
+	got, err := repo.Get(t.Context(), "id-7")
+	require.NoError(t, err)
+	assert.Equal(t, view, got)
+
+	want := before
+	want.Paused, want.UpdatedAt = true, first.UTC()
+	after := readService(t, db, "id-7")
+	after.CreatedAt, after.UpdatedAt = after.CreatedAt.UTC(), after.UpdatedAt.UTC()
+	want.CreatedAt = want.CreatedAt.UTC()
+	assert.Equal(t, want, after, "only paused and updated_at change")
+	assert.Equal(t, domain.StatusUnhealthy, view.State.Status)
+	assert.True(t, checked.Equal(*view.State.LastCheckedAt))
+	assert.True(t, changedAt.Equal(*view.State.LastStatusChangeAt))
+	assert.Equal(t, code, *view.State.FailureCode)
+	assert.Equal(t, 502, *view.State.FailureHTTPStatus)
+
+	// Again: nothing changes, updated_at stays the first time.
+	later := first.Add(5 * time.Hour)
+	view, changed, err = repo.SetPaused(t.Context(), "id-7", true, later)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.True(t, view.Service.Paused)
+	assert.True(t, first.Equal(view.Service.UpdatedAt))
+	assert.True(t, first.Equal(readService(t, db, "id-7").UpdatedAt))
+
+	// Resume.
+	view, changed, err = repo.SetPaused(t.Context(), "id-7", false, later)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.False(t, view.Service.Paused)
+	assert.True(t, later.Equal(view.Service.UpdatedAt))
+	assert.Equal(t, domain.StatusUnhealthy, view.State.Status)
+	assert.Equal(t, code, *view.State.FailureCode)
+
+	view, changed, err = repo.SetPaused(t.Context(), "id-7", false, later.Add(time.Hour))
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.True(t, later.Equal(view.Service.UpdatedAt))
+}
+
+func TestServiceSetPaused_UnknownIDIsNotFoundAndWritesNothing(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	createAll(t, repo, httpService("id-1", "One"))
+	before := readService(t, db, "id-1")
+
+	for _, paused := range []bool{true, false} {
+		view, changed, err := repo.SetPaused(t.Context(), "no-such", paused, serviceTime.Add(time.Hour))
+		require.ErrorIs(t, err, domain.ErrNotFound)
+		assert.False(t, changed)
+		assert.Equal(t, domain.ServiceView{}, view)
+	}
+	assert.Equal(t, before, readService(t, db, "id-1"))
+	assert.EqualValues(t, 1, count(t, db, &domain.Service{}))
+}

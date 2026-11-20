@@ -11,6 +11,10 @@ var (
 	ErrCSRFFailed = errors.New("csrf check failed")
 	// ErrNotFound: the service or target does not exist.
 	ErrNotFound = errors.New("not found")
+	// ErrServicePaused: the service is paused: a check result is not saved (FR-76). Only
+	// the state repository returns it, and only the check result usecase handles it; it
+	// never reaches the handler.
+	ErrServicePaused = errors.New("service paused")
 
 	// ErrInvalidCredentials: the username or the password is wrong (FR-1). It never says which.
 	ErrInvalidCredentials = errors.New("invalid credentials")
