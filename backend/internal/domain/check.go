@@ -27,6 +27,14 @@ type HTTPCheck struct {
 	IgnoreCertificateErrors bool
 }
 
+// TCPCheck is one TCP check attempt to make: a connection to Host and Port that must be
+// accepted within Timeout, the name lookup included (FR-49, FR-41).
+type TCPCheck struct {
+	Host    string
+	Port    int
+	Timeout time.Duration
+}
+
 // CheckFailure says why a check attempt failed (FR-61). HTTPStatus is set only for
 // FailureNon2xxStatus; JSONRuleField only for FailureJSONRuleMatched.
 type CheckFailure struct {
