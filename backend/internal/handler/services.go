@@ -46,6 +46,42 @@ func (s *Server) ListServices(ctx context.Context, _ api.ListServicesRequestObje
 	return api.ListServices200JSONResponse(list), nil
 }
 
+// GetService returns one service with its state, the same mapping as an item of the
+// list (FR-39).
+func (s *Server) GetService(ctx context.Context, request api.GetServiceRequestObject) (api.GetServiceResponseObject, error) {
+	view, err := s.services.GetService(ctx, request.ServiceId)
+	if err != nil {
+		return nil, err
+	}
+	service, err := toAPIService(view)
+	if err != nil {
+		return nil, err
+	}
+	return api.GetService200JSONResponse(service), nil
+}
+
+// UpdateService replaces every editable setting of a service (FR-7). The router has
+// already checked size, content type and that a body exists.
+func (s *Server) UpdateService(ctx context.Context, request api.UpdateServiceRequestObject) (api.UpdateServiceResponseObject, error) {
+	if request.Body == nil {
+		return nil, errMalformedRequest
+	}
+	input, err := toServiceInput(*request.Body)
+	if err != nil {
+		return nil, err
+	}
+	view, err := s.services.UpdateService(ctx, request.ServiceId, input)
+	if err != nil {
+		return nil, err
+	}
+	service, err := toAPIService(view)
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("service updated", "service_id", view.Service.ID, "service_name", view.Service.Name)
+	return api.UpdateService200JSONResponse(service), nil
+}
+
 // DeleteService deletes a service (FR-8, FR-70).
 func (s *Server) DeleteService(ctx context.Context, request api.DeleteServiceRequestObject) (api.DeleteServiceResponseObject, error) {
 	if err := s.services.DeleteService(ctx, request.ServiceId); err != nil {

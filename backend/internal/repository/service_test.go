@@ -619,3 +619,204 @@ func TestServiceFind_UnknownAndDeletedIDsAreNotFound(t *testing.T) {
 	assert.Equal(t, services, count(t, db, &domain.Service{}))
 	assert.Equal(t, states, count(t, db, &domain.ServiceState{}))
 }
+
+func TestServiceGet_ReturnsTheViewEqualToTheListed(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	zone := time.FixedZone("x", 7*3600)
+	svc := httpService("id-1", "Get Me")
+	svc.CreatedAt = time.Date(2026, 5, 6, 14, 8, 9, 0, zone)
+	createAll(t, repo, svc, httpService("id-2", "Other"))
+	checked := time.Date(2026, 5, 6, 8, 0, 0, 0, time.UTC)
+	code := domain.FailureNon2xxStatus
+	status := 503
+	setState(t, db, domain.ServiceState{
+		ServiceID: "id-1", Status: domain.StatusUnhealthy, LastCheckedAt: &checked, LastStatusChangeAt: &checked,
+		FailureCode: &code, FailureHTTPStatus: &status,
+	})
+	addTargets(t, db, "id-1", 2, 1)
+	addTargets(t, db, "id-2", 5, 0)
+
+	got, err := repo.Get(t.Context(), "id-1")
+
+	require.NoError(t, err)
+	listed, err := repo.List(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, viewByName(t, listed, "Get Me"), got)
+	assert.Equal(t, 2, got.TargetCount)
+	assert.True(t, got.AlertDeliveryFailed)
+	assert.Equal(t, domain.StatusUnhealthy, got.State.Status)
+	assert.Equal(t, time.UTC, got.Service.CreatedAt.Location())
+	assert.Equal(t, time.UTC, got.State.LastCheckedAt.Location())
+}
+
+func TestServiceGet_UnknownIDIsNotFound(t *testing.T) {
+	repo := repository.NewServiceRepository(testutil.NewDB(t))
+	createAll(t, repo, httpService("id-1", "A"))
+
+	_, err := repo.Get(t.Context(), "id-1")
+	require.NoError(t, err, "baseline: the service is found")
+
+	_, err = repo.Get(t.Context(), "nope")
+	require.ErrorIs(t, err, domain.ErrNotFound)
+}
+
+func TestServiceUpdate_ReplacesEveryFieldOfAnHTTPService(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	createAll(t, repo, httpService("id-1", "Old"))
+	want := httpService("id-1", "New Name")
+	want.HTTPMethod, want.HTTPURL = ptr("POST"), ptr("https://new/y")
+	want.HTTPQueryParams = []domain.NameValue{{Name: "a", Value: "1"}}
+	want.HTTPHeaders = []domain.NameValue{{Name: "Authorization", Value: "Bearer secret-value"}}
+	want.HTTPBodyType, want.HTTPBodyContent = domain.BodyTypeJSON, `{"k":1}`
+	want.JSONRules = []domain.JSONRule{{Field: "ok", FailingValue: false}}
+	want.JSONRuleMode = domain.JSONRuleModeAll
+	want.CertCheck, want.CertMinDaysLeft, want.IgnoreCertErrs = true, ptr(14), true
+	want.CheckIntervalSeconds, want.TimeoutSeconds, want.RetryCount, want.RetryIntervalSeconds = 120, 9, 2, 7
+	want.AlertsEnabled, want.ShownOnPublicView = false, true
+	want.UnhealthyMessage, want.RecoveryMessage = "down", "up"
+	want.UpdatedAt = serviceTime.Add(time.Hour)
+
+	view, err := repo.Update(t.Context(), want)
+
+	require.NoError(t, err)
+	assert.Equal(t, want, view.Service)
+	assert.Equal(t, domain.StatusNotYetChecked, view.State.Status)
+	again, err := repo.Get(t.Context(), "id-1")
+	require.NoError(t, err)
+	assert.Equal(t, view, again)
+}
+
+func TestServiceUpdate_TypeChangeClearsTheOtherTypesColumns(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	full := httpService("id-1", "S")
+	full.HTTPQueryParams = []domain.NameValue{{Name: "a", Value: "1"}}
+	full.HTTPHeaders = []domain.NameValue{{Name: "H", Value: "v"}}
+	full.HTTPBodyType, full.HTTPBodyContent = domain.BodyTypeJSON, "{}"
+	full.JSONRules = []domain.JSONRule{{Field: "ok", FailingValue: true}}
+	full.JSONRuleMode = domain.JSONRuleModeAll
+	full.CertCheck, full.CertMinDaysLeft, full.IgnoreCertErrs = true, ptr(10), true
+	createAll(t, repo, full)
+
+	t.Run("HTTP to TCP", func(t *testing.T) {
+		tcp := tcpService("id-1", "S")
+		view, err := repo.Update(t.Context(), tcp)
+		require.NoError(t, err)
+
+		got := view.Service
+		assert.Nil(t, got.HTTPMethod)
+		assert.Nil(t, got.HTTPURL)
+		assert.Equal(t, []domain.NameValue{}, got.HTTPQueryParams)
+		assert.Equal(t, []domain.NameValue{}, got.HTTPHeaders)
+		assert.Equal(t, domain.BodyTypeNone, got.HTTPBodyType)
+		assert.Empty(t, got.HTTPBodyContent)
+		assert.Equal(t, []domain.JSONRule{}, got.JSONRules)
+		assert.Equal(t, domain.JSONRuleModeAny, got.JSONRuleMode)
+		assert.False(t, got.CertCheck)
+		assert.Nil(t, got.CertMinDaysLeft)
+		assert.False(t, got.IgnoreCertErrs)
+		assert.Equal(t, "db.local", *got.TCPHost)
+		assert.Equal(t, 5432, *got.TCPPort)
+	})
+
+	t.Run("TCP to HTTP", func(t *testing.T) {
+		view, err := repo.Update(t.Context(), httpService("id-1", "S"))
+		require.NoError(t, err)
+
+		assert.Nil(t, view.Service.TCPHost)
+		assert.Nil(t, view.Service.TCPPort)
+		assert.Equal(t, "https://x", *view.Service.HTTPURL)
+	})
+}
+
+func TestServiceUpdate_WritesFalseAndEmptyValues(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	before := httpService("id-1", "S")
+	before.AlertsEnabled, before.ShownOnPublicView = true, true
+	before.UnhealthyMessage, before.RecoveryMessage = "down", "up"
+	before.HTTPHeaders = []domain.NameValue{{Name: "H", Value: "v"}}
+	createAll(t, repo, before)
+	require.True(t, readService(t, db, "id-1").ShownOnPublicView, "baseline: the flags start true")
+
+	edit := httpService("id-1", "S")
+	edit.AlertsEnabled = false
+	view, err := repo.Update(t.Context(), edit) // false, empty, no headers
+
+	require.NoError(t, err)
+	assert.False(t, view.Service.AlertsEnabled)
+	assert.False(t, view.Service.ShownOnPublicView)
+	assert.Empty(t, view.Service.UnhealthyMessage)
+	assert.Empty(t, view.Service.RecoveryMessage)
+	assert.Equal(t, []domain.NameValue{}, view.Service.HTTPHeaders)
+}
+
+func TestServiceUpdate_KeepsIdentityPausedAndState(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	createAll(t, repo, httpService("id-1", "S"))
+	require.NoError(t, db.Model(&domain.Service{}).Where("id = ?", "id-1").Update("paused", true).Error)
+	checked := time.Date(2026, 5, 6, 8, 0, 0, 0, time.UTC)
+	changed := checked.Add(-time.Hour)
+	code, status := domain.FailureNon2xxStatus, 500
+	state := domain.ServiceState{
+		ServiceID: "id-1", Status: domain.StatusUnhealthy, LastCheckedAt: &checked, LastStatusChangeAt: &changed,
+		FailureCode: &code, FailureHTTPStatus: &status,
+	}
+	setState(t, db, state)
+	before := readService(t, db, "id-1")
+
+	edit := tcpService("id-1", "S") // the type changes in the same call (FR-66)
+	edit.CreatedAt = serviceTime.AddDate(-1, 0, 0)
+	edit.Paused = false
+	edit.UpdatedAt = serviceTime.Add(3 * time.Hour)
+	view, err := repo.Update(t.Context(), edit)
+
+	require.NoError(t, err)
+	after := readService(t, db, "id-1")
+	assert.Equal(t, before.ID, after.ID)
+	assert.True(t, before.CreatedAt.Equal(after.CreatedAt), "created_at is kept")
+	assert.True(t, after.Paused, "paused is kept")
+	assert.True(t, edit.UpdatedAt.Equal(after.UpdatedAt), "updated_at is set")
+	assert.Equal(t, domain.CheckTypeTCP, after.CheckType)
+	assert.True(t, view.Service.Paused)
+
+	var stateAfter domain.ServiceState
+	require.NoError(t, db.First(&stateAfter, "service_id = ?", "id-1").Error)
+	assert.Equal(t, domain.StatusUnhealthy, stateAfter.Status)
+	assert.True(t, checked.Equal(*stateAfter.LastCheckedAt))
+	assert.True(t, changed.Equal(*stateAfter.LastStatusChangeAt))
+	assert.Equal(t, code, *stateAfter.FailureCode)
+	assert.Equal(t, 500, *stateAfter.FailureHTTPStatus)
+	assert.Equal(t, domain.StatusUnhealthy, view.State.Status)
+}
+
+func TestServiceUpdate_NameRules(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	createAll(t, repo, httpService("id-1", "Alpha"), httpService("id-2", "Beta"))
+
+	t.Run("another service's name in other case", func(t *testing.T) {
+		clash := httpService("id-1", "BETA")
+		clash.HTTPURL = ptr("https://changed")
+		_, err := repo.Update(t.Context(), clash)
+		require.ErrorIs(t, err, domain.ErrServiceNameTaken)
+		assert.Equal(t, "Alpha", readService(t, db, "id-1").Name)
+		assert.Equal(t, "https://x", *readService(t, db, "id-1").HTTPURL, "nothing saved")
+	})
+
+	t.Run("own name in other case", func(t *testing.T) {
+		view, err := repo.Update(t.Context(), httpService("id-1", "ALPHA"))
+		require.NoError(t, err)
+		assert.Equal(t, "ALPHA", view.Service.Name)
+		assert.Equal(t, "alpha", readService(t, db, "id-1").NameKey)
+	})
+
+	t.Run("unknown id", func(t *testing.T) {
+		_, err := repo.Update(t.Context(), httpService("nope", "Gamma"))
+		require.ErrorIs(t, err, domain.ErrNotFound)
+		assert.EqualValues(t, 2, count(t, db, &domain.Service{}))
+	})
+}

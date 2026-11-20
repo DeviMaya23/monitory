@@ -407,3 +407,212 @@ func TestDeleteService_GateFailuresNeverReachTheSpy(t *testing.T) {
 		assert.Equal(t, []string{"id-1"}, spy.deleted)
 	})
 }
+
+func getOneService(e *echo.Echo, id string, opts ...requestOption) *http.Response {
+	return do(e, http.MethodGet, "/api/services/"+id, "", append([]requestOption{withSession}, opts...)...)
+}
+
+func putService(e *echo.Echo, id, body string, opts ...requestOption) *http.Response {
+	opts = append([]requestOption{withSession, withCSRF, withJSON}, opts...)
+	return do(e, http.MethodPut, "/api/services/"+id, body, opts...)
+}
+
+func TestGetService_Answers200WithTheSameMappingAsListAndCreate(t *testing.T) {
+	headerView := fullHTTPView()
+	headerView.Service.HTTPHeaders = []domain.NameValue{{Name: "Authorization", Value: "Bearer a-full-secret-value"}}
+	for name, view := range map[string]domain.ServiceView{"http": headerView, "tcp": tcpView()} {
+		t.Run(name, func(t *testing.T) {
+			spy := &serviceSpy{view: view, views: []domain.ServiceView{view}}
+			e := newRouter(t, routerOptions{services: spy})
+
+			res := getOneService(e, "id-1")
+
+			require.Equal(t, http.StatusOK, res.StatusCode)
+			testutil.AssertConforms(t, "getService", res)
+			body := readBody(t, res)
+			assert.Equal(t, []string{"id-1"}, spy.got)
+
+			var got, listed []map[string]any
+			require.NoError(t, json.Unmarshal([]byte("["+body+"]"), &got))
+			require.NoError(t, json.Unmarshal([]byte(readBody(t, getServices(e))), &listed))
+			assert.Equal(t, listed, got, "the same mapping as an item of the list")
+			var created map[string]any
+			require.NoError(t, json.Unmarshal([]byte(readBody(t, postService(e, `{"name":"x"}`))), &created))
+			assert.Equal(t, created, got[0], "and as the answer to create")
+			if name == "http" {
+				assert.Contains(t, body, "Bearer a-full-secret-value", "header values come back in full (FR-39)")
+			}
+		})
+	}
+}
+
+func TestGetService_NotFoundIs404(t *testing.T) {
+	e := newRouter(t, routerOptions{services: &serviceSpy{err: domain.ErrNotFound}})
+
+	res := getOneService(e, "nope")
+
+	require.Equal(t, http.StatusNotFound, res.StatusCode)
+	testutil.AssertConforms(t, "getService", res)
+	assert.Equal(t, "not_found", problemCode(t, res))
+}
+
+func TestGetService_UnexpectedErrorHidesItsText(t *testing.T) {
+	e := newRouter(t, routerOptions{services: &serviceSpy{err: errors.New("disk I/O error at /data/monitory.db")}})
+
+	res := getOneService(e, "id-1")
+
+	require.Equal(t, http.StatusInternalServerError, res.StatusCode)
+	testutil.AssertConforms(t, "getService", res)
+	body := readBody(t, res)
+	assert.Contains(t, body, `"code":"internal_error"`)
+	assert.NotContains(t, body, "disk")
+}
+
+func TestGetService_WithoutASessionIs401AndNeverReachesTheSpy(t *testing.T) {
+	spy := &serviceSpy{view: tcpView()}
+	e := newRouter(t, routerOptions{services: spy})
+
+	res := do(e, http.MethodGet, "/api/services/id-1", "")
+
+	require.Equal(t, http.StatusUnauthorized, res.StatusCode)
+	testutil.AssertConforms(t, "getService", res)
+	assert.Equal(t, "unauthenticated", problemCode(t, res))
+	assert.Empty(t, spy.got)
+}
+
+func TestUpdateService_Answers200WithTheSavedServiceAndPassesTheInput(t *testing.T) {
+	spy := &serviceSpy{view: fullHTTPView()}
+	e := newRouter(t, routerOptions{services: spy})
+
+	res := putService(e, "id-1", `{"name":" Full ","check":{"type":"tcp","host":"h","port":7},"alerts_enabled":false,
+		"id":"other","paused":true,"state":{"status":"healthy"}}`)
+
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	testutil.AssertConforms(t, "updateService", res)
+	assert.Equal(t, []string{"id-1"}, spy.updatedID)
+	require.Len(t, spy.inputs, 1)
+	in := spy.inputs[0]
+	assert.Equal(t, " Full ", in.Name, "the handler maps; the usecase trims")
+	assert.Equal(t, "tcp", in.Check.Type)
+	assert.Equal(t, domain.TCPCheckInput{Host: "h", Port: 7}, in.Check.TCP)
+	assert.Equal(t, ptr(false), in.AlertsEnabled)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(readBody(t, res)), &got))
+	assert.Equal(t, "id-1", got["id"], "read-only fields come from the view, not the body")
+	assert.Equal(t, false, got["paused"])
+	assert.Equal(t, "Full", got["name"])
+}
+
+func TestUpdateService_ErrorsMapToTheirCodes(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{"not found", domain.ErrNotFound, http.StatusNotFound, "not_found"},
+		{"name taken", domain.ErrServiceNameTaken, http.StatusConflict, "service_name_taken"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newRouter(t, routerOptions{services: &serviceSpy{err: tc.err}})
+
+			res := putService(e, "id-1", `{"name":"x"}`)
+
+			require.Equal(t, tc.status, res.StatusCode)
+			testutil.AssertConforms(t, "updateService", res)
+			assert.Equal(t, tc.code, problemCode(t, res))
+		})
+	}
+
+	t.Run("validation error lists every field", func(t *testing.T) {
+		e := newRouter(t, routerOptions{services: &serviceSpy{err: domain.ValidationError{Fields: []domain.FieldError{
+			{Field: "name", Code: domain.FieldErrorRequired, Message: "Enter a name."},
+			{Field: "unhealthy_message", Code: domain.FieldErrorTooLong, Message: "Use 500 characters or fewer."},
+		}}}})
+
+		res := putService(e, "id-1", `{"name":"x"}`)
+
+		require.Equal(t, http.StatusUnprocessableEntity, res.StatusCode)
+		testutil.AssertConforms(t, "updateService", res)
+		assert.JSONEq(t, `{"title":"Validation failed","status":422,"code":"validation_failed","errors":[
+			{"field":"name","code":"required","message":"Enter a name."},
+			{"field":"unhealthy_message","code":"too_long","message":"Use 500 characters or fewer."}]}`, readBody(t, res))
+	})
+
+	t.Run("another error hides its text", func(t *testing.T) {
+		e := newRouter(t, routerOptions{services: &serviceSpy{err: errors.New("disk I/O error at /data/monitory.db")}})
+
+		res := putService(e, "id-1", `{"name":"x"}`)
+
+		require.Equal(t, http.StatusInternalServerError, res.StatusCode)
+		testutil.AssertConforms(t, "updateService", res)
+		body := readBody(t, res)
+		assert.Contains(t, body, `"code":"internal_error"`)
+		assert.NotContains(t, body, "disk")
+	})
+}
+
+func TestUpdateService_LogsOneLineWithTheIDAndNameOnly(t *testing.T) {
+	var logs bytes.Buffer
+	view := fullHTTPView()
+	view.Service.HTTPURL = ptr("https://secret.example/path")
+	view.Service.HTTPHeaders = []domain.NameValue{{Name: "Authorization", Value: "Bearer s3cret"}}
+	view.Service.HTTPBodyContent = "body-text"
+	e := newRouter(t, routerOptions{services: &serviceSpy{view: view}, logOutput: &logs})
+
+	res := putService(e, "id-1", `{"name":"x"}`)
+
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+	require.Len(t, lines, 1)
+	_, attrs, found := strings.Cut(lines[0], `msg="service updated" `)
+	require.True(t, found, "line: %s", lines[0])
+	assert.Equal(t, "service_id=id-1 service_name=Full", attrs)
+	for _, secret := range []string{"secret", "Authorization", "body-text"} {
+		assert.NotContains(t, logs.String(), secret)
+	}
+}
+
+func TestUpdateService_GateFailuresNeverReachTheSpy(t *testing.T) {
+	const validBody = `{"name":"x","check":{"type":"tcp","host":"h","port":1}}`
+	tests := []struct {
+		name   string
+		body   string
+		opts   []requestOption
+		router routerOptions
+		status int
+		code   string
+	}{
+		{"no session", validBody, []requestOption{withCSRF, withJSON}, routerOptions{}, http.StatusUnauthorized, "unauthenticated"},
+		{"no CSRF token", validBody, []requestOption{withSession, withJSON}, routerOptions{}, http.StatusForbidden, "csrf_failed"},
+		{"one byte over the size limit", validBody + " ", []requestOption{withSession, withCSRF, withJSON}, routerOptions{maxRequestBytes: len(validBody)}, http.StatusRequestEntityTooLarge, "payload_too_large"},
+		{"another content type", validBody, []requestOption{withSession, withCSRF, func(r *http.Request) { r.Header.Set(echo.HeaderContentType, "text/plain") }}, routerOptions{}, http.StatusUnsupportedMediaType, "unsupported_media_type"},
+		{"malformed body", `{"name":`, []requestOption{withSession, withCSRF, withJSON}, routerOptions{}, http.StatusBadRequest, "malformed_request"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spy := &serviceSpy{view: tcpView()}
+			tc.router.services = spy
+			e := newRouter(t, tc.router)
+
+			res := do(e, http.MethodPut, "/api/services/id-1", tc.body, tc.opts...)
+
+			require.Equal(t, tc.status, res.StatusCode)
+			testutil.AssertConforms(t, "updateService", res)
+			assert.Equal(t, tc.code, problemCode(t, res))
+			assert.Empty(t, spy.updatedID)
+		})
+	}
+
+	t.Run("a body exactly at the size limit reaches the spy", func(t *testing.T) {
+		spy := &serviceSpy{view: tcpView()}
+		e := newRouter(t, routerOptions{services: spy, maxRequestBytes: len(validBody)})
+
+		res := putService(e, "id-1", validBody)
+
+		require.Equal(t, http.StatusOK, res.StatusCode)
+		assert.Equal(t, []string{"id-1"}, spy.updatedID)
+	})
+}
