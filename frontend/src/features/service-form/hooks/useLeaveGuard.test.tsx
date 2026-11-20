@@ -39,11 +39,7 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
     <>
       <input aria-label="name" value={name} onChange={(event) => setName(event.target.value)} />
       <input aria-label="url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} />
-      <input
-        aria-label="body"
-        value={bodyContent}
-        onChange={(event) => setBodyContent(event.target.value)}
-      />
+      <input aria-label="body" value={bodyContent} onChange={(event) => setBodyContent(event.target.value)} />
       <button onClick={() => setQueryRows((n) => n + 1)}>add query</button>
       <button onClick={() => setQueryRows((n) => Math.max(0, n - 1))}>remove query</button>
       <button onClick={() => setHeaderRows((n) => n + 1)}>add header</button>

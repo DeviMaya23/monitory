@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FIELD_IDS } from './fieldIds'
+import { FIELD_IDS, fieldId } from './fieldIds'
 import { fieldLabel, summaryTitle } from './fieldLabels'
 
 describe('fieldLabel', () => {
@@ -19,6 +19,33 @@ describe('fieldLabel', () => {
 
   it.each(['check.type', 'toString'])('maps %s to itself with no target', (path) => {
     expect(fieldLabel(path)).toEqual({ label: path, target: null })
+  })
+})
+
+describe('fieldLabel of the Request group’s rows and body', () => {
+  it.each([
+    ['check.query_params[2].name', 'Query parameter 3 name'],
+    ['check.query_params[0].value', 'Query parameter 1 value'],
+    ['check.headers[0].value', 'Header 1 value'],
+    ['check.headers[4].name', 'Header 5 name'],
+    ['check.body.content', 'Body'],
+  ] as const)('maps %s to %s with itself as the input', (path, label) => {
+    expect(fieldLabel(path)).toEqual({ label, target: path })
+  })
+
+  it.each([
+    ['check.query_params', 'Query parameters'],
+    ['check.headers', 'Headers'],
+    ['check.body.type', 'Body type'],
+  ])('maps %s to %s with no input', (path, label) => {
+    expect(fieldLabel(path)).toEqual({ label, target: null })
+  })
+
+  it('maps the id of each row input and the body text', () => {
+    expect(fieldId('check.query_params[1].name')).toBe('service-query-1-name')
+    expect(fieldId('check.headers[3].value')).toBe('service-header-3-value')
+    expect(fieldId('check.body.content')).toBe('service-body-content')
+    expect(fieldId('check.url')).toBe('service-url')
   })
 })
 

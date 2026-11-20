@@ -57,6 +57,52 @@ beforeEach(() => {
   vi.resetAllMocks()
 })
 
+describe('the request rows and body (FR-35, FR-37)', () => {
+  it('sends both lists in row order, untrimmed, an empty row as it is, and the body as typed', async () => {
+    vi.mocked(createService).mockResolvedValue(makeService())
+    const { result } = setup()
+    await act(() =>
+      result.current.submit({
+        ...VALUES,
+        query_params: [
+          { name: ' a ', value: ' 1 ' },
+          { name: '', value: '' },
+        ],
+        headers: [{ name: 'X-Key', value: 'secret-value' }],
+        body_type: 'json',
+        body_content: '{"a":1}',
+      }),
+    )
+    expect(vi.mocked(createService).mock.calls[0][0].check).toStrictEqual({
+      type: 'http',
+      method: 'POST',
+      url: 'https://search.example.com/health',
+      query_params: [
+        { name: ' a ', value: ' 1 ' },
+        { name: '', value: '' },
+      ],
+      headers: [{ name: 'X-Key', value: 'secret-value' }],
+      body: { type: 'json', content: '{"a":1}' },
+    })
+  })
+
+  it.each(['text', 'form'] as const)('sends a %s body', async (type) => {
+    vi.mocked(createService).mockResolvedValue(makeService())
+    const { result } = setup()
+    await act(() => result.current.submit({ ...VALUES, body_type: type, body_content: 'a=b' }))
+    expect(vi.mocked(createService).mock.calls[0][0]).toMatchObject({ check: { body: { type, content: 'a=b' } } })
+  })
+
+  it('sends no body for none, even with text kept in the form', async () => {
+    vi.mocked(createService).mockResolvedValue(makeService())
+    const { result } = setup()
+    await act(() => result.current.submit({ ...VALUES, body_type: 'none', body_content: 'typed' }))
+    const check = vi.mocked(createService).mock.calls[0][0].check
+    expect('body' in check).toBe(false)
+    expect(check).toMatchObject({ query_params: [], headers: [] })
+  })
+})
+
 describe('a 201', () => {
   it('is a success with the returned service, and the request has the name, the HTTP check and the alert settings (FR-6)', async () => {
     const service = makeService({ name: 'Search API' })

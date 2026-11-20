@@ -1352,3 +1352,433 @@ describe('the Timing group (FR-41, FR-51, FR-53, FR-56, FR-57)', () => {
     expect(alertsSwitch()).toHaveFocus()
   })
 })
+
+describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4, NFR-7)', () => {
+  type User = ReturnType<typeof userEvent.setup>
+  const addParameter = (user: User) => user.click(screen.getByRole('button', { name: 'Add parameter' }))
+  const addHeader = (user: User) => user.click(screen.getByRole('button', { name: 'Add header' }))
+  const chooseBody = (user: User, name: string) => user.click(screen.getByRole('radio', { name }))
+  const bodyText = () => screen.getByLabelText('Body')
+  const summary = () => screen.getByRole('alert')
+  const entries = () => within(summary()).getAllByRole('listitem')
+
+  /** A form with query rows 1 and 2, header row 1 and a JSON body, all typed. */
+  async function fillRows(user: User) {
+    await addParameter(user)
+    await user.type(screen.getByLabelText('Query parameter 1 name'), 'page')
+    await user.type(screen.getByLabelText('Query parameter 1 value'), '2')
+    await addParameter(user)
+    await user.type(screen.getByLabelText('Query parameter 2 name'), 'q')
+    await addHeader(user)
+    await user.type(screen.getByLabelText('Header 1 name'), 'X-Key')
+    await user.type(screen.getByLabelText('Header 1 value'), 'secret-value')
+    await chooseBody(user, 'JSON')
+    await user.click(bodyText())
+    await user.paste('{"a":1}')
+  }
+
+  /** Fills the form with rows, has the request fail with `error`, and waits for the saving state to end. */
+  async function failWithRows(user: User, error: unknown) {
+    vi.mocked(createService).mockRejectedValueOnce(error)
+    await fill(user)
+    await fillRows(user)
+    await user.click(saveButton())
+    await waitFor(() => expect(saveButton()).toBeEnabled())
+  }
+
+  describe('idle', () => {
+    it('shows the rows, Add buttons, the headers hint and Body type on None after the method and URL', () => {
+      setup()
+      expect(screen.getByRole('group', { name: 'Query parameters' })).toBeInTheDocument()
+      expect(screen.getByText('No query parameters.')).toBeInTheDocument()
+      expect(screen.getByRole('group', { name: 'Headers' })).toHaveAccessibleDescription('Values are shown in full.')
+      expect(screen.getByText('No headers.')).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'None' })).toBeChecked()
+      expect(screen.getAllByRole('radio')).toHaveLength(4)
+      expect(screen.queryByLabelText('Body')).not.toBeInTheDocument()
+      const request = screen.getByRole('group', { name: 'Request' })
+      expect(request).toContainElement(screen.getByRole('group', { name: 'Headers' }))
+      expect(urlInput().compareDocumentPosition(screen.getByRole('group', { name: 'Query parameters' }))).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      )
+      expect(footerStatus()).toBeEmptyDOMElement()
+    })
+  })
+
+  describe('sending', () => {
+    it('sends the rows in order as typed, a header value in full, and the JSON body', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await fill(user)
+      await fillRows(user)
+      await user.click(saveButton())
+      await marker()
+      expect(sentInput().check).toStrictEqual({
+        type: 'http',
+        method: 'GET',
+        url: URL_VALUE,
+        query_params: [
+          { name: 'page', value: '2' },
+          { name: 'q', value: '' },
+        ],
+        headers: [{ name: 'X-Key', value: 'secret-value' }],
+        body: { type: 'json', content: '{"a":1}' },
+      })
+      expect(screen.queryByDisplayValue('••••')).not.toBeInTheDocument()
+    })
+
+    it('shows a header value in full in its input', async () => {
+      const { user } = setup()
+      await addHeader(user)
+      await user.type(screen.getByLabelText('Header 1 value'), 'Bearer abc.def')
+      expect(screen.getByLabelText('Header 1 value')).toHaveValue('Bearer abc.def')
+      expect(screen.getByLabelText('Header 1 value')).toHaveAttribute('type', 'text')
+    })
+
+    it('sends a row with an empty name as it is, with no client error', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await fill(user)
+      await addParameter(user)
+      await addHeader(user)
+      await user.click(saveButton())
+      await marker()
+      expect(sentInput().check).toMatchObject({
+        query_params: [{ name: '', value: '' }],
+        headers: [{ name: '', value: '' }],
+      })
+    })
+
+    it.each([
+      ['Plain text', 'text'],
+      ['Form (URL-encoded)', 'form'],
+    ])('sends a %s body', async (option, type) => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await fill(user)
+      await chooseBody(user, option)
+      await user.click(bodyText())
+      await user.paste(' a=b&c=d ')
+      await user.click(saveButton())
+      await marker()
+      expect(sentInput().check).toMatchObject({ body: { type, content: ' a=b&c=d ' } })
+    })
+
+    it('sends no body when the type is back on None, even with text typed', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await fill(user)
+      await chooseBody(user, 'JSON')
+      await user.click(bodyText())
+      await user.paste('{"a":1}')
+      await chooseBody(user, 'None')
+      await user.click(saveButton())
+      await marker()
+      expect('body' in sentInput().check).toBe(false)
+    })
+
+    it('keeps the body text when the type goes to None and comes back', async () => {
+      const { user } = setup()
+      await chooseBody(user, 'Plain text')
+      await user.click(bodyText())
+      await user.paste('hello')
+      await chooseBody(user, 'None')
+      expect(screen.queryByLabelText('Body')).not.toBeInTheDocument()
+      await chooseBody(user, 'JSON')
+      expect(bodyText()).toHaveValue('hello')
+      expect(bodyText()).toHaveAccessibleDescription('Sent as entered.')
+    })
+
+    it('locks the rows and the body text and disables Add, Remove and the choice in flight, and unlocks after a failure', async () => {
+      const settle = pending()
+      const { user } = setup()
+      await fill(user)
+      await fillRows(user)
+      await user.click(saveButton())
+      await waitFor(() => expect(saveButton()).toBeDisabled())
+      for (const label of [
+        'Query parameter 1 name',
+        'Query parameter 2 value',
+        'Header 1 name',
+        'Header 1 value',
+        'Body',
+      ]) {
+        expect(screen.getByLabelText(label)).toHaveAttribute('readonly')
+      }
+      for (const name of ['Add parameter', 'Add header', 'Remove query parameter 1', 'Remove header 1']) {
+        expect(screen.getByRole('button', { name })).toBeDisabled()
+      }
+      for (const radio of screen.getAllByRole('radio')) expect(radio).toHaveAttribute('aria-disabled', 'true')
+      await act(async () => settle.reject(problem(500, 'internal_error')))
+      await waitFor(() => expect(saveButton()).toBeEnabled())
+      expect(screen.getByLabelText('Header 1 value')).not.toHaveAttribute('readonly')
+      expect(bodyText()).not.toHaveAttribute('readonly')
+      expect(screen.getByRole('button', { name: 'Add header' })).toBeEnabled()
+      for (const radio of screen.getAllByRole('radio')) expect(radio).not.toHaveAttribute('aria-disabled', 'true')
+    })
+  })
+
+  describe('a 422 on rows and the body', () => {
+    it('lists each in the order sent as a link to its input, shows each under it, and focuses the summary', async () => {
+      const { user } = setup()
+      await failWithRows(
+        user,
+        validationProblem(
+          fieldError('check.query_params[1].name', 'A query parameter needs a name.', 'required'),
+          fieldError('check.headers[0].value', '<i>Too long.</i>', 'too_long'),
+          fieldError('check.body.content', 'The body is over its limit.', 'too_long'),
+        ),
+      )
+      expect(summary()).toHaveFocus()
+      expect(summary()).toHaveAttribute('tabindex', '-1')
+      expect(entries().map((entry) => entry.textContent)).toEqual([
+        'Query parameter 2 name: A query parameter needs a name.',
+        'Header 1 value: <i>Too long.</i>',
+        'Body: The body is over its limit.',
+      ])
+      expect(document.querySelector('i')).toBeNull()
+      expect(summary()).toHaveTextContent('3 fields need fixing before this can be saved.')
+      const field = (label: string) => screen.getByLabelText(label)
+      expect(field('Query parameter 2 name')).toHaveAttribute('aria-invalid', 'true')
+      expect(describedBy(field('Query parameter 2 name'))).toBe('A query parameter needs a name.')
+      expect(describedBy(field('Header 1 value'))).toBe('<i>Too long.</i>')
+      expect(describedBy(bodyText())).toBe('The body is over its limit.')
+      expect(bodyText()).toHaveAttribute('aria-invalid', 'true')
+      expect(field('Header 1 name')).not.toHaveAttribute('aria-invalid')
+      expect(field('Query parameter 1 name')).not.toHaveAttribute('aria-invalid')
+      for (const [index, label] of ['Query parameter 2 name', 'Header 1 value', 'Body'].entries()) {
+        await user.click(within(entries()[index]).getByRole('link'))
+        expect(field(label)).toHaveFocus()
+      }
+    })
+
+    it('shows a list’s message under its rows, lists it as plain text, and marks no input invalid', async () => {
+      const { user } = setup()
+      await failWithRows(
+        user,
+        validationProblem(
+          fieldError('check.query_params', 'Too many query parameters.', 'too_many'),
+          fieldError('check.headers', 'Too many headers.', 'too_many'),
+        ),
+      )
+      expect(entries().map((entry) => entry.textContent)).toEqual([
+        'Query parameters: Too many query parameters.',
+        'Headers: Too many headers.',
+      ])
+      expect(within(summary()).queryByRole('link')).toBeNull()
+      expect(screen.getByRole('group', { name: 'Query parameters' })).toHaveTextContent('Too many query parameters.')
+      expect(screen.getByRole('group', { name: 'Headers' })).toHaveTextContent('Too many headers.')
+      expect(document.querySelector('[aria-invalid]')).toBeNull()
+    })
+
+    it('lists check.body.type as plain text with no link and marks no input invalid', async () => {
+      const { user } = setup()
+      await failWithRows(user, validationProblem(fieldError('check.body.type', 'Unknown body type.', 'invalid_value')))
+      expect(entries().map((entry) => entry.textContent)).toEqual(['Body type: Unknown body type.'])
+      expect(within(summary()).queryByRole('link')).toBeNull()
+      expect(document.querySelector('[aria-invalid]')).toBeNull()
+    })
+
+    it('shows a check.url error and a row error together, and clears them independently', async () => {
+      const { user } = setup()
+      await failWithRows(
+        user,
+        validationProblem(
+          fieldError('check.url', 'The URL is too long.', 'too_long'),
+          fieldError('check.headers[0].name', 'A header needs a name.', 'required'),
+        ),
+      )
+      expect(entries()).toHaveLength(2)
+      await user.type(screen.getByLabelText('Header 1 name'), 'x')
+      expect(entries().map((entry) => entry.textContent)).toEqual(['URL: The URL is too long.'])
+      expect(describedBy(urlInput())).toBe('The URL is too long.')
+      await user.type(urlInput(), 'x')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('clearing a 422', () => {
+    const SIX = () =>
+      validationProblem(
+        fieldError('check.query_params[0].name', 'Q0.'),
+        fieldError('check.query_params', 'QL.'),
+        fieldError('check.headers[0].value', 'H0.'),
+        fieldError('check.headers[1].name', 'H1.'),
+        fieldError('check.headers', 'HL.'),
+        fieldError('check.body.content', 'B.'),
+      )
+
+    async function setupSix(user: User) {
+      vi.mocked(createService).mockRejectedValueOnce(SIX())
+      await fill(user)
+      await addParameter(user)
+      await addHeader(user)
+      await addHeader(user)
+      await chooseBody(user, 'JSON')
+      await user.click(saveButton())
+      await waitFor(() => expect(saveButton()).toBeEnabled())
+    }
+    const messages = () => entries().map((entry) => entry.textContent)
+
+    it('editing a row input removes only its error and entry', async () => {
+      const { user } = setup()
+      await setupSix(user)
+      await user.type(screen.getByLabelText('Header 2 name'), 'x')
+      expect(messages()).toEqual([
+        'Query parameter 1 name: Q0.',
+        'Query parameters: QL.',
+        'Header 1 value: H0.',
+        'Headers: HL.',
+        'Body: B.',
+      ])
+      expect(screen.getByLabelText('Header 2 name')).not.toHaveAttribute('aria-invalid')
+      expect(screen.getByLabelText('Header 1 value')).toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('Add parameter removes the list’s own error and entry only', async () => {
+      const { user } = setup()
+      await setupSix(user)
+      await addParameter(user)
+      expect(messages()).not.toContain('Query parameters: QL.')
+      expect(messages()).toHaveLength(5)
+      expect(screen.getByLabelText('Query parameter 1 name')).toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('Remove removes the list’s row errors and its own, and leaves the other list’s', async () => {
+      const { user } = setup()
+      await setupSix(user)
+      await user.click(screen.getByRole('button', { name: 'Remove header 2' }))
+      expect(messages()).toEqual(['Query parameter 1 name: Q0.', 'Query parameters: QL.', 'Body: B.'])
+      expect(screen.getByLabelText('Header 1 value')).not.toHaveAttribute('aria-invalid')
+      expect(screen.getByLabelText('Query parameter 1 name')).toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('typing in the Body removes check.body.content', async () => {
+      const { user } = setup()
+      await setupSix(user)
+      await user.type(bodyText(), 'x')
+      expect(messages()).not.toContain('Body: B.')
+      expect(messages()).toHaveLength(5)
+    })
+
+    it('choosing another Body type removes both body errors, and the last removal removes the summary', async () => {
+      vi.mocked(createService).mockRejectedValueOnce(
+        validationProblem(fieldError('check.body.type', 'T.'), fieldError('check.body.content', 'B.')),
+      )
+      const { user } = setup()
+      await fill(user)
+      await chooseBody(user, 'JSON')
+      await user.click(saveButton())
+      await waitFor(() => expect(saveButton()).toBeEnabled())
+      expect(messages()).toEqual(['Body type: T.', 'Body: B.'])
+      await chooseBody(user, 'Plain text')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(describedBy(bodyText())).toBe('Sent as entered.')
+    })
+  })
+
+  describe('the 413 banner', () => {
+    it('has the two lines about the body and the header values', async () => {
+      const { user } = setup()
+      vi.mocked(createService).mockRejectedValueOnce(problem(413, 'payload_too_large'))
+      await fill(user)
+      await user.click(saveButton())
+      const banner = await screen.findByRole('alert')
+      expect(banner).toHaveTextContent('The service is too large to save.')
+      expect(banner).toHaveTextContent('Together its fields are over 1 MB. Shorten the body or the header values.')
+    })
+  })
+
+  describe('leaving without saving', () => {
+    it.each([
+      ['adding a query parameter row', (user: User) => addParameter(user)],
+      ['adding a header row', (user: User) => addHeader(user)],
+      ['choosing a body type', (user: User) => chooseBody(user, 'JSON')],
+      [
+        'typing body text while the type is None',
+        async (user: User) => {
+          await chooseBody(user, 'JSON')
+          await user.click(bodyText())
+          await user.paste('x')
+          await chooseBody(user, 'None')
+        },
+      ],
+    ])(
+      '%s makes the footer say Unsaved changes, arms the unload prompt and makes Cancel ask',
+      async (_name, change) => {
+        const { user } = setup()
+        expect(unloadPrompts()).toBe(false)
+        await change(user)
+        expect(footerStatus()).toHaveTextContent('Unsaved changes')
+        expect(unloadPrompts()).toBe(true)
+        await user.click(cancelButton())
+        expect(discardDialog()).toBeInTheDocument()
+      },
+    )
+
+    it('typing in a row alone keeps it changed, and putting everything back empties the status and Cancel leaves', async () => {
+      const { user } = setup()
+      await addParameter(user)
+      await user.type(screen.getByLabelText('Query parameter 1 name'), 'a')
+      await chooseBody(user, 'JSON')
+      await user.click(bodyText())
+      await user.paste('x')
+      await user.click(screen.getByRole('button', { name: 'Remove query parameter 1' }))
+      expect(footerStatus()).toHaveTextContent('Unsaved changes')
+      await user.clear(bodyText())
+      await chooseBody(user, 'None')
+      expect(footerStatus()).toBeEmptyDOMElement()
+      expect(unloadPrompts()).toBe(false)
+      await user.click(cancelButton())
+      await marker()
+    })
+  })
+
+  describe('Tab order (NFR-4)', () => {
+    it('goes from the URL to Add parameter, Add header, one Body type stop, then Check interval, with arrow keys moving the choice', async () => {
+      const { user } = setup()
+      await user.click(urlInput())
+      await user.tab()
+      expect(screen.getByRole('button', { name: 'Add parameter' })).toHaveFocus()
+      await user.tab()
+      expect(screen.getByRole('button', { name: 'Add header' })).toHaveFocus()
+      await user.tab()
+      expect(screen.getByRole('radio', { name: 'None' })).toHaveFocus()
+      await user.keyboard('{ArrowRight}')
+      expect(screen.getByRole('radio', { name: 'JSON' })).toBeChecked()
+      expect(bodyText()).toBeInTheDocument()
+      await user.tab()
+      expect(bodyText()).toHaveFocus()
+      await user.tab()
+      expect(screen.getByLabelText('Check interval')).toHaveFocus()
+    })
+
+    it('goes to Check interval right after the Body type with the body None', async () => {
+      const { user } = setup()
+      await user.click(screen.getByRole('radio', { name: 'None' }))
+      await user.tab()
+      expect(screen.getByLabelText('Check interval')).toHaveFocus()
+    })
+
+    it('goes query Name, Value, Remove, Add parameter, header Name, Value, Remove, Add header with a row in each list', async () => {
+      const { user } = setup()
+      await addParameter(user)
+      await addHeader(user)
+      await user.click(urlInput())
+      const order = [
+        'Query parameter 1 name',
+        'Query parameter 1 value',
+        'Remove query parameter 1',
+        'Add parameter',
+        'Header 1 name',
+        'Header 1 value',
+        'Remove header 1',
+        'Add header',
+      ]
+      for (const label of order) {
+        await user.tab()
+        expect(document.activeElement).toHaveAccessibleName(label)
+      }
+    })
+  })
+})
