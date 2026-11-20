@@ -22,7 +22,6 @@ Out of scope:
 - Changing what a saved check does: `CheckHTTP` and the runner keep their behavior (the body of a saved check is still read only when it has JSON rules). The new entry point is used by a test only.
 - A rate limit, a queue or a concurrency limit on tests: one admin; a test is bounded by its timeout.
 - Testing a saved service by id, name uniqueness and the interval, retries and budget settings: the test needs the check and the timeout only (the contract's `ServiceTestInput`).
-- A second certificate failure reason (backlog; needs a contract change).
 - Logging a test: no line is written for it (the URL, headers and body must never be logged, and there is nothing else worth a line).
 
 ## Prerequisite

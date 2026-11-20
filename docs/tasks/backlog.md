@@ -86,8 +86,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - `service-form-alerts`: `TargetDialog.test.tsx` "adds a header row… (FR-92)" timed out once at 5000 ms in a full parallel run (1 of 3 runs); it is not part of that diff. Matters when: the same case times out again on CI or on another task's branch; then raise its timeout in that file.
 
-- `http-certificate-options`: an expired or untrusted certificate and a certificate too close to expiry are both `certificate_problem`, and the days left are not recorded. Matters when: the task that words the failure reason for the admin wants to show which of the two it was. Needs: the user (a second code is a contract change).
-
 - `webhook-sender`: a custom webhook header the HTTP library controls (`Host`, `Content-Length`, `Transfer-Encoding`, `Trailer`) is accepted on save and silently not sent, and a value loses its surrounding spaces. Matters when: an admin enters one of these names and expects it to reach the receiver; best fixed with the save-time header rule (the `targets-api` line above). Needs: the user's approval of that rule.
 
 ## Decisions waiting on the user
