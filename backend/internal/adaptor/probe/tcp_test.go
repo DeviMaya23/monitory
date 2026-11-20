@@ -143,6 +143,10 @@ func TestCheckTCP_Timeout(t *testing.T) {
 	var hasDeadline bool
 	p, _ := dialStub(func(ctx context.Context, address string) (net.Conn, error) {
 		deadline, hasDeadline = ctx.Deadline()
+		if !hasDeadline {
+			// Fail at once: blocking here would hang the test until go test's own limit.
+			return nil, errors.New("the dial context has no deadline")
+		}
 		return blockUntilDone(ctx, address)
 	})
 
@@ -228,6 +232,56 @@ func TestCheckTCP_IPv6Address(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "[::1]:8443", got)
+}
+
+func TestCheckTCP_PortLimits(t *testing.T) {
+	for _, port := range []int{1, 65535} {
+		t.Run(strconv.Itoa(port), func(t *testing.T) {
+			var got string
+			p, _ := dialStub(func(_ context.Context, address string) (net.Conn, error) {
+				got = address
+				return nil, errors.New("stop")
+			})
+
+			_, err := p.CheckTCP(t.Context(), domain.TCPCheck{Host: "127.0.0.1", Port: port, Timeout: time.Second})
+
+			require.NoError(t, err)
+			assert.Equal(t, "127.0.0.1:"+strconv.Itoa(port), got)
+		})
+	}
+}
+
+// A listener closed and then opened again on the same port: the second attempt is
+// healthy, so the prober keeps nothing from the failed one.
+func TestCheckTCP_ListenerReopened(t *testing.T) {
+	first := listen(t)
+	host, port := hostPort(t, first.Addr())
+	require.NoError(t, first.Close())
+	p := NewTCPProber()
+	check := domain.TCPCheck{Host: host, Port: port, Timeout: 2 * time.Second}
+
+	res, err := p.CheckTCP(t.Context(), check)
+	require.NoError(t, err)
+	requireFailure(t, res, domain.FailureCouldNotConnect)
+
+	reopened, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		t.Skipf("the port was taken by another process: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	go func() {
+		for {
+			c, err := reopened.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+
+	res, err = p.CheckTCP(t.Context(), check)
+	require.NoError(t, err)
+	assert.Equal(t, domain.CheckResult{Healthy: true}, res)
 }
 
 func TestCheckTCP_Concurrent(t *testing.T) {
