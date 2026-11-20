@@ -63,6 +63,18 @@ type serviceSpy struct {
 	deleted   []string
 	got       []string // ids given to GetService
 	updatedID []string // ids given to UpdateService, its inputs are in inputs
+	paused    []string // ids given to PauseService
+	resumed   []string // ids given to ResumeService
+}
+
+func (s *serviceSpy) PauseService(_ context.Context, id string) (domain.ServiceView, error) {
+	s.paused = append(s.paused, id)
+	return s.view, s.err
+}
+
+func (s *serviceSpy) ResumeService(_ context.Context, id string) (domain.ServiceView, error) {
+	s.resumed = append(s.resumed, id)
+	return s.view, s.err
 }
 
 func (s *serviceSpy) GetService(_ context.Context, id string) (domain.ServiceView, error) {

@@ -24,6 +24,8 @@ type ServiceService interface {
 	GetService(ctx context.Context, id string) (domain.ServiceView, error)
 	UpdateService(ctx context.Context, id string, input domain.ServiceInput) (domain.ServiceView, error)
 	DeleteService(ctx context.Context, id string) error
+	PauseService(ctx context.Context, id string) (domain.ServiceView, error)
+	ResumeService(ctx context.Context, id string) (domain.ServiceView, error)
 }
 
 // TargetService is what the target handlers need from the usecase layer.
