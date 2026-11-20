@@ -133,7 +133,8 @@ func run(log *slog.Logger) error {
 	defer dispatcher.Close()
 
 	checkResults := usecase.NewCheckResultService(repository.NewServiceStateRepository(db), serviceRepo, targetRepo, dispatcher, clock.Real{})
-	runner := worker.NewCheckRunner(probe.NewHTTPProber(cfg.Limits.MaxRedirects, cfg.Limits.ResponseBodyMaxBytes, clock.Real{}), checkResults, clock.Real{})
+	httpProber := probe.NewHTTPProber(cfg.Limits.MaxRedirects, cfg.Limits.ResponseBodyMaxBytes, clock.Real{})
+	runner := worker.NewCheckRunner(httpProber, probe.NewTCPProber(), checkResults, clock.Real{}, log)
 	scheduler := worker.NewScheduler(runner.Run, clock.Real{}, log)
 	defer scheduler.Close()
 

@@ -1,9 +1,14 @@
 package worker_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -171,6 +176,92 @@ func (p *fakeProber) waitForCall(t *testing.T) {
 	}
 }
 
+type fakeTCPProber struct {
+	log    *eventLog
+	called chan struct{}
+
+	mu     sync.Mutex
+	script []step
+	checks []domain.TCPCheck
+}
+
+func newFakeTCPProber(log *eventLog, script ...step) *fakeTCPProber {
+	return &fakeTCPProber{log: log, called: make(chan struct{}, 20), script: script}
+}
+
+func (p *fakeTCPProber) CheckTCP(ctx context.Context, check domain.TCPCheck) (domain.CheckResult, error) {
+	p.mu.Lock()
+	n := len(p.checks)
+	p.checks = append(p.checks, check)
+	var s step
+	if n < len(p.script) {
+		s = p.script[n]
+	} else {
+		s = step{err: errors.New("unscripted attempt")}
+	}
+	p.mu.Unlock()
+
+	p.log.add("attempt")
+	p.called <- struct{}{}
+	if s.block {
+		<-ctx.Done()
+		return domain.CheckResult{}, ctx.Err()
+	}
+	if s.before != nil {
+		s.before()
+	}
+	return s.result, s.err
+}
+
+func (p *fakeTCPProber) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.checks)
+}
+
+func (p *fakeTCPProber) waitForCall(t *testing.T) {
+	t.Helper()
+	select {
+	case <-p.called:
+	case <-time.After(waitLimit):
+		require.FailNow(t, "the runner never made the attempt")
+	}
+}
+
+// logSink is a log destination safe for concurrent writes.
+type logSink struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *logSink) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *logSink) text() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// lines returns each log line as an object.
+func (b *logSink) lines() []map[string]any {
+	var out []map[string]any
+	for _, l := range strings.Split(strings.TrimSpace(b.text()), "\n") {
+		if l == "" {
+			continue
+		}
+		m := map[string]any{}
+		if err := json.Unmarshal([]byte(l), &m); err != nil {
+			panic(err)
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
 type recorded struct {
 	serviceID string
 	result    domain.CheckResult
@@ -179,6 +270,8 @@ type recorded struct {
 type fakeRecorder struct {
 	log *eventLog
 	err error
+	// onRecord, when set, runs after the result is stored.
+	onRecord func()
 
 	mu      sync.Mutex
 	records []recorded
@@ -189,6 +282,9 @@ func (r *fakeRecorder) RecordCheckResult(_ context.Context, id string, result do
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.records = append(r.records, recorded{id, result})
+	if r.onRecord != nil {
+		r.onRecord()
+	}
 	return r.err
 }
 
@@ -202,20 +298,49 @@ type rig struct {
 	log      *eventLog
 	clock    *countingClock
 	prober   *fakeProber
+	tcp      *fakeTCPProber
 	recorder *fakeRecorder
+	logBuf   *logSink
 	runner   *worker.CheckRunner
 }
 
-func newRig(script ...step) *rig {
+func newRig(script ...step) *rig { return newRigFor(domain.CheckTypeHTTP, script...) }
+
+// newRigFor scripts the prober of the given type; the other one has no script.
+func newRigFor(kind domain.CheckType, script ...step) *rig {
 	log := &eventLog{}
 	r := &rig{
 		log:      log,
 		clock:    newCountingClock(log),
-		prober:   newFakeProber(log, script...),
 		recorder: &fakeRecorder{log: log},
+		logBuf:   &logSink{},
 	}
-	r.runner = worker.NewCheckRunner(r.prober, r.recorder, r.clock)
+	if kind == domain.CheckTypeTCP {
+		r.prober = newFakeProber(log)
+		r.tcp = newFakeTCPProber(log, script...)
+	} else {
+		r.prober = newFakeProber(log, script...)
+		r.tcp = newFakeTCPProber(log)
+	}
+	r.runner = worker.NewCheckRunner(r.prober, r.tcp, r.recorder, r.clock, slog.New(slog.NewJSONHandler(r.logBuf, nil)))
 	return r
+}
+
+// attempts counts the calls to the prober of the given type.
+func (r *rig) attempts(kind domain.CheckType) int {
+	if kind == domain.CheckTypeTCP {
+		return r.tcp.callCount()
+	}
+	return r.prober.callCount()
+}
+
+func (r *rig) waitForAttempt(t *testing.T, kind domain.CheckType) {
+	t.Helper()
+	if kind == domain.CheckTypeTCP {
+		r.tcp.waitForCall(t)
+		return
+	}
+	r.prober.waitForCall(t)
 }
 
 // run starts a sequence and returns the channel its error arrives on.
@@ -244,6 +369,21 @@ func httpService(retries, intervalSeconds int) domain.Service {
 		HTTPMethod: ptr("HEAD"), HTTPURL: ptr("https://example.test/health"),
 		TimeoutSeconds: 7, RetryCount: retries, RetryIntervalSeconds: intervalSeconds,
 	}
+}
+
+func tcpService(retries, intervalSeconds int) domain.Service {
+	return domain.Service{
+		ID: "svc-1", Name: "db", CheckType: domain.CheckTypeTCP,
+		TCPHost: ptr("db.internal.test"), TCPPort: ptr(5432),
+		TimeoutSeconds: 3, RetryCount: retries, RetryIntervalSeconds: intervalSeconds,
+	}
+}
+
+func serviceOf(kind domain.CheckType, retries, intervalSeconds int) domain.Service {
+	if kind == domain.CheckTypeTCP {
+		return tcpService(retries, intervalSeconds)
+	}
+	return httpService(retries, intervalSeconds)
 }
 
 func healthy() step { return step{result: domain.CheckResult{Healthy: true}} }
@@ -428,22 +568,311 @@ func TestRun_ContextWinsOverFiredTimer(t *testing.T) {
 	assert.Empty(t, r.recorder.list())
 }
 
-func TestRun_TCPService(t *testing.T) {
+func TestRun_HTTPServiceProbedAndRecorded(t *testing.T) {
 	r := newRig(healthy())
-	svc := httpService(2, 5)
-	svc.CheckType = domain.CheckTypeTCP
-	svc.HTTPMethod, svc.HTTPURL = nil, nil
 
-	require.NoError(t, r.runner.Run(t.Context(), svc))
+	require.NoError(t, r.runner.Run(t.Context(), httpService(2, 5)))
+
+	assert.Equal(t, 1, r.prober.callCount())
+	assert.Zero(t, r.tcp.callCount())
+	assert.Len(t, r.recorder.list(), 1)
+	assert.Zero(t, r.clock.timerCount())
+}
+
+func TestRun_TCPHealthyFirstAttempt(t *testing.T) {
+	r := newRigFor(domain.CheckTypeTCP, healthy())
+
+	require.NoError(t, r.runner.Run(t.Context(), tcpService(2, 7)))
+
+	assert.Equal(t, []string{"attempt", "record"}, r.log.list())
+	assert.Equal(t, []domain.TCPCheck{{Host: "db.internal.test", Port: 5432, Timeout: 3 * time.Second}}, r.tcp.checks)
+	assert.Zero(t, r.prober.callCount())
+	assert.Zero(t, r.clock.timerCount())
+	require.Len(t, r.recorder.list(), 1)
+	assert.Equal(t, "svc-1", r.recorder.list()[0].serviceID)
+	assert.True(t, r.recorder.list()[0].result.Healthy)
+}
+
+// TestRun_RetryRule shows both types follow one retry rule.
+func TestRun_RetryRule(t *testing.T) {
+	for _, kind := range []domain.CheckType{domain.CheckTypeHTTP, domain.CheckTypeTCP} {
+		t.Run(string(kind), func(t *testing.T) {
+			t.Run("three failures record the last after two waits of 7s", func(t *testing.T) {
+				r := newRigFor(kind, failed(domain.FailureTimedOut), failed(domain.FailureCouldNotConnect), failed(domain.FailureCouldNotConnect))
+				done := r.run(t.Context(), serviceOf(kind, 2, 7))
+				for range 2 {
+					r.waitForAttempt(t, kind)
+					assert.Equal(t, 7*time.Second, r.clock.waitForTimer(t))
+					r.clock.Advance(6 * time.Second)
+					assert.Equal(t, 1, r.clock.Pending(), "6s is not the interval")
+					r.clock.Advance(time.Second)
+				}
+				require.NoError(t, r.finish(t, done))
+
+				assert.Equal(t, []string{"attempt", "wait 7s", "attempt", "wait 7s", "attempt", "record"}, r.log.list())
+				require.Len(t, r.recorder.list(), 1)
+				assert.Equal(t, domain.FailureCouldNotConnect, r.recorder.list()[0].result.Failure.Code)
+			})
+			t.Run("a failure then a success is healthy with no further wait", func(t *testing.T) {
+				r := newRigFor(kind, failed(domain.FailureTimedOut), healthy(), failed(domain.FailureTimedOut))
+				done := r.run(t.Context(), serviceOf(kind, 2, 7))
+				assert.Equal(t, 7*time.Second, r.clock.waitForTimer(t))
+				r.clock.Advance(7 * time.Second)
+				require.NoError(t, r.finish(t, done))
+
+				assert.Equal(t, []string{"attempt", "wait 7s", "attempt", "record"}, r.log.list())
+				assert.Equal(t, 1, r.clock.timerCount())
+				assert.True(t, r.recorder.list()[0].result.Healthy)
+			})
+			for name, retries := range map[string]int{"zero": 0, "negative": -3} {
+				t.Run("retry count "+name+" makes one attempt", func(t *testing.T) {
+					r := newRigFor(kind, failed(domain.FailureTimedOut), healthy())
+
+					require.NoError(t, r.runner.Run(t.Context(), serviceOf(kind, retries, 7)))
+
+					assert.Equal(t, 1, r.attempts(kind))
+					assert.Zero(t, r.clock.timerCount())
+					require.Len(t, r.recorder.list(), 1)
+					assert.False(t, r.recorder.list()[0].result.Healthy)
+				})
+			}
+		})
+	}
+}
+
+func TestRun_TCPRecordsFailureCode(t *testing.T) {
+	for _, code := range []domain.FailureCode{domain.FailureTimedOut, domain.FailureCouldNotConnect} {
+		t.Run(string(code), func(t *testing.T) {
+			r := newRigFor(domain.CheckTypeTCP, failed(code))
+
+			require.NoError(t, r.runner.Run(t.Context(), tcpService(0, 7)))
+
+			require.Len(t, r.recorder.list(), 1)
+			assert.Equal(t, domain.CheckResult{Failure: &domain.CheckFailure{Code: code}}, r.recorder.list()[0].result)
+		})
+	}
+}
+
+func TestRun_TCPCancel(t *testing.T) {
+	t.Run("during an attempt", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		r := newRigFor(domain.CheckTypeTCP, step{block: true})
+		done := r.run(ctx, tcpService(2, 7))
+		r.tcp.waitForCall(t)
+		cancel()
+
+		require.ErrorIs(t, r.finish(t, done), context.Canceled)
+		assert.Empty(t, r.recorder.list())
+		assert.Zero(t, r.clock.timerCount())
+	})
+	t.Run("during a wait", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		r := newRigFor(domain.CheckTypeTCP, failed(domain.FailureTimedOut), healthy())
+		done := r.run(ctx, tcpService(1, 7))
+		r.clock.waitForTimer(t)
+		cancel()
+
+		require.ErrorIs(t, r.finish(t, done), context.Canceled)
+		assert.Equal(t, 1, r.tcp.callCount())
+		assert.Empty(t, r.recorder.list())
+	})
+	t.Run("before the record", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		s := healthy()
+		s.before = cancel
+		r := newRigFor(domain.CheckTypeTCP, s)
+
+		require.ErrorIs(t, r.runner.Run(ctx, tcpService(0, 7)), context.Canceled)
+		assert.Empty(t, r.recorder.list())
+
+		// Baseline: the same sequence on a live context records.
+		r = newRigFor(domain.CheckTypeTCP, healthy())
+		require.NoError(t, r.runner.Run(t.Context(), tcpService(0, 7)))
+		assert.Len(t, r.recorder.list(), 1)
+	})
+}
+
+func TestRun_TCPMissingSettings(t *testing.T) {
+	tests := map[string]func(*domain.Service){
+		"nil host": func(s *domain.Service) { s.TCPHost = nil },
+		"nil port": func(s *domain.Service) { s.TCPPort = nil },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := newRigFor(domain.CheckTypeTCP, healthy())
+			svc := tcpService(1, 5)
+			mutate(&svc)
+
+			require.Error(t, r.runner.Run(t.Context(), svc))
+
+			assert.Zero(t, r.tcp.callCount())
+			assert.Zero(t, r.prober.callCount())
+			assert.Empty(t, r.recorder.list())
+		})
+	}
+	// Baseline: the complete service is probed and recorded.
+	r := newRigFor(domain.CheckTypeTCP, healthy())
+	require.NoError(t, r.runner.Run(t.Context(), tcpService(1, 5)))
+	assert.Equal(t, 1, r.tcp.callCount())
+}
+
+func TestRun_UnknownCheckType(t *testing.T) {
+	r := newRig(healthy())
+	svc := httpService(1, 5)
+	svc.CheckType = "icmp"
+
+	require.Error(t, r.runner.Run(t.Context(), svc))
 
 	assert.Zero(t, r.prober.callCount())
+	assert.Zero(t, r.tcp.callCount())
 	assert.Empty(t, r.recorder.list())
 	assert.Zero(t, r.clock.timerCount())
+}
 
-	// Baseline: the same settings as an HTTP service are probed and recorded.
-	require.NoError(t, r.runner.Run(t.Context(), httpService(2, 5)))
-	assert.Equal(t, 1, r.prober.callCount())
-	assert.Len(t, r.recorder.list(), 1)
+func logLines(t *testing.T, r *rig) []map[string]any {
+	t.Helper()
+	return r.logBuf.lines()
+}
+
+func TestRun_LogHealthy(t *testing.T) {
+	for _, kind := range []domain.CheckType{domain.CheckTypeHTTP, domain.CheckTypeTCP} {
+		t.Run(string(kind), func(t *testing.T) {
+			r := newRigFor(kind, healthy())
+			svc := serviceOf(kind, 0, 7)
+			svc.Name = "api"
+
+			require.NoError(t, r.runner.Run(t.Context(), svc))
+
+			lines := logLines(t, r)
+			require.Len(t, lines, 1)
+			assert.Equal(t, "check finished", lines[0]["msg"])
+			assert.Equal(t, "INFO", lines[0]["level"])
+			assert.Equal(t, "svc-1", lines[0]["service_id"])
+			assert.Equal(t, "api", lines[0]["service_name"])
+			assert.Equal(t, true, lines[0]["healthy"])
+			assert.NotContains(t, lines[0], "failure_code")
+			assert.NotContains(t, lines[0], "http_status")
+		})
+	}
+}
+
+func TestRun_LogUnhealthy(t *testing.T) {
+	t.Run("tcp after its retries is one warn line", func(t *testing.T) {
+		r := newRigFor(domain.CheckTypeTCP, failed(domain.FailureTimedOut), failed(domain.FailureTimedOut), failed(domain.FailureCouldNotConnect))
+		done := r.run(t.Context(), tcpService(2, 7))
+		for range 2 {
+			r.clock.waitForTimer(t)
+			r.clock.Advance(7 * time.Second)
+		}
+		require.NoError(t, r.finish(t, done))
+
+		lines := logLines(t, r)
+		require.Len(t, lines, 1)
+		assert.Equal(t, "check finished", lines[0]["msg"])
+		assert.Equal(t, "WARN", lines[0]["level"])
+		assert.Equal(t, "db", lines[0]["service_name"])
+		assert.Equal(t, false, lines[0]["healthy"])
+		assert.Equal(t, "could_not_connect", lines[0]["failure_code"])
+		assert.NotContains(t, lines[0], "http_status")
+	})
+	t.Run("http non-2xx carries the status", func(t *testing.T) {
+		r := newRig(step{result: domain.CheckResult{Failure: &domain.CheckFailure{Code: domain.FailureNon2xxStatus, HTTPStatus: ptr(503)}}})
+
+		require.NoError(t, r.runner.Run(t.Context(), httpService(0, 7)))
+
+		lines := logLines(t, r)
+		require.Len(t, lines, 1)
+		assert.Equal(t, "WARN", lines[0]["level"])
+		assert.Equal(t, "non_2xx_status", lines[0]["failure_code"])
+		assert.EqualValues(t, 503, lines[0]["http_status"])
+	})
+	t.Run("not healthy with no failure is warn without a code", func(t *testing.T) {
+		r := newRigFor(domain.CheckTypeTCP, step{})
+
+		require.NoError(t, r.runner.Run(t.Context(), tcpService(0, 7)))
+
+		lines := logLines(t, r)
+		require.Len(t, lines, 1)
+		assert.Equal(t, "WARN", lines[0]["level"])
+		assert.Equal(t, false, lines[0]["healthy"])
+		assert.NotContains(t, lines[0], "failure_code")
+		require.Len(t, r.recorder.list(), 1)
+		assert.Equal(t, domain.CheckResult{}, r.recorder.list()[0].result)
+	})
+}
+
+func TestRun_LogAfterRecordSurvivesCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	r := newRigFor(domain.CheckTypeTCP, healthy())
+	r.recorder.onRecord = cancel
+
+	require.NoError(t, r.runner.Run(ctx, tcpService(0, 7)))
+
+	assert.Len(t, logLines(t, r), 1)
+}
+
+func TestRun_LogNoLine(t *testing.T) {
+	t.Run("context ended before the record", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		s := failed(domain.FailureTimedOut)
+		s.before = cancel
+		r := newRigFor(domain.CheckTypeTCP, s)
+
+		require.ErrorIs(t, r.runner.Run(ctx, tcpService(0, 7)), context.Canceled)
+		assert.Empty(t, r.logBuf.text())
+	})
+	t.Run("record failed", func(t *testing.T) {
+		r := newRigFor(domain.CheckTypeTCP, healthy())
+		r.recorder.err = errors.New("db down")
+
+		require.Error(t, r.runner.Run(t.Context(), tcpService(0, 7)))
+		assert.Len(t, r.recorder.list(), 1)
+		assert.Empty(t, r.logBuf.text())
+	})
+	t.Run("settings missing", func(t *testing.T) {
+		r := newRigFor(domain.CheckTypeTCP, healthy())
+		svc := tcpService(0, 7)
+		svc.TCPPort = nil
+
+		require.Error(t, r.runner.Run(t.Context(), svc))
+		assert.Empty(t, r.logBuf.text())
+	})
+	// Baseline: the same sequence, complete and uncancelled, writes its line.
+	r := newRigFor(domain.CheckTypeTCP, healthy())
+	require.NoError(t, r.runner.Run(t.Context(), tcpService(0, 7)))
+	assert.NotEmpty(t, r.logBuf.text())
+}
+
+func TestRun_LogNeverHoldsTheAddress(t *testing.T) {
+	secrets := []string{"secret-host.example", "49152", "https://secret-url.test/path", "X-Secret-Header", "tok3n-value", "secretquery", "secret-body"}
+
+	t.Run("tcp", func(t *testing.T) {
+		r := newRigFor(domain.CheckTypeTCP, failed(domain.FailureCouldNotConnect))
+		svc := tcpService(0, 7)
+		svc.TCPHost, svc.TCPPort = ptr("secret-host.example"), ptr(49152)
+
+		require.NoError(t, r.runner.Run(t.Context(), svc))
+
+		require.NotEmpty(t, r.logBuf.text())
+		for _, secret := range secrets {
+			assert.NotContains(t, r.logBuf.text(), secret)
+		}
+	})
+	t.Run("http", func(t *testing.T) {
+		r := newRig(failed(domain.FailureCouldNotConnect))
+		svc := httpService(0, 7)
+		svc.HTTPURL = ptr("https://secret-url.test/path")
+		svc.HTTPHeaders = []domain.NameValue{{Name: "X-Secret-Header", Value: "tok3n-value"}}
+		svc.HTTPQueryParams = []domain.NameValue{{Name: "secretquery", Value: "1"}}
+		svc.HTTPBodyType, svc.HTTPBodyContent = domain.BodyTypeText, "secret-body"
+
+		require.NoError(t, r.runner.Run(t.Context(), svc))
+
+		require.NotEmpty(t, r.logBuf.text())
+		for _, secret := range secrets {
+			assert.NotContains(t, r.logBuf.text(), secret)
+		}
+	})
 }
 
 func TestRun_HTTPServiceMissingMethodOrURL(t *testing.T) {
@@ -498,7 +927,7 @@ func TestRun_ConcurrentSequences(t *testing.T) {
 	}
 	prober := &urlProber{results: byURL, inFlight: &inFlight, both: both}
 	recorder := &fakeRecorder{log: log}
-	runner := worker.NewCheckRunner(prober, recorder, clock.NewFake(start))
+	runner := worker.NewCheckRunner(prober, newFakeTCPProber(log), recorder, clock.NewFake(start), slog.New(slog.NewJSONHandler(io.Discard, nil)))
 
 	a, b := httpService(0, 1), httpService(0, 1)
 	a.ID, a.HTTPURL = "svc-a", ptr("https://a.test")
