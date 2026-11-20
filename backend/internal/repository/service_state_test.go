@@ -221,7 +221,7 @@ func TestServiceStateUpdate_PausedServiceIsRefusedAndNothingIsWritten(t *testing
 	db, repo := newStateFixture(t, "s1")
 	at := time.Date(2026, 6, 2, 3, 4, 5, 0, time.UTC)
 	called := false
-	apply := func(s domain.ServiceState) domain.ServiceState {
+	apply := func(domain.ServiceState) domain.ServiceState {
 		called = true
 		return unhealthyState("s1", at)
 	}
