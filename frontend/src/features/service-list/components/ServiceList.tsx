@@ -3,6 +3,7 @@ import { ListPlus, LoaderCircle, Plus, RefreshCw, TriangleAlert } from 'lucide-r
 import { Link } from 'react-router'
 import { REFRESH_INTERVAL_MS } from '../../../lib/config'
 import type { DeleteServiceFlow } from '../hooks/useDeleteService'
+import type { PauseServiceFlow } from '../hooks/usePauseService'
 import type { ServiceListView } from '../hooks/useServiceList'
 import { formatTime } from '../../../lib/formatTime'
 import { DeleteServiceDialog } from './DeleteServiceDialog'
@@ -109,7 +110,15 @@ function AddServiceLink() {
 }
 
 /** The admin dashboard: heading, toolbar, and the content of the current state (FR-9, FR-62, FR-95). */
-export function ServiceList({ view, deletion }: { view: ServiceListView; deletion: DeleteServiceFlow }) {
+export function ServiceList({
+  view,
+  deletion,
+  pausing,
+}: {
+  view: ServiceListView
+  deletion: DeleteServiceFlow
+  pausing: PauseServiceFlow
+}) {
   const now = new Date()
   const heading = useRef<HTMLHeadingElement>(null)
   // After a removal the opener is gone: focus goes to the heading. Otherwise back to the Delete button.
@@ -169,7 +178,14 @@ export function ServiceList({ view, deletion }: { view: ServiceListView; deletio
           </div>
           <ul aria-label="Services">
             {view.services.map((service) => (
-              <ServiceRow key={service.id} service={service} now={now} onDelete={deletion.ask} />
+              <ServiceRow
+                key={service.id}
+                service={service}
+                now={now}
+                onDelete={deletion.ask}
+                onToggle={pausing.toggle}
+                toggling={pausing.isPending(service.id)}
+              />
             ))}
           </ul>
         </div>

@@ -1,5 +1,5 @@
 import { Link } from 'react-router'
-import { Bell, BellOff, CircleAlert, Eye, EyeOff, Trash2, TriangleAlert } from 'lucide-react'
+import { Bell, BellOff, CircleAlert, Eye, EyeOff, Pause, Play, Trash2, TriangleAlert } from 'lucide-react'
 import type { Service } from '../../../lib/api/services'
 import { failureReasonText } from '../lib/failureReason'
 import { formatTime } from '../../../lib/formatTime'
@@ -18,10 +18,15 @@ export function ServiceRow({
   service,
   now,
   onDelete,
+  onToggle,
+  toggling,
 }: {
   service: Service
   now: Date
   onDelete: (service: Service) => void
+  onToggle: (service: Service) => void
+  /** This row's pause or resume request is in flight. */
+  toggling: boolean
 }) {
   const { state } = service
   const reason = !service.paused && state.status === 'unhealthy' ? state.last_failure_reason : null
@@ -103,6 +108,25 @@ export function ServiceRow({
         </span>
       </div>
       <div className="svc__actions">
+        {/* aria-disabled, not disabled, so the button keeps focus while the request is in flight. */}
+        <button
+          type="button"
+          className="btn btn--ghost btn--icon"
+          aria-label={`${service.paused ? 'Resume' : 'Pause'} ${service.name}`}
+          aria-disabled={toggling ? 'true' : undefined}
+          onClick={() => {
+            if (!toggling) onToggle(service)
+          }}
+        >
+          {service.paused ? (
+            <Play className="icon icon--sm" aria-hidden="true" />
+          ) : (
+            <Pause className="icon icon--sm" aria-hidden="true" />
+          )}
+          <span className="btn__label" aria-hidden="true">
+            {service.paused ? 'Resume' : 'Pause'}
+          </span>
+        </button>
         <Link className="btn btn--ghost btn--icon" to={alertsPath} aria-label={`Alerts ${service.name}`}>
           <Bell className="icon icon--sm" aria-hidden="true" />
           <span className="btn__label" aria-hidden="true">
