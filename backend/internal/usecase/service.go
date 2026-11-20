@@ -25,8 +25,8 @@ type ServiceService struct {
 	clock     Clock
 	limits    domain.ServiceLimits
 
-	// editMu makes each write of an edit or a delete and the scheduler call that follows
-	// one step, so the schedule always matches the last write. Its zero value is usable.
+	// editMu makes each write of an edit, a delete, a pause or a resume and the scheduler
+	// call that follows one step, so the schedule always matches the last write. Its zero value is usable.
 	editMu sync.Mutex
 }
 
@@ -103,6 +103,41 @@ func nextCheckAt(view domain.ServiceView, now time.Time) time.Time {
 		}
 	}
 	return now.Add(interval)
+}
+
+// PauseService pauses the service: the flag is saved, then the scheduler stops it, which
+// cancels a check or retry in progress. The state is kept (FR-75, FR-76, FR-78). Pausing
+// a paused service changes nothing and calls nothing.
+func (s *ServiceService) PauseService(ctx context.Context, id string) (domain.ServiceView, error) {
+	return s.setPaused(ctx, id, true)
+}
+
+// ResumeService clears the flag, then has the scheduler restart the service with its
+// first check now (FR-75, FR-79). Resuming a service that is not paused changes nothing
+// and calls nothing. The state is kept (FR-78).
+func (s *ServiceService) ResumeService(ctx context.Context, id string) (domain.ServiceView, error) {
+	return s.setPaused(ctx, id, false)
+}
+
+// setPaused saves the flag, and only when it changed tells the scheduler, after the
+// commit. The scheduler calls take no context, so a cancelled request still reaches it.
+// A resume uses Restart, not Start, so it does not wait for an old sequence to end.
+func (s *ServiceService) setPaused(ctx context.Context, id string, paused bool) (domain.ServiceView, error) {
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
+	now := s.clock.Now().UTC()
+	view, changed, err := s.services.SetPaused(ctx, id, paused, now)
+	if err != nil {
+		return domain.ServiceView{}, err
+	}
+	if changed {
+		if paused {
+			s.scheduler.Stop(id)
+		} else {
+			s.scheduler.Restart(view.Service, now)
+		}
+	}
+	return view, nil
 }
 
 // ListServices returns every service with its state, in the order the repository gives.

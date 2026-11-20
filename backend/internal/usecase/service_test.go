@@ -1,6 +1,7 @@
 package usecase_test
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"sync"
@@ -788,5 +789,203 @@ func TestUpdateService_AndDeleteAreSerialized(t *testing.T) {
 			continue
 		}
 		require.Equal(t, []string{"update", "restart", "delete", "stop"}, *s.events, "round %d", round)
+	}
+}
+
+// pausedSetup returns a setup holding the unhealthy, checked service "id-1", paused or not.
+func pausedSetup(paused bool) serviceSetup {
+	s := seededEdit()
+	s.repo.services[0].Paused = paused
+	checked := serviceStart.Add(-time.Minute)
+	s.repo.seedState(domain.ServiceState{
+		ServiceID: "id-1", Status: domain.StatusUnhealthy, LastCheckedAt: &checked,
+		LastStatusChangeAt: &checked, FailureCode: ptr(domain.FailureNon2xxStatus), FailureHTTPStatus: ptr(503),
+	})
+	return s
+}
+
+func TestPauseService_SavesTheFlagThenStopsTheSchedulerOnce(t *testing.T) {
+	s := pausedSetup(false)
+
+	view, err := s.svc.PauseService(t.Context(), "id-1")
+
+	require.NoError(t, err)
+	assert.Equal(t, []pauseCall{{"id-1", true, serviceStart}}, s.repo.pauseCalls)
+	assert.Equal(t, []string{"set-paused", "stop"}, *s.events)
+	assert.Equal(t, []string{"id-1"}, s.scheduler.stopped)
+	assert.True(t, view.Service.Paused)
+	assert.Equal(t, s.repo.states["id-1"], view.State, "the state is kept")
+	assert.Equal(t, domain.StatusUnhealthy, view.State.Status)
+}
+
+func TestPauseService_StopsEvenWhenTheRequestIsCancelled(t *testing.T) {
+	s := pausedSetup(false)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err := s.svc.PauseService(ctx, "id-1")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"set-paused", "stop"}, *s.events)
+}
+
+func TestPauseService_WhenTheFlagDidNotChangeNothingIsCalled(t *testing.T) {
+	s := pausedSetup(true)
+
+	view, err := s.svc.PauseService(t.Context(), "id-1")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"set-paused"}, *s.events, "baseline: the write is asked, the scheduler is not")
+	assert.True(t, view.Service.Paused)
+	assert.Equal(t, domain.StatusUnhealthy, view.State.Status)
+}
+
+func TestResumeService_RestartsOnceWithTheServiceAndTheClockTime(t *testing.T) {
+	s := pausedSetup(true)
+
+	view, err := s.svc.ResumeService(t.Context(), "id-1")
+
+	require.NoError(t, err)
+	assert.Equal(t, []pauseCall{{"id-1", false, serviceStart}}, s.repo.pauseCalls)
+	assert.Equal(t, []string{"set-paused", "restart"}, *s.events)
+	require.Len(t, s.scheduler.restarted, 1)
+	assert.Equal(t, restartCall{view.Service, serviceStart}, s.scheduler.restarted[0])
+	assert.False(t, s.scheduler.restarted[0].service.Paused)
+	assert.Empty(t, s.scheduler.started)
+	assert.Empty(t, s.scheduler.stopped)
+	assert.False(t, view.Service.Paused)
+	assert.Equal(t, s.repo.states["id-1"], view.State, "the state is kept")
+}
+
+func TestResumeService_WhenTheServiceIsNotPausedNothingIsCalled(t *testing.T) {
+	s := pausedSetup(false)
+
+	view, err := s.svc.ResumeService(t.Context(), "id-1")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"set-paused"}, *s.events)
+	assert.False(t, view.Service.Paused)
+}
+
+func TestPauseAndResume_FailuresComeBackAndCallNoScheduler(t *testing.T) {
+	boom := errors.New("disk full")
+	ops := map[string]func(s serviceSetup, id string) error{
+		"pause":  func(s serviceSetup, id string) error { _, err := s.svc.PauseService(t.Context(), id); return err },
+		"resume": func(s serviceSetup, id string) error { _, err := s.svc.ResumeService(t.Context(), id); return err },
+	}
+	for name, op := range ops {
+		t.Run(name+" unknown id", func(t *testing.T) {
+			s := pausedSetup(name == "resume")
+			require.ErrorIs(t, op(s, "other"), domain.ErrNotFound)
+			assert.Empty(t, *s.events)
+		})
+		t.Run(name+" other error", func(t *testing.T) {
+			s := pausedSetup(name == "resume")
+			s.repo.err = boom
+			require.ErrorIs(t, op(s, "id-1"), boom)
+			assert.Empty(t, *s.events)
+		})
+	}
+}
+
+// lastScheduler is the last scheduler event of a list, or "".
+func lastScheduler(events []string) string {
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i] == "stop" || events[i] == "restart" {
+			return events[i]
+		}
+	}
+	return ""
+}
+
+func TestPauseAndResume_AreSerialized(t *testing.T) {
+	for round := range 50 {
+		s := pausedSetup(round%2 == 0)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for _, op := range []func(){
+			func() { _, err := s.svc.PauseService(t.Context(), "id-1"); assert.NoError(t, err) },
+			func() { _, err := s.svc.ResumeService(t.Context(), "id-1"); assert.NoError(t, err) },
+		} {
+			wg.Add(1)
+			go func() { defer wg.Done(); <-start; op() }()
+		}
+		close(start)
+		wg.Wait()
+
+		events := *s.events
+		// Each operation is its write, then its scheduler call if the flag changed; the
+		// other operation never comes in between.
+		require.Len(t, events, 2+len(s.scheduler.stopped)+len(s.scheduler.restarted), "round %d: %v", round, events)
+		for i, e := range events {
+			if e == "set-paused" && i+1 < len(events) && events[i+1] == "set-paused" {
+				// the first changed nothing: no scheduler call between two writes
+				continue
+			}
+			if e == "stop" || e == "restart" {
+				require.Equal(t, "set-paused", events[i-1], "round %d: %v", round, events)
+			}
+		}
+		stored := s.repo.services[0].Paused
+		if last := lastScheduler(events); last != "" {
+			require.Equal(t, stored, last == "stop", "round %d: %v, stored paused %v", round, events, stored)
+		}
+	}
+}
+
+func TestResume_AndDeleteAreSerialized(t *testing.T) {
+	for round := range 50 {
+		s := pausedSetup(true)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		var resumeErr error
+		wg.Add(2)
+		go func() { defer wg.Done(); <-start; _, resumeErr = s.svc.ResumeService(t.Context(), "id-1") }()
+		go func() { defer wg.Done(); <-start; assert.NoError(t, s.svc.DeleteService(t.Context(), "id-1")) }()
+		close(start)
+		wg.Wait()
+
+		if resumeErr != nil {
+			require.ErrorIs(t, resumeErr, domain.ErrNotFound, "round %d", round)
+			require.Equal(t, []string{"delete", "stop"}, *s.events, "round %d: a resume after the delete schedules nothing", round)
+			continue
+		}
+		require.Equal(t, []string{"set-paused", "restart", "delete", "stop"}, *s.events, "round %d: a restart never follows the stop of a delete", round)
+	}
+}
+
+func TestResume_AndUpdateAfterAPauseAreSerialized(t *testing.T) {
+	for round := range 50 {
+		s := pausedSetup(false)
+		_, err := s.svc.PauseService(t.Context(), "id-1")
+		require.NoError(t, err)
+		*s.events = nil
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := s.svc.ResumeService(t.Context(), "id-1")
+			assert.NoError(t, err)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := s.svc.UpdateService(t.Context(), "id-1", validHTTP())
+			assert.NoError(t, err)
+		}()
+		close(start)
+		wg.Wait()
+
+		// Either order is whole: an update before the resume schedules nothing (paused),
+		// one after it restarts; the resume always restarts once.
+		events := *s.events
+		if events[0] == "update" {
+			require.Equal(t, []string{"update", "set-paused", "restart"}, events, "round %d", round)
+		} else {
+			require.Equal(t, []string{"set-paused", "restart", "update", "restart"}, events, "round %d", round)
+		}
+		assert.False(t, s.repo.services[0].Paused)
 	}
 }

@@ -11,7 +11,8 @@ import (
 
 // ServiceStateRepository updates a service's saved state. Update reads the row, passes
 // it to apply and writes what apply returns, as one operation; it returns
-// domain.ErrNotFound when the service has no row.
+// domain.ErrNotFound when the service has no row, and domain.ErrServicePaused, without
+// calling apply or writing, when the service is paused (FR-76).
 type ServiceStateRepository interface {
 	Update(ctx context.Context, serviceID string, apply func(domain.ServiceState) domain.ServiceState) error
 }
@@ -62,7 +63,9 @@ func (s *CheckResultService) RecordCheckResult(ctx context.Context, serviceID st
 		previous = saved.Status
 		return applyCheckResult(saved, result, now)
 	})
-	if errors.Is(err, domain.ErrNotFound) {
+	// A result for a deleted service, or one that finished in the instant of a pause, is
+	// dropped: no state change and no alert (FR-76).
+	if errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrServicePaused) {
 		return nil
 	}
 	if err != nil {
