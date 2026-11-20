@@ -82,6 +82,24 @@ describe('requestParts (FR-35, FR-37)', () => {
     })
   })
 
+  it('sends markup, quotes, a 5 000-character header value, a 70 000-character body and 21 rows as typed', () => {
+    const rows = Array.from({ length: 21 }, (_, i) => ({ name: `n${i}`, value: `v${i}` }))
+    const odd = { name: '<b>"a" \'b\'</b>', value: ' x  y ' }
+    const long = 'v'.repeat(5000)
+    const body = 'b'.repeat(70_000)
+    const parts = requestParts({
+      query_params: [...rows, odd],
+      headers: [{ name: 'X-Long', value: long }],
+      body_type: 'text',
+      body_content: body,
+    })
+    expect(parts.query_params).toHaveLength(22)
+    expect(parts.query_params[20]).toStrictEqual({ name: 'n20', value: 'v20' })
+    expect(parts.query_params[21]).toStrictEqual(odd)
+    expect(parts.headers[0].value).toBe(long)
+    expect(parts.body).toStrictEqual({ type: 'text', content: body })
+  })
+
   it.each(['json', 'text', 'form'] as const)('sends the body as typed for %s', (type) => {
     expect(requestParts({ query_params: [], headers: [], body_type: type, body_content: ' {"a":1}\n' })).toStrictEqual({
       query_params: [],

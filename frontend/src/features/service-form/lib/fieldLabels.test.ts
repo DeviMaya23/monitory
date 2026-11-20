@@ -29,6 +29,9 @@ describe('fieldLabel of the Request group’s rows and body', () => {
     ['check.headers[0].value', 'Header 1 value'],
     ['check.headers[4].name', 'Header 5 name'],
     ['check.body.content', 'Body'],
+    ['check.headers[10].name', 'Header 11 name'],
+    ['check.query_params[19].name', 'Query parameter 20 name'],
+    ['check.headers[20].value', 'Header 21 value'],
   ] as const)('maps %s to %s with itself as the input', (path, label) => {
     expect(fieldLabel(path)).toEqual({ label, target: path })
   })
@@ -39,6 +42,17 @@ describe('fieldLabel of the Request group’s rows and body', () => {
     ['check.body.type', 'Body type'],
   ])('maps %s to %s with no input', (path, label) => {
     expect(fieldLabel(path)).toEqual({ label, target: null })
+  })
+
+  it.each([
+    'check.headers[01].name',
+    'check.headers[-1].name',
+    'check.headers[].name',
+    'check.headers[1].other',
+    'check.query_params[0]',
+    'check.body',
+  ])('maps the near miss %s to itself with no input', (path) => {
+    expect(fieldLabel(path)).toEqual({ label: path, target: null })
   })
 
   it('maps the id of each row input and the body text', () => {

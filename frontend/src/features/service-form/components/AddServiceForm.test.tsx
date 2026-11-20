@@ -1579,6 +1579,22 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
       expect(document.querySelector('[aria-invalid]')).toBeNull()
     })
 
+    it('sends a 70 000-character body untouched and shows the server’s refusal on it', async () => {
+      vi.mocked(createService).mockRejectedValueOnce(
+        validationProblem(fieldError('check.body.content', 'The body is over its limit.', 'too_long')),
+      )
+      const { user } = setup()
+      await fill(user)
+      await chooseBody(user, 'Plain text')
+      await user.click(bodyText())
+      await user.paste('b'.repeat(70_000))
+      await user.click(saveButton())
+      await waitFor(() => expect(saveButton()).toBeEnabled())
+      expect(sentInput().check).toMatchObject({ body: { type: 'text', content: 'b'.repeat(70_000) } })
+      expect(describedBy(bodyText())).toBe('The body is over its limit.')
+      expect(bodyText()).toHaveValue('b'.repeat(70_000))
+    })
+
     it('shows a check.url error and a row error together, and clears them independently', async () => {
       const { user } = setup()
       await failWithRows(
@@ -1651,6 +1667,29 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
       expect(messages()).toEqual(['Query parameter 1 name: Q0.', 'Query parameters: QL.', 'Body: B.'])
       expect(screen.getByLabelText('Header 1 value')).not.toHaveAttribute('aria-invalid')
       expect(screen.getByLabelText('Query parameter 1 name')).toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('Remove on the query parameters removes their errors and leaves the headers’ and the body’s', async () => {
+      const { user } = setup()
+      await setupSix(user)
+      await user.click(screen.getByRole('button', { name: 'Remove query parameter 1' }))
+      expect(messages()).toEqual(['Header 1 value: H0.', 'Header 2 name: H1.', 'Headers: HL.', 'Body: B.'])
+      expect(screen.getByLabelText('Header 2 name')).toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('Add header removes only the headers’ own error, then Remove removes their rows’ errors too', async () => {
+      const { user } = setup()
+      await setupSix(user)
+      await addHeader(user)
+      expect(messages()).toEqual([
+        'Query parameter 1 name: Q0.',
+        'Query parameters: QL.',
+        'Header 1 value: H0.',
+        'Header 2 name: H1.',
+        'Body: B.',
+      ])
+      await user.click(screen.getByRole('button', { name: 'Remove header 3' }))
+      expect(messages()).toEqual(['Query parameter 1 name: Q0.', 'Query parameters: QL.', 'Body: B.'])
     })
 
     it('typing in the Body removes check.body.content', async () => {
