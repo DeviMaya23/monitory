@@ -150,7 +150,7 @@ Checked by reading: a double submit while saving is blocked by the existing `inF
    - Reproduce: `make test-e2e-smoke` on `a576017`. Wrong result: `strict mode violation: getByLabel('URL') resolved to 3 elements`.
    - Why the verifier missed it: the report said no e2e applied, and neither a grep of `e2e/` for locators on the labels this change adds nor a smoke run was done.
    - Fix (by the user's instruction, since the project has no e2e-only role): `{ exact: true }` on `getByLabel('URL')` and on the service form's `getByLabel('Name')` in `e2e/support/helpers.ts` and `e2e/journeys/add-service.spec.ts` (6 lines). `Name` is not failing today, but `Query parameter 1 name` and `Header 1 name` would match it as soon as a journey adds a row. The target dialog's `getByLabel('Name')` calls are unchanged: the dialog has no such labels.
-   - Rerun locally (no Docker, so no Mailpit): `add-service` and `delete-service` passed. `alert-email` and `alert-webhook` get past the form and fail only with "Mailpit is not reachable at http://127.0.0.1:8025". Their result is therefore not proved locally; CI's smoke job on the pushed fix is the evidence.
+   - Rerun locally (no Docker, so no Mailpit): `add-service` and `delete-service` passed. `alert-email` and `alert-webhook` get past the form and fail only with "Mailpit is not reachable at `http://127.0.0.1:8025`". Their result is therefore not proved locally; CI's smoke job on the pushed fix is the evidence.
 
 ### Non-blocking
 
