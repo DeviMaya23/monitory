@@ -877,6 +877,21 @@ func TestRestart_FirstSequenceRunsAtFirstCheckAt(t *testing.T) {
 	s.clk.Advance(time.Second)
 	second := s.seq.wait(t)
 	assert.Equal(t, at.Add(30*time.Second), second.at, "one interval after firstCheckAt, not after the edit")
+
+	// The timer fires late (the clock moved past firstCheckAt in one step): the schedule
+	// still counts from firstCheckAt, so a late wake-up does not shift later checks.
+	t.Run("a late wake-up does not shift the schedule", func(t *testing.T) {
+		s := newSchedSetup(t)
+		s.sched.Restart(svc("a", 30), at)
+		s.clk.waitTimer(t)
+		s.clk.Advance(55 * time.Second)
+		s.seq.wait(t)
+		s.clk.waitTimer(t)
+
+		s.clk.Advance(25 * time.Second)
+		s.seq.wait(t)
+		assert.Equal(t, 2, s.seq.count("a"), "the second runs at firstCheckAt plus the interval, not five seconds later")
+	})
 }
 
 func TestRestart_UnknownIDStartsIt(t *testing.T) {
