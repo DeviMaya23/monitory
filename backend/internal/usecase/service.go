@@ -2,14 +2,19 @@ package usecase
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"monitory/internal/domain"
 )
 
-// Scheduler runs the checks of services. Start begins checking a saved service; Stop
-// ends the checking of a deleted one.
+// Scheduler runs the checks of services. Start begins checking a saved service; Restart
+// replaces the schedule of an edited one, with its first check at firstCheckAt; Stop
+// ends the checking of a deleted one. The scheduler never looks at Service.Paused: the
+// usecase decides which services are started or restarted.
 type Scheduler interface {
 	Start(service domain.Service)
+	Restart(service domain.Service, firstCheckAt time.Time)
 	Stop(serviceID string)
 }
 
@@ -19,6 +24,10 @@ type ServiceService struct {
 	scheduler Scheduler
 	clock     Clock
 	limits    domain.ServiceLimits
+
+	// editMu makes each write of an edit or a delete and the scheduler call that follows
+	// one step, so the schedule always matches the last write. Its zero value is usable.
+	editMu sync.Mutex
 }
 
 // NewServiceService returns a ServiceService.
@@ -35,10 +44,11 @@ func (s *ServiceService) CreateService(ctx context.Context, input domain.Service
 		return domain.ServiceView{}, domain.ValidationError{Fields: fields}
 	}
 
-	service, err := s.buildService(input)
+	id, err := domain.NewID()
 	if err != nil {
 		return domain.ServiceView{}, err
 	}
+	service := s.buildService(input, id, s.clock.Now().UTC())
 	if err := s.services.Create(ctx, service, s.limits.MaxServices); err != nil {
 		return domain.ServiceView{}, err
 	}
@@ -51,6 +61,50 @@ func (s *ServiceService) CreateService(ctx context.Context, input domain.Service
 	}, nil
 }
 
+// GetService returns one service with its state and the two computed values.
+func (s *ServiceService) GetService(ctx context.Context, id string) (domain.ServiceView, error) {
+	return s.services.Get(ctx, id)
+}
+
+// UpdateService replaces every editable setting of the service (FR-7). The input is
+// normalized and validated before anything is read or written. The state, the paused
+// flag and the alert list are kept. No check runs: when the service is not paused, the
+// scheduler restarts its schedule, with the first check at the time nextCheckAt gives
+// (FR-66). A paused service is not given to the scheduler.
+func (s *ServiceService) UpdateService(ctx context.Context, id string, input domain.ServiceInput) (domain.ServiceView, error) {
+	input = normalizeServiceInput(input)
+	if fields := ValidateServiceInput(input, s.limits); len(fields) > 0 {
+		return domain.ServiceView{}, domain.ValidationError{Fields: fields}
+	}
+	service := s.buildService(input, id, s.clock.Now().UTC())
+
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
+	view, err := s.services.Update(ctx, service)
+	if err != nil {
+		return domain.ServiceView{}, err
+	}
+	// Only after the transaction has committed.
+	if !view.Service.Paused {
+		s.scheduler.Restart(view.Service, nextCheckAt(view, s.clock.Now()))
+	}
+	return view, nil
+}
+
+// nextCheckAt is when the first check after an edit runs: one new interval after the
+// last check, so the old rhythm is kept, or one new interval from now when there was no
+// check or that time is not after now (FR-66). It is always after now, so an edit never
+// checks at saving. A last check in the future is not corrected.
+func nextCheckAt(view domain.ServiceView, now time.Time) time.Time {
+	interval := time.Duration(view.Service.CheckIntervalSeconds) * time.Second
+	if last := view.State.LastCheckedAt; last != nil {
+		if next := last.Add(interval); next.After(now) {
+			return next
+		}
+	}
+	return now.Add(interval)
+}
+
 // ListServices returns every service with its state, in the order the repository gives.
 func (s *ServiceService) ListServices(ctx context.Context) ([]domain.ServiceView, error) {
 	return s.services.List(ctx)
@@ -60,6 +114,8 @@ func (s *ServiceService) ListServices(ctx context.Context) ([]domain.ServiceView
 // scheduler to stop it (FR-8, FR-70, FR-71). The scheduler is told only after the
 // delete has succeeded.
 func (s *ServiceService) DeleteService(ctx context.Context, id string) error {
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
 	if err := s.services.Delete(ctx, id); err != nil {
 		return err
 	}
@@ -83,14 +139,11 @@ func (s *ServiceService) StartChecks(ctx context.Context) error {
 	return nil
 }
 
-// buildService makes the row to save from validated input.
-func (s *ServiceService) buildService(in domain.ServiceInput) (domain.Service, error) {
-	id, err := domain.NewID()
-	if err != nil {
-		return domain.Service{}, err
-	}
+// buildService makes the row to save from validated input, for a new service and for an
+// edit: the same input gives the same row. The repository's Update ignores created_at
+// and paused.
+func (s *ServiceService) buildService(in domain.ServiceInput, id string, now time.Time) domain.Service {
 	settings := effectiveSettings(in, s.limits)
-	now := s.clock.Now().UTC()
 
 	service := domain.Service{
 		ID:                   id,
@@ -126,7 +179,7 @@ func (s *ServiceService) buildService(in domain.ServiceInput) (domain.Service, e
 		host, port := in.Check.TCP.Host, in.Check.TCP.Port
 		service.TCPHost, service.TCPPort = &host, &port
 	}
-	return service, nil
+	return service
 }
 
 func applyHTTPCheck(service *domain.Service, in domain.HTTPCheckInput) {

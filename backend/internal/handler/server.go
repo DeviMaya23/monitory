@@ -21,6 +21,8 @@ type SettingsService interface {
 type ServiceService interface {
 	CreateService(ctx context.Context, input domain.ServiceInput) (domain.ServiceView, error)
 	ListServices(ctx context.Context) ([]domain.ServiceView, error)
+	GetService(ctx context.Context, id string) (domain.ServiceView, error)
+	UpdateService(ctx context.Context, id string, input domain.ServiceInput) (domain.ServiceView, error)
 	DeleteService(ctx context.Context, id string) error
 }
 

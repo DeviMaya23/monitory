@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"errors"
 	"regexp"
+	"sync"
 	"testing"
 	"time"
 
@@ -358,4 +359,434 @@ func TestStartChecks_ListErrorStartsNothing(t *testing.T) {
 
 	require.ErrorIs(t, err, s.repo.err)
 	assert.Empty(t, s.scheduler.started)
+}
+
+// httpRow is the row the usecase builds for validHTTP() under the test limits, with the
+// path id and the clock's time.
+func httpRow(id string) domain.Service {
+	return domain.Service{
+		ID: id, Name: "api", NameKey: "api",
+		CheckType:  domain.CheckTypeHTTP,
+		HTTPMethod: ptr("GET"), HTTPURL: ptr("https://x"),
+		HTTPQueryParams: []domain.NameValue{}, HTTPHeaders: []domain.NameValue{},
+		HTTPBodyType: domain.BodyTypeNone,
+		JSONRules:    []domain.JSONRule{}, JSONRuleMode: domain.JSONRuleModeAny,
+		CheckIntervalSeconds: 90, TimeoutSeconds: 7, RetryCount: 2, RetryIntervalSeconds: 3,
+		AlertsEnabled: true,
+		CreatedAt:     serviceStart, UpdatedAt: serviceStart,
+	}
+}
+
+// seededEdit returns a setup whose repository holds a service "id-1" of another type and
+// other values than any edit below sets, so that a setting an edit forgets shows.
+func seededEdit() serviceSetup {
+	s := newServiceSetup()
+	old := httpRow("id-1")
+	old.Name, old.NameKey = "old", "old"
+	old.HTTPMethod, old.HTTPURL = ptr("DELETE"), ptr("https://old")
+	old.HTTPHeaders = []domain.NameValue{{Name: "Old", Value: "x"}}
+	old.HTTPBodyType, old.HTTPBodyContent = domain.BodyTypeJSON, "{}"
+	old.CertCheck, old.CertMinDaysLeft = true, ptr(3)
+	old.CheckIntervalSeconds, old.TimeoutSeconds = 200, 15
+	old.AlertsEnabled, old.ShownOnPublicView = false, true
+	old.UnhealthyMessage = "old"
+	s.repo.services = []domain.Service{old}
+	return s
+}
+
+func (s serviceSetup) saved(t *testing.T) domain.Service {
+	t.Helper()
+	require.Len(t, s.repo.updates, 1)
+	return s.repo.updates[0]
+}
+
+func TestGetService_ReturnsTheViewOfTheService(t *testing.T) {
+	s := seededEdit()
+	checked := serviceStart.Add(-time.Minute)
+	s.repo.seedState(domain.ServiceState{ServiceID: "id-1", Status: domain.StatusHealthy, LastCheckedAt: &checked})
+
+	view, err := s.svc.GetService(t.Context(), "id-1")
+
+	require.NoError(t, err)
+	assert.Equal(t, "old", view.Service.Name)
+	assert.Equal(t, domain.StatusHealthy, view.State.Status)
+	assert.Equal(t, &checked, view.State.LastCheckedAt)
+}
+
+func TestUpdateService_SavesEverythingGiven(t *testing.T) {
+	s := seededEdit()
+	in := domain.ServiceInput{
+		Name: "Full",
+		Check: domain.CheckInput{Type: "http", HTTP: domain.HTTPCheckInput{
+			Method:       "POST",
+			URL:          "https://x/y",
+			QueryParams:  []domain.NameValue{{Name: "b", Value: "2"}, {Name: "a", Value: "1"}},
+			Headers:      []domain.NameValue{{Name: "Z", Value: "last"}, {Name: "A", Value: ""}},
+			BodyType:     "json",
+			BodyContent:  `{"k":1}`,
+			JSONRules:    []domain.JSONRule{{Field: "ok", FailingValue: "true"}, {Field: "up", FailingValue: true}},
+			JSONRuleMode: "all",
+
+			CertificateCheckEnabled: true,
+			CertMinDaysLeft:         ptr(14),
+			IgnoreCertificateErrors: true,
+		}},
+		CheckIntervalSeconds: ptr(120),
+		TimeoutSeconds:       ptr(5),
+		RetryCount:           ptr(1),
+		RetryIntervalSeconds: ptr(4),
+		AlertsEnabled:        ptr(false),
+		ShownOnPublicView:    ptr(true),
+		UnhealthyMessage:     "  down  ",
+		RecoveryMessage:      "\nup again\n",
+	}
+
+	view, err := s.svc.UpdateService(t.Context(), "id-1", in)
+
+	require.NoError(t, err)
+	want := domain.Service{
+		ID: "id-1", Name: "Full", NameKey: "full",
+		CheckType:  domain.CheckTypeHTTP,
+		HTTPMethod: ptr("POST"), HTTPURL: ptr("https://x/y"),
+		HTTPQueryParams: []domain.NameValue{{Name: "b", Value: "2"}, {Name: "a", Value: "1"}},
+		HTTPHeaders:     []domain.NameValue{{Name: "Z", Value: "last"}, {Name: "A", Value: ""}},
+		HTTPBodyType:    domain.BodyTypeJSON, HTTPBodyContent: `{"k":1}`,
+		JSONRules:    []domain.JSONRule{{Field: "ok", FailingValue: "true"}, {Field: "up", FailingValue: true}},
+		JSONRuleMode: domain.JSONRuleModeAll,
+		CertCheck:    true, CertMinDaysLeft: ptr(14), IgnoreCertErrs: true,
+		CheckIntervalSeconds: 120, TimeoutSeconds: 5, RetryCount: 1, RetryIntervalSeconds: 4,
+		AlertsEnabled: false, UnhealthyMessage: "down", RecoveryMessage: "up again",
+		ShownOnPublicView: true,
+		CreatedAt:         serviceStart, UpdatedAt: serviceStart,
+	}
+	assert.Equal(t, want, s.saved(t))
+	assert.Equal(t, want, view.Service)
+}
+
+func TestUpdateService_GroupsOfSettings(t *testing.T) {
+	groups := []struct {
+		name  string
+		input func() domain.ServiceInput
+		row   func(*domain.Service)
+	}{
+		{"name and flags", func() domain.ServiceInput {
+			in := validHTTP()
+			in.Name = "Renamed"
+			in.AlertsEnabled, in.ShownOnPublicView = ptr(false), ptr(true)
+			in.UnhealthyMessage, in.RecoveryMessage = "bad", "good"
+			return in
+		}, func(r *domain.Service) {
+			r.Name, r.NameKey = "Renamed", "renamed"
+			r.AlertsEnabled, r.ShownOnPublicView = false, true
+			r.UnhealthyMessage, r.RecoveryMessage = "bad", "good"
+		}},
+		{"the HTTP request", func() domain.ServiceInput {
+			return withHTTP(func(h *domain.HTTPCheckInput) {
+				h.Method, h.URL = "PUT", "https://z/p"
+				h.QueryParams = []domain.NameValue{{Name: "q", Value: "1"}}
+				h.Headers = []domain.NameValue{{Name: "X", Value: "secret"}}
+				h.BodyType, h.BodyContent = "text", "hi"
+			})
+		}, func(r *domain.Service) {
+			r.HTTPMethod, r.HTTPURL = ptr("PUT"), ptr("https://z/p")
+			r.HTTPQueryParams = []domain.NameValue{{Name: "q", Value: "1"}}
+			r.HTTPHeaders = []domain.NameValue{{Name: "X", Value: "secret"}}
+			r.HTTPBodyType, r.HTTPBodyContent = domain.BodyTypeText, "hi"
+		}},
+		{"JSON rules and the certificate", func() domain.ServiceInput {
+			return withHTTP(func(h *domain.HTTPCheckInput) {
+				h.JSONRules = []domain.JSONRule{{Field: "ok", FailingValue: false}}
+				h.JSONRuleMode = "all"
+				h.CertificateCheckEnabled, h.CertMinDaysLeft = true, ptr(21)
+				h.IgnoreCertificateErrors = true
+			})
+		}, func(r *domain.Service) {
+			r.JSONRules = []domain.JSONRule{{Field: "ok", FailingValue: false}}
+			r.JSONRuleMode = domain.JSONRuleModeAll
+			r.CertCheck, r.CertMinDaysLeft, r.IgnoreCertErrs = true, ptr(21), true
+		}},
+		{"the timing settings", func() domain.ServiceInput {
+			in := validHTTP()
+			in.CheckIntervalSeconds, in.TimeoutSeconds = ptr(100), ptr(4)
+			in.RetryCount, in.RetryIntervalSeconds = ptr(3), ptr(5)
+			return in
+		}, func(r *domain.Service) {
+			r.CheckIntervalSeconds, r.TimeoutSeconds, r.RetryCount, r.RetryIntervalSeconds = 100, 4, 3, 5
+		}},
+		{"HTTP to TCP", func() domain.ServiceInput {
+			in := validTCP()
+			in.Name = "api"
+			return in
+		}, func(r *domain.Service) {
+			r.CheckType = domain.CheckTypeTCP
+			r.HTTPMethod, r.HTTPURL = nil, nil
+			r.TCPHost, r.TCPPort = ptr("db.local"), ptr(5432)
+		}},
+	}
+	for _, g := range groups {
+		t.Run(g.name, func(t *testing.T) {
+			s := newServiceSetup()
+			s.repo.services = []domain.Service{httpRow("id-1")}
+			want := httpRow("id-1")
+			g.row(&want)
+
+			_, err := s.svc.UpdateService(t.Context(), "id-1", g.input())
+
+			require.NoError(t, err)
+			assert.Equal(t, want, s.saved(t))
+		})
+	}
+
+	t.Run("TCP host and port", func(t *testing.T) {
+		s := newServiceSetup()
+		tcp := httpRow("id-1")
+		tcp.CheckType, tcp.HTTPMethod, tcp.HTTPURL = domain.CheckTypeTCP, nil, nil
+		tcp.TCPHost, tcp.TCPPort = ptr("old.local"), ptr(22)
+		s.repo.services = []domain.Service{tcp}
+		in := validTCP()
+		in.Name = "api"
+		in.Check.TCP = domain.TCPCheckInput{Host: "new.local", Port: 6379}
+
+		_, err := s.svc.UpdateService(t.Context(), "id-1", in)
+
+		require.NoError(t, err)
+		want := tcp
+		want.TCPHost, want.TCPPort = ptr("new.local"), ptr(6379)
+		assert.Equal(t, want, s.saved(t))
+	})
+
+	t.Run("TCP to HTTP", func(t *testing.T) {
+		s := newServiceSetup()
+		tcp := httpRow("id-1")
+		tcp.CheckType, tcp.HTTPMethod, tcp.HTTPURL = domain.CheckTypeTCP, nil, nil
+		tcp.TCPHost, tcp.TCPPort = ptr("old.local"), ptr(22)
+		s.repo.services = []domain.Service{tcp}
+
+		_, err := s.svc.UpdateService(t.Context(), "id-1", validHTTP())
+
+		require.NoError(t, err)
+		assert.Equal(t, httpRow("id-1"), s.saved(t), "no host and port are left")
+	})
+}
+
+func TestUpdateService_SavesTrimmedValues(t *testing.T) {
+	s := seededEdit()
+	in := domain.ServiceInput{
+		Name: "  My API \n",
+		Check: domain.CheckInput{Type: "http", HTTP: domain.HTTPCheckInput{
+			Method:  "GET",
+			URL:     " https://x/y ",
+			Headers: []domain.NameValue{{Name: "\tX-Id ", Value: " keep "}},
+		}},
+	}
+
+	_, err := s.svc.UpdateService(t.Context(), "id-1", in)
+
+	require.NoError(t, err)
+	row := s.saved(t)
+	assert.Equal(t, "My API", row.Name)
+	assert.Equal(t, "my api", row.NameKey)
+	assert.Equal(t, "https://x/y", *row.HTTPURL)
+	assert.Equal(t, []domain.NameValue{{Name: "X-Id", Value: "keep"}}, row.HTTPHeaders)
+
+	tcp := validTCP()
+	tcp.Check.TCP.Host = " db.local "
+	s2 := seededEdit()
+	_, err = s2.svc.UpdateService(t.Context(), "id-1", tcp)
+	require.NoError(t, err)
+	assert.Equal(t, "db.local", *s2.saved(t).TCPHost)
+}
+
+func TestUpdateService_RejectedInputSavesNothing(t *testing.T) {
+	cases := map[string]domain.ServiceInput{
+		"empty name":       with(validHTTP(), func(in *domain.ServiceInput) { in.Name = " " }),
+		"name too long":    with(validHTTP(), func(in *domain.ServiceInput) { in.Name = chars(11) }),
+		"message too long": with(validHTTP(), func(in *domain.ServiceInput) { in.UnhealthyMessage = chars(501) }),
+		"interval low":     with(validHTTP(), func(in *domain.ServiceInput) { in.CheckIntervalSeconds = ptr(29) }),
+		"interval high":    with(validHTTP(), func(in *domain.ServiceInput) { in.CheckIntervalSeconds = ptr(301) }),
+		"worst case over the interval": with(validHTTP(), func(in *domain.ServiceInput) {
+			in.CheckIntervalSeconds, in.TimeoutSeconds, in.RetryCount, in.RetryIntervalSeconds = ptr(30), ptr(10), ptr(2), ptr(5)
+		}),
+		"bad URL": withHTTP(func(h *domain.HTTPCheckInput) { h.URL = "ftp://x" }),
+	}
+	for name, in := range cases {
+		for _, id := range []string{"id-1", "missing"} {
+			t.Run(name+" for "+id, func(t *testing.T) {
+				s := seededEdit()
+
+				_, err := s.svc.UpdateService(t.Context(), id, in)
+
+				var verr domain.ValidationError
+				require.ErrorAs(t, err, &verr)
+				assert.NotEmpty(t, verr.Fields)
+				_, createErr := newServiceSetup().svc.CreateService(t.Context(), in)
+				var createVerr domain.ValidationError
+				require.ErrorAs(t, createErr, &createVerr)
+				assert.Equal(t, createVerr.Fields, verr.Fields, "the same fields as create")
+				assert.Empty(t, s.repo.updates)
+				assert.Empty(t, s.scheduler.restarted)
+				assert.Empty(t, s.scheduler.started)
+			})
+		}
+	}
+
+	t.Run("a message of 500 characters passes", func(t *testing.T) {
+		s := seededEdit()
+		in := with(validHTTP(), func(in *domain.ServiceInput) { in.RecoveryMessage = chars(500) })
+		_, err := s.svc.UpdateService(t.Context(), "id-1", in)
+		require.NoError(t, err)
+		assert.Len(t, s.saved(t).RecoveryMessage, 500)
+	})
+}
+
+func TestUpdateService_OmittedValuesTakeTheDefaults(t *testing.T) {
+	s := seededEdit() // its flags and settings differ from the defaults
+
+	_, err := s.svc.UpdateService(t.Context(), "id-1", validHTTP())
+
+	require.NoError(t, err)
+	row := s.saved(t)
+	assert.Equal(t, 90, row.CheckIntervalSeconds)
+	assert.Equal(t, 7, row.TimeoutSeconds)
+	assert.Equal(t, 2, row.RetryCount)
+	assert.Equal(t, 3, row.RetryIntervalSeconds)
+	assert.True(t, row.AlertsEnabled)
+	assert.False(t, row.ShownOnPublicView)
+	assert.Empty(t, row.UnhealthyMessage)
+}
+
+func TestUpdateService_FailedWriteDoesNotTouchTheScheduler(t *testing.T) {
+	t.Run("not found", func(t *testing.T) {
+		s := seededEdit()
+		_, err := s.svc.UpdateService(t.Context(), "missing", validHTTP())
+		require.ErrorIs(t, err, domain.ErrNotFound)
+		assert.Empty(t, s.scheduler.restarted)
+		assert.Empty(t, s.scheduler.started)
+	})
+	t.Run("name taken", func(t *testing.T) {
+		s := seededEdit()
+		other := httpRow("id-2")
+		s.repo.services = append(s.repo.services, other)
+		_, err := s.svc.UpdateService(t.Context(), "id-1", validHTTP()) // "api" is id-2's name
+		require.ErrorIs(t, err, domain.ErrServiceNameTaken)
+		assert.Empty(t, s.scheduler.restarted)
+		assert.Equal(t, "old", s.repo.services[0].Name, "nothing saved")
+	})
+	t.Run("another error", func(t *testing.T) {
+		s := seededEdit()
+		boom := errors.New("boom")
+		s.repo.err = boom
+		_, err := s.svc.UpdateService(t.Context(), "id-1", validHTTP())
+		require.ErrorIs(t, err, boom)
+		assert.Empty(t, s.scheduler.restarted)
+	})
+}
+
+func TestUpdateService_RestartsTheScheduleOnceAfterTheWrite(t *testing.T) {
+	s := seededEdit()
+
+	view, err := s.svc.UpdateService(t.Context(), "id-1", validHTTP())
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"update", "restart"}, *s.events)
+	require.Len(t, s.scheduler.restarted, 1)
+	assert.Equal(t, view.Service, s.scheduler.restarted[0].service, "the service as saved")
+	assert.Empty(t, s.scheduler.started, "an edit never starts a service")
+}
+
+func TestUpdateService_PausedServiceIsNotScheduled(t *testing.T) {
+	s := seededEdit()
+	s.repo.services[0].Paused = true
+
+	view, err := s.svc.UpdateService(t.Context(), "id-1", validHTTP())
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"update"}, *s.events, "the write happens and the scheduler is not called")
+	assert.True(t, view.Service.Paused, "paused is kept")
+	assert.Equal(t, "api", s.repo.services[0].Name)
+}
+
+func TestUpdateService_NextCheckTime(t *testing.T) {
+	now := serviceStart
+	interval := 60 * time.Second
+	at := func(d time.Duration) *time.Time { v := now.Add(d); return &v }
+	cases := []struct {
+		name string
+		last *time.Time
+		want time.Time
+	}{
+		{"never checked", nil, now.Add(interval)},
+		{"one second before the boundary", at(-interval + time.Second), now.Add(time.Second)},
+		{"exactly at the boundary", at(-interval), now.Add(interval)},
+		{"long ago", at(-time.Hour), now.Add(interval)},
+		{"a last check in the future is not corrected", at(1000 * time.Second), now.Add(1000*time.Second + interval)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := seededEdit() // its own interval is 200: the new one must be used
+			s.repo.seedState(domain.ServiceState{ServiceID: "id-1", Status: domain.StatusHealthy, LastCheckedAt: c.last})
+			in := validHTTP()
+			in.CheckIntervalSeconds = ptr(60)
+			in.TimeoutSeconds, in.RetryCount = ptr(5), ptr(1)
+
+			_, err := s.svc.UpdateService(t.Context(), "id-1", in)
+
+			require.NoError(t, err)
+			require.Len(t, s.scheduler.restarted, 1)
+			got := s.scheduler.restarted[0].at
+			assert.Equal(t, c.want, got)
+			assert.True(t, got.After(now), "an edit never checks at saving")
+			assert.Empty(t, s.scheduler.started)
+		})
+	}
+}
+
+func TestUpdateService_ConcurrentEditsAreSerialized(t *testing.T) {
+	for round := range 50 {
+		s := seededEdit()
+		var wg sync.WaitGroup
+		for _, name := range []string{"first", "second"} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				in := validHTTP()
+				in.Name = name
+				_, err := s.svc.UpdateService(t.Context(), "id-1", in)
+				assert.NoError(t, err)
+			}()
+		}
+		wg.Wait()
+
+		require.Equal(t, []string{"update", "restart", "update", "restart"}, *s.events, "round %d", round)
+	}
+}
+
+func TestUpdateService_AndDeleteAreSerialized(t *testing.T) {
+	for round := range 50 {
+		s := seededEdit()
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		var updateErr error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, updateErr = s.svc.UpdateService(t.Context(), "id-1", validHTTP())
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			assert.NoError(t, s.svc.DeleteService(t.Context(), "id-1"))
+		}()
+		close(start)
+		wg.Wait()
+
+		if updateErr != nil {
+			require.ErrorIs(t, updateErr, domain.ErrNotFound, "round %d", round)
+			require.Equal(t, []string{"delete", "stop", "update"}, *s.events, "round %d: an update after the delete schedules nothing", round)
+			assert.Empty(t, s.scheduler.restarted)
+			continue
+		}
+		require.Equal(t, []string{"update", "restart", "delete", "stop"}, *s.events, "round %d", round)
+	}
 }
