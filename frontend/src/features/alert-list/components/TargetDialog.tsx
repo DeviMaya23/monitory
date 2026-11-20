@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type BaseSyntheticEvent } from 'react'
 import { LoaderCircle, Mail, TriangleAlert, Webhook } from 'lucide-react'
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form'
+import { NameValueRows } from '../../../components/NameValueRows'
 import { Dialog } from '../../../components/ui/Dialog'
 import { RadioGroup } from '../../../components/ui/RadioGroup'
 import type { Target } from '../../../lib/api/targets'
@@ -12,7 +13,6 @@ import { useTestTarget } from '../hooks/useTestTarget'
 import { FIELD_IDS, NAME_MAX_LENGTH, headerInputId, headerPath } from '../lib/targetFields'
 import { EMPTY_VALUES, sameValues, toInput, usesPlainHttp, valuesOf, type TargetFormValues } from '../lib/targetForm'
 import { FieldErrorText } from './FieldErrorText'
-import { HeaderRows } from './HeaderRows'
 import { TargetDialogBanners, TargetErrorSummary } from './TargetDialogBanners'
 import { TargetDiscardDialog } from './TargetDiscardDialog'
 import { TargetTestRow } from './TargetTestRow'
@@ -342,7 +342,15 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
                 <span>{HTTP_WARNING}</span>
               </p>
             )}
-            <HeaderRows
+            <NameValueRows
+              legend={
+                <>
+                  Custom headers <span className="opt">(optional)</span>
+                </>
+              }
+              emptyText="No custom headers."
+              addLabel="Add header"
+              itemName="Header"
               rows={fields}
               inputId={headerInputId}
               register={(index, part) =>

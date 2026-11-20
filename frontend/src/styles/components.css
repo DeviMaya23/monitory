@@ -435,6 +435,7 @@
 .kv__label { display: none; font-size: var(--text-xs); color: var(--color-text-subtle); }
 .rows__foot { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .rows__empty { font-size: var(--text-sm); color: var(--color-text-subtle); }
+.rows__legend { margin-bottom: 6px; }
 
 /* ---------- Tooltip (Base UI Tooltip.Popup) ---------- */
 .tooltip {

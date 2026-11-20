@@ -35,7 +35,7 @@ function Banner({ failure, onRetry }: Pick<Props, 'failure' | 'onRetry'>) {
           <CircleAlert className="icon" aria-hidden="true" />
           <div className="banner__body">
             <span className="banner__title">The service is too large to save.</span>
-            <span>Together its fields are over 1 MB. Shorten the name or the URL.</span>
+            <span>Together its fields are over 1 MB. Shorten the body or the header values.</span>
           </div>
         </div>
       )

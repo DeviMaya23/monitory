@@ -430,7 +430,7 @@ describe('Add service (FR-6, FR-4)', () => {
     expect(createService).toHaveBeenCalledTimes(1)
     expect(createService).toHaveBeenCalledWith({
       name: 'Search API',
-      check: { type: 'http', method: 'GET', url: 'https://search.example.com/health' },
+      check: { type: 'http', method: 'GET', url: 'https://search.example.com/health', query_params: [], headers: [] },
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',

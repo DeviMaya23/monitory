@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FIELD_IDS } from './fieldIds'
+import { FIELD_IDS, fieldId } from './fieldIds'
 import { fieldLabel, summaryTitle } from './fieldLabels'
 
 describe('fieldLabel', () => {
@@ -17,8 +17,49 @@ describe('fieldLabel', () => {
     expect(fieldLabel(path)).toEqual({ label, target: path })
   })
 
-  it.each(['check.headers[2].value', 'toString'])('maps %s to itself with no target', (path) => {
+  it.each(['check.type', 'toString'])('maps %s to itself with no target', (path) => {
     expect(fieldLabel(path)).toEqual({ label: path, target: null })
+  })
+})
+
+describe('fieldLabel of the Request group’s rows and body', () => {
+  it.each([
+    ['check.query_params[2].name', 'Query parameter 3 name'],
+    ['check.query_params[0].value', 'Query parameter 1 value'],
+    ['check.headers[0].value', 'Header 1 value'],
+    ['check.headers[4].name', 'Header 5 name'],
+    ['check.body.content', 'Body'],
+    ['check.headers[10].name', 'Header 11 name'],
+    ['check.query_params[19].name', 'Query parameter 20 name'],
+    ['check.headers[20].value', 'Header 21 value'],
+  ] as const)('maps %s to %s with itself as the input', (path, label) => {
+    expect(fieldLabel(path)).toEqual({ label, target: path })
+  })
+
+  it.each([
+    ['check.query_params', 'Query parameters'],
+    ['check.headers', 'Headers'],
+    ['check.body.type', 'Body type'],
+  ])('maps %s to %s with no input', (path, label) => {
+    expect(fieldLabel(path)).toEqual({ label, target: null })
+  })
+
+  it.each([
+    'check.headers[01].name',
+    'check.headers[-1].name',
+    'check.headers[].name',
+    'check.headers[1].other',
+    'check.query_params[0]',
+    'check.body',
+  ])('maps the near miss %s to itself with no input', (path) => {
+    expect(fieldLabel(path)).toEqual({ label: path, target: null })
+  })
+
+  it('maps the id of each row input and the body text', () => {
+    expect(fieldId('check.query_params[1].name')).toBe('service-query-1-name')
+    expect(fieldId('check.headers[3].value')).toBe('service-header-3-value')
+    expect(fieldId('check.body.content')).toBe('service-body-content')
+    expect(fieldId('check.url')).toBe('service-url')
   })
 })
 

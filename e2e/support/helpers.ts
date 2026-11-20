@@ -37,8 +37,8 @@ export interface AddServiceOptions {
 
 export async function addService(page: Page, name: string, url: string, options: AddServiceOptions = {}): Promise<void> {
   await page.getByRole('link', { name: 'Add service' }).first().click()
-  await page.getByLabel('Name').fill(name)
-  await page.getByLabel('URL').fill(url)
+  await page.getByLabel('Name', { exact: true }).fill(name)
+  await page.getByLabel('URL', { exact: true }).fill(url)
   // The Timing group, when the form has one: the values the harness's environment gives, sent explicitly.
   const interval = page.getByLabel('Check interval')
   if ((await interval.count()) > 0) {

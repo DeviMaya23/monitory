@@ -1,11 +1,20 @@
-import { useEffect, useRef } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { CircleAlert, Plus, Trash2 } from 'lucide-react'
 import type { UseFormRegisterReturn } from 'react-hook-form'
-import { FieldErrorText } from './FieldErrorText'
 
 type Part = 'name' | 'value'
 
 type Props = {
+  /** The group's legend. */
+  legend: ReactNode
+  /** Shown when there are no rows. */
+  emptyText: string
+  /** The Add button's text. */
+  addLabel: string
+  /** What one row is called, for the inputs' and the Remove button's accessible names ("Header"). */
+  itemName: string
+  /** A hint beside the Add button. */
+  hint?: string
   /** The rows of the form's field array, in order. */
   rows: readonly { id: string }[]
   /** The element id of a row's input. */
@@ -24,10 +33,34 @@ type Props = {
 
 const errorId = (id: string) => `${id}-error`
 
-/** A list of name and value rows with Add and Remove, over a form's field array. */
-export function HeaderRows({ rows, inputId, register, errorFor, listError, readOnly, onAdd, onRemove }: Props) {
+/** An error message: the icon and the text (NFR-7). The same markup as the service form's field error. */
+function ErrorText({ id, message }: { id: string; message: string }) {
+  return (
+    <p className="error-text" id={id}>
+      <CircleAlert className="icon icon--sm" aria-hidden="true" />
+      <span>{message}</span>
+    </p>
+  )
+}
+
+/** A list of name and value rows with Add and Remove, over a form's field array. The words are props. */
+export function NameValueRows({
+  legend,
+  emptyText,
+  addLabel,
+  itemName,
+  hint,
+  rows,
+  inputId,
+  register,
+  errorFor,
+  listError,
+  readOnly,
+  onAdd,
+  onRemove,
+}: Props) {
   const addButton = useRef<HTMLButtonElement>(null)
-  // Where focus goes once the rows have changed: a row's name input, or Add header.
+  // Where focus goes once the rows have changed: a row's name input, or the Add button.
   const focusAfter = useRef<{ index: number } | 'add' | null>(null)
 
   useEffect(() => {
@@ -47,15 +80,16 @@ export function HeaderRows({ rows, inputId, register, errorFor, listError, readO
     onAdd()
   }
 
-  const listErrorId = 'header-rows-error'
+  const uid = useId()
+  const listErrorId = `${uid}-error`
+  const hintId = `${uid}-hint`
+  const describedBy = [hint ? hintId : null, listError ? listErrorId : null].filter(Boolean).join(' ')
   return (
-    <fieldset className="stack" aria-describedby={listError ? listErrorId : undefined}>
-      <legend className="label header-rows__legend">
-        Custom headers <span className="opt">(optional)</span>
-      </legend>
+    <fieldset className="stack" aria-describedby={describedBy || undefined}>
+      <legend className="label rows__legend">{legend}</legend>
       <div className="rows">
         {rows.length === 0 ? (
-          <p className="rows__empty">No custom headers.</p>
+          <p className="rows__empty">{emptyText}</p>
         ) : (
           <>
             <div className="rows__head" aria-hidden="true">
@@ -80,20 +114,20 @@ export function HeaderRows({ rows, inputId, register, errorFor, listError, readO
                           className="input input--mono"
                           id={id}
                           type="text"
-                          aria-label={`Header ${n} ${part}`}
+                          aria-label={`${itemName} ${n} ${part}`}
                           readOnly={readOnly}
                           aria-invalid={message ? 'true' : undefined}
                           aria-describedby={message ? errorId(id) : undefined}
                           {...register(index, part)}
                         />
-                        {message && <FieldErrorText id={errorId(id)} message={message} />}
+                        {message && <ErrorText id={errorId(id)} message={message} />}
                       </div>
                     )
                   })}
                   <button
                     type="button"
                     className="btn btn--ghost btn--icon"
-                    aria-label={`Remove header ${n}`}
+                    aria-label={`Remove ${itemName.toLowerCase()} ${n}`}
                     disabled={readOnly}
                     onClick={() => remove(index)}
                   >
@@ -104,12 +138,17 @@ export function HeaderRows({ rows, inputId, register, errorFor, listError, readO
             })}
           </>
         )}
-        {listError && <FieldErrorText id={listErrorId} message={listError} />}
+        {listError && <ErrorText id={listErrorId} message={listError} />}
         <div className="rows__foot">
           <button type="button" className="btn" ref={addButton} disabled={readOnly} onClick={add}>
             <Plus className="icon icon--sm" aria-hidden="true" />
-            <span>Add header</span>
+            <span>{addLabel}</span>
           </button>
+          {hint && (
+            <span className="hint" id={hintId}>
+              {hint}
+            </span>
+          )}
         </div>
       </div>
     </fieldset>

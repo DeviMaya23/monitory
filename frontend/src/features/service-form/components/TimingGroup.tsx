@@ -1,7 +1,7 @@
 import { useWatch, type Control, type UseFormRegister } from 'react-hook-form'
 import type { ServiceFormValues } from '../hooks/useCreateService'
 import { errorId, FIELD_IDS } from '../lib/fieldIds'
-import type { FieldTarget } from '../lib/fieldLabels'
+import type { StaticTarget } from '../lib/fieldLabels'
 import {
   longestAttempt,
   readTiming,
@@ -28,7 +28,7 @@ type Props = {
   onEdit: (name: TimingName) => void
 }
 
-const targetOf = (name: TimingName): FieldTarget => TIMING_FIELDS[name].path
+const targetOf = (name: TimingName): StaticTarget => TIMING_FIELDS[name].path
 
 /** The longest attempt against the interval, as text; null when it cannot be shown. */
 function useSummaryLine(control: Control<ServiceFormValues>) {

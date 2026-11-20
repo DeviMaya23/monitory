@@ -81,14 +81,14 @@ describe('useServerErrors', () => {
   })
 
   it('lists a path with no field in the summary with no target, and editing does not remove it', () => {
-    const { result } = setup([fieldError('check.headers[0].value', 'Not a value.'), fieldError('name', 'Needed.')])
+    const { result } = setup([fieldError('check.type', 'Not a value.'), fieldError('name', 'Needed.')])
     expect(result.current.entries[0]).toMatchObject({
-      label: 'check.headers[0].value',
+      label: 'check.type',
       message: 'Not a value.',
       target: null,
     })
     act(() => result.current.clearField('name'))
-    expect(result.current.entries.map((entry) => entry.label)).toEqual(['check.headers[0].value'])
+    expect(result.current.entries.map((entry) => entry.label)).toEqual(['check.type'])
     expect(result.current.count).toBe(1)
   })
 
@@ -137,5 +137,85 @@ describe('useServerErrors', () => {
     expect(result.current.errorFor('name')).toBe('Name is too long here.')
     rerender({ errors: null })
     expect(result.current.count).toBe(0)
+  })
+
+  describe('the Request group’s rows and body', () => {
+    const ROWS = [
+      fieldError('check.query_params[1].name', 'Q name.'),
+      fieldError('check.query_params', 'Too many queries.'),
+      fieldError('check.headers[0].value', 'H value.'),
+      fieldError('check.headers[2].name', 'H name.'),
+      fieldError('check.headers', 'Too many headers.'),
+      fieldError('check.body.type', 'Bad type.'),
+      fieldError('check.body.content', 'Too long.'),
+      fieldError('name', 'Needed.'),
+    ]
+
+    it('maps each path to its label and input, and the bare paths to a label with no input', () => {
+      const { result } = setup(ROWS)
+      expect(result.current.entries.map(({ label, target }) => ({ label, target }))).toEqual([
+        { label: 'Query parameter 2 name', target: 'check.query_params[1].name' },
+        { label: 'Query parameters', target: null },
+        { label: 'Header 1 value', target: 'check.headers[0].value' },
+        { label: 'Header 3 name', target: 'check.headers[2].name' },
+        { label: 'Headers', target: null },
+        { label: 'Body type', target: null },
+        { label: 'Body', target: 'check.body.content' },
+        { label: 'Name', target: 'name' },
+      ])
+      expect(result.current.errorFor('check.headers[2].name')).toBe('H name.')
+      expect(result.current.errorFor('check.headers[1].name')).toBeNull()
+      expect(result.current.bareError('check.headers')).toBe('Too many headers.')
+      expect(result.current.bareError('check.body.type')).toBe('Bad type.')
+    })
+
+    it('clearing a row’s path removes only that row’s entry', () => {
+      const { result } = setup(ROWS)
+      act(() => result.current.clearField('check.headers[0].value'))
+      expect(result.current.errorFor('check.headers[0].value')).toBeNull()
+      expect(result.current.errorFor('check.headers[2].name')).toBe('H name.')
+      expect(result.current.errorFor('check.query_params[1].name')).toBe('Q name.')
+      expect(result.current.count).toBe(7)
+    })
+
+    it('clearing a list’s own path removes only its entry', () => {
+      const { result } = setup(ROWS)
+      act(() => result.current.clearList('headers'))
+      expect(result.current.bareError('check.headers')).toBeNull()
+      expect(result.current.errorFor('check.headers[0].value')).toBe('H value.')
+      expect(result.current.bareError('check.query_params')).toBe('Too many queries.')
+      expect(result.current.count).toBe(7)
+    })
+
+    it('clearing all rows of a list removes its rows and its own entry, and leaves the other list and the body', () => {
+      const { result } = setup(ROWS)
+      act(() => result.current.clearRows('headers'))
+      expect(result.current.entries.map((entry) => entry.label)).toEqual([
+        'Query parameter 2 name',
+        'Query parameters',
+        'Body type',
+        'Body',
+        'Name',
+      ])
+    })
+
+    it('clearing the body content removes its entry only; changing the type removes both body entries', () => {
+      const { result } = setup(ROWS)
+      act(() => result.current.clearField('check.body.content'))
+      expect(result.current.errorFor('check.body.content')).toBeNull()
+      expect(result.current.bareError('check.body.type')).toBe('Bad type.')
+      expect(result.current.count).toBe(7)
+      act(() => result.current.clearBodyType())
+      expect(result.current.bareError('check.body.type')).toBeNull()
+      expect(result.current.count).toBe(6)
+    })
+
+    it('a new response starts with nothing cleared', () => {
+      const { result, rerender } = setup(ROWS)
+      act(() => result.current.clearRows('headers'))
+      act(() => result.current.clearBodyType())
+      rerender({ errors: [...ROWS] })
+      expect(result.current.count).toBe(8)
+    })
   })
 })

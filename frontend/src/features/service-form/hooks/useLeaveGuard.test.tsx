@@ -11,6 +11,10 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [method, setMethod] = useState('GET')
+  const [queryRows, setQueryRows] = useState(0)
+  const [headerRows, setHeaderRows] = useState(0)
+  const [bodyType, setBodyType] = useState('none')
+  const [bodyContent, setBodyContent] = useState('')
   const [alertsEnabled, setAlertsEnabled] = useState(true)
   const [unhealthyMessage, setUnhealthyMessage] = useState('')
   const [recoveryMessage, setRecoveryMessage] = useState('')
@@ -19,6 +23,10 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
     name,
     method,
     url,
+    queryRowCount: queryRows,
+    headerRowCount: headerRows,
+    bodyType,
+    bodyContent,
     alertsEnabled,
     unhealthyMessage,
     recoveryMessage,
@@ -31,6 +39,13 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
     <>
       <input aria-label="name" value={name} onChange={(event) => setName(event.target.value)} />
       <input aria-label="url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} />
+      <input aria-label="body" value={bodyContent} onChange={(event) => setBodyContent(event.target.value)} />
+      <button onClick={() => setQueryRows((n) => n + 1)}>add query</button>
+      <button onClick={() => setQueryRows((n) => Math.max(0, n - 1))}>remove query</button>
+      <button onClick={() => setHeaderRows((n) => n + 1)}>add header</button>
+      <button onClick={() => setHeaderRows((n) => Math.max(0, n - 1))}>remove header</button>
+      <button onClick={() => setBodyType('json')}>type json</button>
+      <button onClick={() => setBodyType('none')}>type none</button>
       <input
         aria-label="unhealthy"
         value={unhealthyMessage}
@@ -132,6 +147,40 @@ describe('changed', () => {
     click('method HEAD')
     expect(changed()).toBe('true')
     click('method GET')
+    expect(changed()).toBe('false')
+  })
+})
+
+describe('changed by the request rows and body (FR-35, FR-37)', () => {
+  it('is true with one query parameter row, even an empty one, and false again when it is removed', () => {
+    render(<Harness />)
+    click('add query')
+    expect(changed()).toBe('true')
+    click('remove query')
+    expect(changed()).toBe('false')
+  })
+
+  it('is true with one header row, and false again when it is removed', () => {
+    render(<Harness />)
+    click('add header')
+    expect(changed()).toBe('true')
+    click('remove header')
+    expect(changed()).toBe('false')
+  })
+
+  it('is true with a body type other than None, and false again with None', () => {
+    render(<Harness />)
+    click('type json')
+    expect(changed()).toBe('true')
+    click('type none')
+    expect(changed()).toBe('false')
+  })
+
+  it('is true with body text while the type is None, and false again when it is cleared', () => {
+    render(<Harness />)
+    type('body', 'x')
+    expect(changed()).toBe('true')
+    type('body', '')
     expect(changed()).toBe('false')
   })
 })
