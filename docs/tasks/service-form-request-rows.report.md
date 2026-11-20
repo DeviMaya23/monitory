@@ -2,7 +2,7 @@
 
 Branch: `verify/service-form-request-rows` (built from `feat/service-form-request-rows` at `a576017`; the verifier added tests only, no source change).
 
-**Verdict: no Blocking findings.** `make check` passed (47 test files, 861 tests, plus the verifier's added cases; Go tests, lint, builds, contract lint). Integration tests: not run, none apply (frontend only; `make test-integration` covers the Go mailer). Live run of the built app: no (see "What was not proved").
+**Verdict: one Blocking finding, found after the first push by CI and fixed in this branch (see "Blocking"). No other Blocking findings.** `make check` passed (47 test files, 861 tests, plus the verifier's added cases; Go tests, lint, builds, contract lint). Integration tests: not run, none apply (frontend only; `make test-integration` covers the Go mailer). End-to-end smoke: failed in CI on the first push, fixed; rerun locally without Docker (see "Blocking"). Live run of the built app in a browser by hand: no (see "What was not proved").
 
 `make check` history: the first full run failed once on `TargetDialog.test.tsx` "adds a header row… (FR-92)" with a 5000 ms timeout while the machine's load average was 22. The file alone passed (96/96), and a second full `make check` passed. That test already appears in the backlog as a flake (`service-form-alerts` line). I timed it on the base commit and on this branch: 2.8–3.2 s on both, so this change did not slow it.
 
@@ -123,6 +123,10 @@ All were reverted (`git checkout`); each failed at least one named test.
 | M19 | header input masked (`type="password"`) | "shows a header value in full…" |
 | M20 | old 413 wording | "413: the title and the second line…" |
 
+## End-to-end
+
+The change touches a screen the smoke journeys use, so they apply. Four journeys failed in CI before the fix; see "Blocking". Files changed by the verifier outside tests of the code under test: `e2e/support/helpers.ts` and `e2e/journeys/add-service.spec.ts` (locators only), on the user's instruction.
+
 ## Cases tried beyond the task file
 
 Added as rows or subtests in the existing test files (all pass; no source change was needed):
@@ -142,7 +146,11 @@ Checked by reading: a double submit while saving is blocked by the existing `inF
 
 ### Blocking
 
-None.
+1. **The end-to-end smoke journeys broke (found by CI, missed by the verifier).** The journeys fill the URL with `page.getByLabel('URL')`, a case-insensitive substring match. The new radio option `Form (URL-encoded)` has that text in its `aria-label`, so the locator resolved to 3 elements (the URL input, the radio span, Base UI's hidden radio input) and Playwright's strict mode threw. Four of five smoke journeys failed in CI (`add-service`, `alert-email`, `alert-webhook`, `delete-service`), all through `addService` in `e2e/support/helpers.ts:41` or `add-service.spec.ts`.
+   - Reproduce: `make test-e2e-smoke` on `a576017`. Wrong result: `strict mode violation: getByLabel('URL') resolved to 3 elements`.
+   - Why the verifier missed it: the report said no e2e applied, and neither a grep of `e2e/` for locators on the labels this change adds nor a smoke run was done.
+   - Fix (by the user's instruction, since the project has no e2e-only role): `{ exact: true }` on `getByLabel('URL')` and on the service form's `getByLabel('Name')` in `e2e/support/helpers.ts` and `e2e/journeys/add-service.spec.ts` (6 lines). `Name` is not failing today, but `Query parameter 1 name` and `Header 1 name` would match it as soon as a journey adds a row. The target dialog's `getByLabel('Name')` calls are unchanged: the dialog has no such labels.
+   - Rerun locally (no Docker, so no Mailpit): `add-service` and `delete-service` passed. `alert-email` and `alert-webhook` get past the form and fail only with "Mailpit is not reachable at http://127.0.0.1:8025". Their result is therefore not proved locally; CI's smoke job on the pushed fix is the evidence.
 
 ### Non-blocking
 

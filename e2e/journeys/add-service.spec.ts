@@ -30,11 +30,11 @@ test('journey 2: a taken name and an empty name are refused (FR-12, FR-59)', asy
   })
 
   await page.getByRole('link', { name: 'Add service' }).first().click()
-  await page.getByLabel('Name').fill(name.toUpperCase())
-  await page.getByLabel('URL').fill(stub.url)
+  await page.getByLabel('Name', { exact: true }).fill(name.toUpperCase())
+  await page.getByLabel('URL', { exact: true }).fill(stub.url)
   await page.getByRole('button', { name: 'Save service' }).click()
   await expect(page.getByText('Another service already uses this name (names ignore case).')).toBeVisible()
-  await expect(page.getByLabel('Name')).toBeVisible()
+  await expect(page.getByLabel('Name', { exact: true })).toBeVisible()
   expect(posts).toHaveLength(1)
 
   await page.getByRole('button', { name: 'Cancel' }).click()
@@ -45,7 +45,7 @@ test('journey 2: a taken name and an empty name are refused (FR-12, FR-59)', asy
 
   posts.length = 0
   await page.getByRole('link', { name: 'Add service' }).first().click()
-  await page.getByLabel('URL').fill(stub.url)
+  await page.getByLabel('URL', { exact: true }).fill(stub.url)
   await page.getByRole('button', { name: 'Save service' }).click()
   await expect(page.getByText('Enter a name.').first()).toBeVisible()
   expect(posts).toHaveLength(0)
