@@ -21,12 +21,11 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-7, FR-39, FR-66 | `getService`, `updateService` | Edit a service | State kept, no check at save, schedule restarted |
+| FR-7, FR-39, FR-66 | `getService`, `updateService` | Edit a service | Left out of `update-service-api`, which builds the two operations: the screen (`edit-service-screen`) |
 | FR-44 to FR-48, FR-69, FR-73 | `createService`, `updateService` | JSON rules | The rows in the service form. Rule evaluation, any-or-all, the body read limit and the save-time validation are built (`http-json-rules`, `create-service-api`) |
 | FR-34, FR-50, FR-64 | `createService`, `updateService` | Certificate options | The switches and the days field in the service form. The probe's expiry check, "ignore certificate errors" and the save-time validation are built (`http-certificate-options`, `create-service-api`) |
-| FR-33, FR-49, FR-52 | `createService`, `updateService` | Type switch, TCP fields | TCP probe |
-| FR-75 to FR-79 | `pauseService`, `resumeService` | Dashboard row actions | Cancels a running check |
-| FR-104, FR-105, FR-106, NFR-7 | `testServiceCheck` | Test result area | Takes no repository that can write |
+| FR-33, FR-49, FR-52 | `createService`, `updateService` | Type switch, TCP fields | Left out of `tcp-probe`, which builds the probe: the type switch and the TCP fields in the form (`service-form-type-tcp`) |
+| FR-104, FR-105, FR-106, NFR-7 | `testServiceCheck` | Test result area | Left out of `test-service-check-api`, which builds the operation: the test panel in the form (`service-test-panel`) |
 | Milestone journeys | all of the above | Service form | Each failure reason produced on purpose; limits and validation |
 
 ### Milestone 4: public view and health endpoint
@@ -50,9 +49,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 ## Cross-cutting and later
 
-- Left out of `dashboard-screen`, to be added by the task that builds what each does: the name as a link to Edit, with the desktop ellipsis and the full-name tooltip (the edit screen); the row's Pause and Resume, the public-page switch and the "Open public page" link (their own tasks, listed above). The failed-action toasts for row actions come with the row action that causes them.
-
-- Left out of `check-sequence-and-state`: its runner does nothing for a TCP service, so one stays `not_yet_checked`; the `scheduler` task still gives a TCP service a timer, whose every sequence does nothing. The task that builds the TCP probe (FR-49, FR-52, milestone 3) makes the runner call it with the same retry rule.
+- Left out of `dashboard-screen`, to be added by the task that builds what each does: the name as a link to Edit, with the desktop ellipsis and the full-name tooltip (the edit screen); the public-page switch and the "Open public page" link (their own tasks, listed above). The failed-action toasts for row actions come with the row action that causes them (Pause and Resume: `dashboard-pause-resume`).
 
 - Left out of `add-service-screen`: the "Discard unsaved changes?" prompt on the top-bar brand link, the browser's Back and Forward, and Sign out (it covers only the form's Cancel and back link, and the browser's own prompt on closing the tab). Blocking in-app navigation needs react-router's `useBlocker`, which needs a data router instead of `BrowserRouter`. Decided by the user: the edit-screen task moves the app to a data router and adds the prompt to both forms.
 
@@ -61,8 +58,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - Left out of `service-form-request-rows`: the query parameter, header and body rows on the edit form (`getService`, `updateService`; FR-7, FR-39). The edit-screen task builds them from `NameValueRows` and the request rows group. Matters when: the edit-screen task is drafted.
 
 - Left out of `service-form-alerts`: the Alerts group (the `Send alerts` switch and the two messages) on the edit form, with `getService` and `updateService` (FR-20, FR-65). The edit-form task builds it from the add form's `AlertsGroup` and the `Switch` hint prop. Matters when: the edit-form task is drafted.
-
-- Left out of `scheduler`: a log line per check outcome with the failure reason (`CONVENTIONS.md`, Logging). The runner returns no result to log. Matters when: the admin needs to see in the log why a service went unhealthy; best added with the task that next changes `worker.CheckRunner` (the milestone 3 TCP probe).
 
 - Left out of `target-form-dialog` (by the user's decision, the alert-list feature keeps its own copies): the discard dialog, the `422` error summary with its server-error hook, and the failure banners exist twice, in `service-form` and in `alert-list`. Promote them to shared places (`components/`, `lib/`). Matters when: a third form needs them, or the wording or behaviour of one copy changes and the other is forgotten. Needs: the user's approval of the shared components (`CONVENTIONS.md`, "Matching existing shapes").
 
@@ -80,7 +75,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `add-service-screen`: the services query key exists twice: `servicesQueryKey` (used by `service-form`) and `SERVICES_KEY` in `useServiceList.ts`. Using the shared one needs the mock factory in `useServiceList.test.tsx` to export it, a second `service-list` edit. Matters when: someone changes the value of either key, so the form drops a cache entry the dashboard does not read. Best done by a task that already changes `service-list`.
 - `add-service-screen`: if the admin leaves by the back link while a save is in flight, the dashboard stays stale until the next automatic refresh (FR-95), because `removeQueries` does not refetch a query that is already mounted. Adding `invalidateQueries` would cover it, but changes what the task specified. Matters when: a slow or overloaded server makes a save take longer than the admin waits. Needs: the user, to approve the change.
 - `portal-into-app`: the toast viewport is `position: fixed` inside `.app`, which has `container-type: inline-size` and so contains fixed descendants; it is positioned against `#root`'s box, not the viewport. Not checked in a browser. Matters when: a toast shows on a page taller than the window (the dashboard with many services) and sits at the bottom of the page instead of the window, or the milestone check of the toasts is run.
-- `scheduler`: `Stop` followed by `Start` for the same id can run two sequences at once, because `Stop` does not wait and the next `Start` finds no entry to wait for; there is no test for it. Also, `Start` itself ignores `Paused`; only `StartChecks` filters paused services. Matters when: the first task that calls `Stop` then `Start` for one service (edit, pause, resume, milestone 3) is drafted; it decides whether `Stop` waits and where the paused check lives.
 
 - `portal-into-app`: the dialog host has `z-index: 40`, above the toast viewport (30), so a toast fired while a dialog or alert dialog is open sits under the backdrop and cannot be read. Today's order before the task had the toast above. A host value below 30 (for example 25) keeps the old order. Matters when: a toast fires while a dialog is open (a failed removal in the alert list, a save result while a dialog is still closing).
 
@@ -93,7 +87,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `service-form-alerts`: `TargetDialog.test.tsx` "adds a header row… (FR-92)" timed out once at 5000 ms in a full parallel run (1 of 3 runs); it is not part of that diff. Matters when: the same case times out again on CI or on another task's branch; then raise its timeout in that file.
 
 - `http-certificate-options`: an expired or untrusted certificate and a certificate too close to expiry are both `certificate_problem`, and the days left are not recorded. Matters when: the task that words the failure reason for the admin wants to show which of the two it was. Needs: the user (a second code is a contract change).
-- `http-certificate-options`: `testServiceCheck` builds an `HTTPCheck` from the form values and must set the three certificate fields. Matters when: the `testServiceCheck` task is drafted (it carries this).
 
 - `webhook-sender`: a custom webhook header the HTTP library controls (`Host`, `Content-Length`, `Transfer-Encoding`, `Trailer`) is accepted on save and silently not sent, and a value loses its surrounding spaces. Matters when: an admin enters one of these names and expects it to reach the receiver; best fixed with the save-time header rule (the `targets-api` line above). Needs: the user's approval of that rule.
 
