@@ -796,3 +796,437 @@ func TestScheduler_StartStopCloseFromManyGoroutines(t *testing.T) {
 	started, ended := s.seq.totals()
 	assert.Equal(t, started, ended)
 }
+
+// holdFirst makes the first sequence of a service wait for its context to be cancelled,
+// signal that on cancelled, and then return only when release is closed. Later
+// sequences return at once.
+func holdFirst(cancelled, release chan struct{}) func(context.Context, domain.Service, call) error {
+	return func(ctx context.Context, _ domain.Service, c call) error {
+		if c.n > 1 {
+			return nil
+		}
+		<-ctx.Done()
+		close(cancelled)
+		<-release
+		return ctx.Err()
+	}
+}
+
+// spin gives other goroutines every chance to run. A test uses it before it asserts
+// that something did not happen while an old sequence is held.
+func spin() {
+	for range 1000 {
+		runtime.Gosched()
+	}
+}
+
+func waitClosed(t *testing.T, ch chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(guard):
+		t.Fatal(what)
+	}
+}
+
+func notClosed(t *testing.T, ch chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+		t.Fatal(what)
+	default:
+	}
+}
+
+func inGoroutine(fn func()) chan struct{} {
+	done := make(chan struct{})
+	go func() { fn(); close(done) }()
+	return done
+}
+
+func waitUntilClosed(t *testing.T, s *Scheduler) {
+	t.Helper()
+	deadline := time.Now().Add(guard)
+	for !s.isClosed() {
+		require.True(t, time.Now().Before(deadline), "Close did not begin")
+		runtime.Gosched()
+	}
+}
+
+func TestRestart_FirstSequenceRunsAtFirstCheckAt(t *testing.T) {
+	s := newSchedSetup(t)
+	at := schedStart.Add(50 * time.Second)
+
+	s.sched.Restart(svc("a", 30), at)
+	s.clk.waitTimer(t)
+	spin()
+	assert.Equal(t, 0, s.seq.count("a"), "nothing runs at once")
+
+	s.clk.Advance(49 * time.Second)
+	spin()
+	assert.Equal(t, 0, s.seq.count("a"), "one second early")
+
+	s.clk.Advance(time.Second)
+	first := s.seq.wait(t)
+	assert.Equal(t, at, first.at)
+	s.clk.waitTimer(t)
+
+	s.clk.Advance(29 * time.Second)
+	spin()
+	assert.Equal(t, 1, s.seq.count("a"))
+	s.clk.Advance(time.Second)
+	second := s.seq.wait(t)
+	assert.Equal(t, at.Add(30*time.Second), second.at, "one interval after firstCheckAt, not after the edit")
+}
+
+func TestRestart_UnknownIDStartsIt(t *testing.T) {
+	s := newSchedSetup(t)
+	s.sched.Restart(svc("new", 30), schedStart.Add(5*time.Second))
+	s.clk.waitTimer(t)
+	s.clk.Advance(5 * time.Second)
+
+	assert.Equal(t, schedStart.Add(5*time.Second), s.seq.wait(t).at)
+	s.sched.mu.Lock()
+	assert.Len(t, s.sched.entries, 1)
+	s.sched.mu.Unlock()
+}
+
+func TestRestart_TimeNotAfterNowRunsAtOnce(t *testing.T) {
+	for name, offset := range map[string]time.Duration{
+		"equal to now": 0,
+		"in the past":  -time.Second,
+		"far back":     -400 * 24 * time.Hour,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newSchedSetup(t)
+
+			s.sched.Restart(svc("a", 45), schedStart.Add(offset))
+			first := s.seq.wait(t)
+			assert.Equal(t, schedStart, first.at)
+			s.clk.waitTimer(t)
+			assert.Equal(t, 1, s.clk.timersMade(), "the only timer is the one for the next sequence")
+
+			s.clk.Advance(44 * time.Second)
+			spin()
+			assert.Equal(t, 1, s.seq.count("a"), "no burst of missed sequences")
+			s.clk.Advance(time.Second)
+			second := s.seq.wait(t)
+			assert.Equal(t, schedStart.Add(45*time.Second), second.at, "counted from the start of the first")
+			s.clk.waitTimer(t)
+			s.sched.Close()
+			assert.Equal(t, 2, s.seq.count("a"))
+		})
+	}
+}
+
+func TestRestart_DoesNotWaitAndDoesNotOverlapTheOldSequence(t *testing.T) {
+	s := newSchedSetup(t)
+	cancelled, release := make(chan struct{}), make(chan struct{})
+	s.seq.behave = holdFirst(cancelled, release)
+	s.sched.Start(svc("a", 30))
+	s.seq.wait(t)
+
+	// A first check that is not after now would run at once in a goroutine that did not
+	// wait for the old sequence.
+	returnsWithin(t, func() { s.sched.Restart(svc("a", 70), schedStart) })
+	waitClosed(t, cancelled, "the old sequence was not cancelled")
+	spin()
+	assert.Equal(t, 1, s.seq.count("a"), "the new goroutine runs nothing while the old sequence is held")
+
+	close(release)
+	second := s.seq.wait(t)
+	assert.Equal(t, 2, second.n)
+	s.clk.waitTimer(t)
+	s.clk.Advance(69 * time.Second)
+	spin()
+	assert.Equal(t, 2, s.seq.count("a"), "the new interval, not the old one")
+	s.clk.Advance(time.Second)
+	third := s.seq.wait(t)
+	assert.Equal(t, schedStart.Add(70*time.Second), third.at)
+	s.sched.Close()
+	assert.Equal(t, 1, s.seq.maxRunning("a"))
+}
+
+func TestRestart_ChainRunsOnlyTheLast(t *testing.T) {
+	s := newSchedSetup(t)
+	cancelled, release := make(chan struct{}), make(chan struct{})
+	s.seq.behave = holdFirst(cancelled, release)
+	s.sched.Start(svc("a", 30))
+	s.seq.wait(t)
+
+	returnsWithin(t, func() { s.sched.Restart(svc("a", 40), schedStart.Add(10*time.Second)) })
+	returnsWithin(t, func() { s.sched.Restart(svc("a", 50), schedStart.Add(20*time.Second)) })
+	waitClosed(t, cancelled, "the old sequence was not cancelled")
+	s.clk.Advance(30 * time.Second) // past both firstCheckAt
+	spin()
+	assert.Equal(t, 1, s.seq.count("a"))
+
+	close(release)
+	last := s.seq.wait(t)
+	assert.Equal(t, 2, last.n)
+	assert.Equal(t, schedStart.Add(30*time.Second), last.at, "the late first sequence runs at once")
+	s.clk.waitTimer(t)
+	spin()
+	s.sched.Close()
+
+	assert.Equal(t, 2, s.seq.count("a"), "the middle goroutine ran no sequence")
+	assert.Equal(t, 1, s.seq.maxRunning("a"))
+}
+
+func TestStart_AfterRestartWaitsForTheChain(t *testing.T) {
+	s := newSchedSetup(t)
+	cancelled, release := make(chan struct{}), make(chan struct{})
+	s.seq.behave = holdFirst(cancelled, release)
+	s.sched.Start(svc("a", 30))
+	s.seq.wait(t)
+	s.sched.Restart(svc("a", 30), schedStart)
+
+	started := inGoroutine(func() { s.sched.Start(svc("a", 60)) })
+	waitClosed(t, cancelled, "the old sequence was not cancelled")
+	spin()
+	notClosed(t, started, "Start returned while the old sequence was held")
+	assert.Equal(t, 1, s.seq.count("a"))
+
+	close(release)
+	waitClosed(t, started, "Start did not return")
+	second := s.seq.wait(t)
+	assert.Equal(t, 2, second.n)
+	assert.Equal(t, schedStart, second.at, "Start runs the first sequence at once")
+	s.sched.Close()
+	assert.Equal(t, 2, s.seq.count("a"), "the restarted goroutine ran nothing")
+	assert.Equal(t, 1, s.seq.maxRunning("a"))
+}
+
+func TestRestart_WhileStartWaits(t *testing.T) {
+	s := newSchedSetup(t)
+	cancelled, release := make(chan struct{}), make(chan struct{})
+	hold := holdFirst(cancelled, release)
+	s.seq.behave = func(ctx context.Context, service domain.Service, c call) error {
+		if c.n > 1 {
+			return blockOnContext(ctx, service, c) // the survivor keeps running
+		}
+		return hold(ctx, service, c)
+	}
+	s.sched.Start(svc("a", 30))
+	s.seq.wait(t)
+
+	started := inGoroutine(func() { s.sched.Start(svc("a", 30)) })
+	waitClosed(t, cancelled, "the old sequence was not cancelled")
+	spin() // Start is waiting for the old goroutine
+	returnsWithin(t, func() { s.sched.Restart(svc("a", 30), schedStart) })
+
+	close(release)
+	waitClosed(t, started, "Start did not return")
+	s.seq.wait(t) // a survivor runs
+	returnsWithin(t, s.sched.Close)
+
+	started2, ended := s.seq.totals()
+	assert.Equal(t, started2, ended, "no goroutine is left")
+	assert.Equal(t, 1, s.seq.maxRunning("a"))
+}
+
+func TestRestart_ReplacesWaitingTimer(t *testing.T) {
+	s := newSchedSetup(t)
+	first, second := schedStart.Add(100*time.Second), schedStart.Add(200*time.Second)
+	s.sched.Restart(svc("a", 30), first)
+	s.clk.waitTimer(t)
+
+	s.sched.Restart(svc("a", 30), second)
+	s.clk.waitStopped(t)
+	s.clk.waitTimer(t)
+	assert.Equal(t, 1, s.clk.Pending(), "only the new timer is left")
+
+	s.clk.Advance(100 * time.Second)
+	spin()
+	assert.Equal(t, 0, s.seq.count("a"), "the old timer does not fire")
+	s.clk.Advance(100 * time.Second)
+	assert.Equal(t, second, s.seq.wait(t).at)
+}
+
+func TestRestart_StopDuringFirstWait(t *testing.T) {
+	s := newSchedSetup(t)
+	s.sched.Restart(svc("a", 30), schedStart.Add(60*time.Second))
+	s.clk.waitTimer(t)
+
+	s.sched.Stop("a")
+	s.clk.waitStopped(t)
+	assert.Equal(t, 0, s.clk.Pending())
+	s.clk.Advance(300 * time.Second)
+	spin()
+	s.sched.Close()
+	assert.Equal(t, 0, s.seq.count("a"))
+}
+
+func TestStop_ThenStartWaitsForTheStoppedGoroutine(t *testing.T) {
+	s := newSchedSetup(t)
+	cancelled, release := make(chan struct{}), make(chan struct{})
+	s.seq.behave = holdFirst(cancelled, release)
+	s.sched.Start(svc("a", 30))
+	s.seq.wait(t)
+
+	s.sched.Stop("a")
+	started := inGoroutine(func() { s.sched.Start(svc("a", 30)) })
+	waitClosed(t, cancelled, "the old sequence was not cancelled")
+	spin()
+	assert.Equal(t, 1, s.seq.count("a"), "the new sequence waits for the old one")
+	assert.Equal(t, 1, s.seq.maxRunning("a"))
+	notClosed(t, started, "Start returned while the stopped goroutine was running")
+
+	close(release)
+	waitClosed(t, started, "Start did not return")
+	assert.Equal(t, 2, s.seq.wait(t).n)
+	s.sched.Close()
+	assert.Equal(t, 1, s.seq.maxRunning("a"))
+}
+
+func TestStop_ThenRestartWaitsForTheStoppedGoroutine(t *testing.T) {
+	s := newSchedSetup(t)
+	cancelled, release := make(chan struct{}), make(chan struct{})
+	s.seq.behave = holdFirst(cancelled, release)
+	s.sched.Start(svc("a", 30))
+	s.seq.wait(t)
+
+	s.sched.Stop("a")
+	returnsWithin(t, func() { s.sched.Restart(svc("a", 30), schedStart) })
+	waitClosed(t, cancelled, "the old sequence was not cancelled")
+	spin()
+	assert.Equal(t, 1, s.seq.count("a"), "the new sequence waits for the old one")
+	assert.Equal(t, 1, s.seq.maxRunning("a"))
+
+	close(release)
+	assert.Equal(t, 2, s.seq.wait(t).n)
+	s.sched.Close()
+	assert.Equal(t, 1, s.seq.maxRunning("a"))
+}
+
+func TestStop_LeavesNoBookkeepingAfterTheGoroutineEnds(t *testing.T) {
+	s := newSchedSetup(t)
+	s.seq.behave = blockOnContext
+	s.sched.Start(svc("a", 30))
+	s.seq.wait(t)
+	s.sched.mu.Lock()
+	done := s.sched.entries["a"].done
+	s.sched.mu.Unlock()
+
+	s.sched.Stop("a")
+	waitClosed(t, done, "the stopped goroutine did not end")
+
+	s.sched.mu.Lock()
+	defer s.sched.mu.Unlock()
+	assert.Empty(t, s.sched.entries, "no record of the stopped service remains")
+}
+
+func TestClose_WaitsForAStoppedGoroutine(t *testing.T) {
+	s := newSchedSetup(t)
+	cancelled, release := make(chan struct{}), make(chan struct{})
+	s.seq.behave = holdFirst(cancelled, release)
+	s.sched.Start(svc("a", 30))
+	s.seq.wait(t)
+	s.sched.Stop("a")
+	waitClosed(t, cancelled, "the sequence was not cancelled")
+
+	closed := inGoroutine(s.sched.Close)
+	spin()
+	notClosed(t, closed, "Close returned while a stopped goroutine was running")
+	close(release)
+	waitClosed(t, closed, "Close did not return")
+	started, ended := s.seq.totals()
+	assert.Equal(t, started, ended)
+}
+
+func TestClose_WhileRestartWaits(t *testing.T) {
+	s := newSchedSetup(t)
+	cancelled, release := make(chan struct{}), make(chan struct{})
+	s.seq.behave = holdFirst(cancelled, release)
+	s.sched.Start(svc("a", 30))
+	s.seq.wait(t)
+	s.sched.Restart(svc("a", 30), schedStart)
+	waitClosed(t, cancelled, "the old sequence was not cancelled")
+
+	closed := inGoroutine(s.sched.Close)
+	waitUntilClosed(t, s.sched)
+	close(release)
+	waitClosed(t, closed, "Close did not return")
+
+	started, ended := s.seq.totals()
+	assert.Equal(t, 1, started, "the restarted goroutine ran no sequence")
+	assert.Equal(t, 1, ended)
+	s.sched.mu.Lock()
+	assert.Empty(t, s.sched.entries)
+	s.sched.mu.Unlock()
+}
+
+func TestClose_WhileStartWaitsForAStoppedGoroutine(t *testing.T) {
+	s := newSchedSetup(t)
+	cancelled, release := make(chan struct{}), make(chan struct{})
+	s.seq.behave = holdFirst(cancelled, release)
+	s.sched.Start(svc("a", 30))
+	s.seq.wait(t)
+	s.sched.Stop("a")
+	started := inGoroutine(func() { s.sched.Start(svc("a", 30)) })
+	waitClosed(t, cancelled, "the old sequence was not cancelled")
+
+	closed := inGoroutine(s.sched.Close)
+	waitUntilClosed(t, s.sched)
+	close(release)
+	waitClosed(t, closed, "Close did not return")
+	waitClosed(t, started, "the waiting Start did not return")
+
+	n, ended := s.seq.totals()
+	assert.Equal(t, 1, n, "the waiting Start started nothing")
+	assert.Equal(t, 1, ended)
+}
+
+func TestRestart_InvalidInterval(t *testing.T) {
+	for _, interval := range []int{0, -1} {
+		t.Run(strconv.Itoa(interval), func(t *testing.T) {
+			s := newSchedSetup(t)
+			s.sched.Restart(svc("a", interval), schedStart)
+			s.sched.Close()
+
+			assert.Equal(t, 0, s.seq.count("a"))
+			assert.Equal(t, 0, s.clk.timersMade())
+			lines := s.log.lines()
+			require.Len(t, lines, 1)
+			assert.Equal(t, "service not scheduled", lines[0]["msg"])
+			assert.Equal(t, "ERROR", lines[0]["level"])
+			assert.Equal(t, "a", lines[0]["service_id"])
+		})
+
+		t.Run(strconv.Itoa(interval)+" keeps a running entry", func(t *testing.T) {
+			s := newSchedSetup(t)
+			s.sched.Start(svc("a", 30))
+			s.seq.wait(t)
+			s.clk.waitTimer(t)
+
+			s.sched.Restart(svc("a", interval), schedStart)
+			s.clk.Advance(30 * time.Second)
+			s.seq.wait(t)
+			s.clk.waitTimer(t)
+
+			assert.Equal(t, 2, s.seq.count("a"))
+			assert.Equal(t, 2, s.clk.timersMade())
+		})
+	}
+}
+
+func TestRestart_FromManyGoroutines(t *testing.T) {
+	s := newSchedSetup(t)
+	s.seq.behave = blockOnContext
+	var wg sync.WaitGroup
+	for g := range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range 20 {
+				s.sched.Restart(svc("a", 30+g+i), schedStart)
+			}
+		}()
+	}
+	returnsWithin(t, wg.Wait)
+	returnsWithin(t, s.sched.Close)
+
+	started, ended := s.seq.totals()
+	assert.Equal(t, started, ended, "every started goroutine has ended")
+	assert.LessOrEqual(t, s.seq.maxRunning("a"), 1)
+}
