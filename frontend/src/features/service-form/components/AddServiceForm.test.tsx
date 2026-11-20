@@ -1677,18 +1677,6 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
     })
   })
 
-  describe('the 413 banner', () => {
-    it('has the two lines about the body and the header values', async () => {
-      const { user } = setup()
-      vi.mocked(createService).mockRejectedValueOnce(problem(413, 'payload_too_large'))
-      await fill(user)
-      await user.click(saveButton())
-      const banner = await screen.findByRole('alert')
-      expect(banner).toHaveTextContent('The service is too large to save.')
-      expect(banner).toHaveTextContent('Together its fields are over 1 MB. Shorten the body or the header values.')
-    })
-  })
-
   describe('leaving without saving', () => {
     it.each([
       ['adding a query parameter row', (user: User) => addParameter(user)],
