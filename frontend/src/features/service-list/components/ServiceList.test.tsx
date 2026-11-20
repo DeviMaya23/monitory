@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../../../components/ui/Toast'
-import { deleteService, listServices } from '../../../lib/api/services'
+import { deleteService, listServices, pauseService, resumeService, type Service } from '../../../lib/api/services'
 import {
   makePaused,
   makeService,
@@ -14,6 +15,7 @@ import {
   problem,
 } from '../../../test/fixtures'
 import { useDeleteService } from '../hooks/useDeleteService'
+import { usePauseService } from '../hooks/usePauseService'
 import { useServiceList } from '../hooks/useServiceList'
 import { formatTime } from '../../../lib/formatTime'
 import { ServiceList } from './ServiceList'
@@ -23,6 +25,8 @@ vi.mock('../../../lib/api/services', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/api/services')>()),
   listServices: vi.fn(),
   deleteService: vi.fn(),
+  pauseService: vi.fn(),
+  resumeService: vi.fn(),
 }))
 const config = vi.hoisted(() => ({ REFRESH_INTERVAL_MS: 5 * 60 * 1000 }))
 vi.mock('../../../lib/config', () => config)
@@ -31,7 +35,7 @@ const NOW = new Date('2026-11-15T14:35:00Z')
 
 // The composition of DashboardPage.
 function Page() {
-  return <ServiceList view={useServiceList()} deletion={useDeleteService()} />
+  return <ServiceList view={useServiceList()} deletion={useDeleteService()} pausing={usePauseService()} />
 }
 
 function renderPage() {
@@ -157,9 +161,9 @@ describe('List', () => {
     expect(line()).toBe(`${text} · times in your local time`)
   })
 
-  it('has one Delete button per row, no other row button, no switch, Open link or name link; the only links are Add service and one Alerts link per row', async () => {
-    await loaded(makeServiceList(makeService(), makeUnhealthy({ code: 'timed_out' })))
-    for (const name of [/Pause/, /Resume/, /Alerts/, /Edit/]) {
+  it('has a Pause or Resume and a Delete button per row, no Edit button, no switch, Open link or name link; the only links are Add service and one Alerts link per row', async () => {
+    await loaded(makeServiceList(makeService(), makeUnhealthy({ code: 'timed_out' }, { paused: true })))
+    for (const name of [/Alerts/, /Edit/]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()
@@ -170,7 +174,12 @@ describe('List', () => {
       'Alerts Billing webhook',
     ])
     const buttons = within(list).getAllByRole('button')
-    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['Delete API gateway', 'Delete Billing webhook'])
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Pause API gateway',
+      'Delete API gateway',
+      'Resume Billing webhook',
+      'Delete Billing webhook',
+    ])
     expect(screen.getAllByRole('link')).toHaveLength(1 + 2)
   })
 
@@ -583,5 +592,192 @@ describe('Delete (FR-8, FR-72)', () => {
     await gone()
     expect(names()).toEqual(['x'])
     expect(meta()).toBe(before)
+  })
+})
+
+describe('Pause and Resume (FR-75, FR-77, FR-78, FR-79)', () => {
+  const billing = makeUnhealthy({ code: 'timed_out' }, { name: 'Billing' })
+  const other = makeService({ name: 'Other' })
+  const sleeper = makePaused({ name: 'Sleeper' })
+  const tcp = makeTcp()
+
+  type Settle = { resolve: (service: Service) => void; reject: (error: unknown) => void }
+  function pendingToggle(fn: typeof pauseService | typeof resumeService): Settle {
+    const settle: Settle = { resolve: () => {}, reject: () => {} }
+    vi.mocked(fn).mockReturnValueOnce(
+      new Promise<Service>((resolve, reject) => {
+        settle.resolve = resolve
+        settle.reject = reject
+      }),
+    )
+    return settle
+  }
+  const button = (label: string) => screen.getByRole('button', { name: label })
+  const toast = async (text: string) => (await screen.findAllByText(text))[0]
+  const names = () => [...document.querySelectorAll('.svc__name')].map((n) => n.textContent)
+  const paused = (service: Service): Service => ({
+    ...service,
+    paused: true,
+    state: { ...service.state, last_checked_at: '2026-11-15T14:33:00Z', last_status_change_at: '2026-11-15T14:20:00Z' },
+  })
+
+  it('names every row’s button by its action and service, hides the visible label, and puts it before Alerts and Delete in the Tab order (FR-75, NFR-4)', async () => {
+    await loaded(makeServiceList(billing, sleeper, tcp))
+    for (const [name, action] of [
+      ['Billing', 'Pause'],
+      ['Sleeper', 'Resume'],
+      ['Postgres', 'Pause'],
+    ]) {
+      const toggle = button(`${action} ${name}`)
+      const label = toggle.querySelector('.btn__label')
+      expect(label).toHaveTextContent(action)
+      expect(label).toHaveAttribute('aria-hidden', 'true')
+      expect(within(row(name)).getAllByRole('button')[0]).toBe(toggle)
+    }
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    button('Resume Sleeper').focus()
+    await user.tab()
+    expect(screen.getByRole('link', { name: 'Alerts Sleeper' })).toHaveFocus()
+    await user.tab()
+    expect(button('Delete Sleeper')).toHaveFocus()
+    await user.tab({ shift: true })
+    await user.tab({ shift: true })
+    expect(button('Resume Sleeper')).toHaveFocus()
+    await user.tab({ shift: true })
+    expect(button('Delete Billing')).toHaveFocus()
+    await user.tab({ shift: true })
+    await user.tab({ shift: true })
+    expect(button('Pause Billing')).toHaveFocus()
+  })
+
+  it('a pause sends one request with the id and opens no dialog; while pending the button is aria-disabled and ignores a second click and Enter, and another row works', async () => {
+    const settle = pendingToggle(pauseService)
+    await loaded(makeServiceList(billing, other))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    await user.click(button('Pause Billing'))
+    await waitFor(() => expect(button('Pause Billing')).toHaveAttribute('aria-disabled', 'true'))
+    expect(pauseService).toHaveBeenCalledExactlyOnceWith('id-Billing')
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(button('Pause Billing')).not.toBeDisabled()
+    await user.click(button('Pause Billing'))
+    await user.keyboard('{Enter}')
+    expect(pauseService).toHaveBeenCalledTimes(1)
+    expect(button('Pause Other')).not.toHaveAttribute('aria-disabled')
+    const otherSettle = pendingToggle(pauseService)
+    await user.click(button('Pause Other'))
+    expect(pauseService).toHaveBeenCalledTimes(2)
+    expect(pauseService).toHaveBeenLastCalledWith('id-Other')
+    await act(async () => {
+      settle.resolve(paused(billing))
+      otherSettle.resolve(paused(other))
+    })
+  })
+
+  it('the row keeps its state until the server answers, then shows Paused, no reason, the flag, the answer’s times, Resume, the toast and focus (FR-77, FR-78)', async () => {
+    const settle = pendingToggle(pauseService)
+    await loaded(makeServiceList(billing, other))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    await user.click(button('Pause Billing'))
+    await waitFor(() => expect(button('Pause Billing')).toHaveAttribute('aria-disabled', 'true'))
+    expect(row('Billing')).toHaveTextContent('Unhealthy')
+    expect(row('Billing')).not.toHaveClass('svc--paused')
+    const answer = paused(billing)
+    await act(async () => settle.resolve(answer))
+    const after = row('Billing')
+    expect(after).toHaveTextContent('Paused')
+    expect(after).not.toHaveTextContent('Unhealthy')
+    expect(after.querySelector('.svc__reason')).toBeNull()
+    expect(after).toHaveTextContent('Paused, hidden from public page')
+    expect(after.querySelector('.svc__check time')).toHaveAttribute('dateTime', '2026-11-15T14:33:00Z')
+    expect(after.querySelector('.svc__change time')).toHaveAttribute('dateTime', '2026-11-15T14:20:00Z')
+    expect(button('Resume Billing')).toHaveFocus()
+    expect(button('Resume Billing')).not.toHaveAttribute('aria-disabled')
+    expect(await toast('“Billing” paused. Checks and alerts stopped.')).toBeInTheDocument()
+    expect(names()).toEqual(['Billing', 'Other'])
+  })
+
+  it('a resume sends resumeService, shows the stored status and reason of the answer, Pause again, the toast and focus (FR-79)', async () => {
+    const settle = pendingToggle(resumeService)
+    await loaded(makeServiceList(other, sleeper))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    await user.click(button('Resume Sleeper'))
+    await waitFor(() => expect(button('Resume Sleeper')).toHaveAttribute('aria-disabled', 'true'))
+    expect(resumeService).toHaveBeenCalledExactlyOnceWith('id-Sleeper')
+    expect(pauseService).not.toHaveBeenCalled()
+    await act(async () => settle.resolve({ ...sleeper, paused: false }))
+    const after = row('Sleeper')
+    expect(after).toHaveTextContent('Unhealthy')
+    expect(after.querySelector('.svc__reason')).not.toBeNull()
+    expect(after).not.toHaveClass('svc--paused')
+    expect(after).not.toHaveTextContent('Paused, hidden from public page')
+    expect(button('Pause Sleeper')).toHaveFocus()
+    expect(await toast('“Sleeper” resumed. Checking now.')).toBeInTheDocument()
+  })
+
+  it('shows a name with markup as text in the button’s name and in both toasts (NFR-7)', async () => {
+    const markup = makeService({ name: '<b>x</b>' })
+    await loaded(makeServiceList(markup))
+    vi.mocked(pauseService).mockResolvedValueOnce(paused(markup))
+    fireEvent.click(button('Pause <b>x</b>'))
+    expect(await toast('“<b>x</b>” paused. Checks and alerts stopped.')).toBeInTheDocument()
+    vi.mocked(resumeService).mockResolvedValueOnce(markup)
+    fireEvent.click(button('Resume <b>x</b>'))
+    expect(await toast('“<b>x</b>” resumed. Checking now.')).toBeInTheDocument()
+    expect(document.querySelector('b')).toBeNull()
+  })
+
+  it('a 403 shows the toast with Reload, keeps the row and unlocks the button', async () => {
+    await loaded(makeServiceList(billing, other))
+    vi.mocked(pauseService).mockRejectedValueOnce(problem(403, 'csrf_failed'))
+    fireEvent.click(button('Pause Billing'))
+    expect(await toast('The request wasn’t accepted. Reload and try again.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reload', hidden: true })).toBeInTheDocument()
+    expect(row('Billing')).toHaveTextContent('Unhealthy')
+    expect(button('Pause Billing')).not.toHaveAttribute('aria-disabled')
+    vi.mocked(pauseService).mockResolvedValueOnce(paused(billing))
+    fireEvent.click(button('Pause Billing'))
+    await waitFor(() => expect(pauseService).toHaveBeenCalledTimes(2))
+  })
+
+  it.each([
+    ['a pause', 'Pause Billing', 'Couldn’t pause the service. Try again.'],
+    ['a resume', 'Resume Sleeper', 'Couldn’t resume the service. Try again.'],
+  ])('a 500 on %s keeps the row and shows the failure toast', async (_n, label, text) => {
+    await loaded(makeServiceList(billing, sleeper))
+    vi.mocked(pauseService).mockRejectedValueOnce(problem(500, 'internal_error'))
+    vi.mocked(resumeService).mockRejectedValueOnce(problem(500, 'internal_error'))
+    fireEvent.click(button(label))
+    expect(await toast(text)).toBeInTheDocument()
+    expect(button(label)).not.toHaveAttribute('aria-disabled')
+    expect(row('Billing')).toHaveTextContent('Unhealthy')
+    expect(row('Sleeper')).toHaveTextContent('Paused')
+  })
+
+  it('a 404 removes the row, cuts the count and says the service was already deleted; the last row’s 404 shows the Empty block', async () => {
+    await loaded(makeServiceList(billing, other))
+    vi.mocked(pauseService).mockRejectedValueOnce(problem(404, 'not_found'))
+    fireEvent.click(button('Pause Billing'))
+    expect(await toast('That service was already deleted.')).toBeInTheDocument()
+    expect(names()).toEqual(['Other'])
+    expect(line()).toBe('1 service · times in your local time')
+    vi.mocked(pauseService).mockRejectedValueOnce(problem(404, 'not_found'))
+    fireEvent.click(button('Pause Other'))
+    expect(await screen.findByText('No services yet')).toBeInTheDocument()
+  })
+
+  it('a refresh that arrives while a pause is in flight does not put the old row back (FR-77)', async () => {
+    const settle = pendingToggle(pauseService)
+    await loaded(makeServiceList(billing, other))
+    const refresh = pending()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled())
+    fireEvent.click(button('Pause Billing'))
+    await act(async () => settle.resolve(paused(billing)))
+    await act(async () => refresh(makeServiceList(billing, other)))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
+    expect(row('Billing')).toHaveTextContent('Paused')
+    expect(button('Resume Billing')).toBeInTheDocument()
   })
 })
