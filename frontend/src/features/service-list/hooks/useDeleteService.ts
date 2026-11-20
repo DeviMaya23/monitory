@@ -2,7 +2,8 @@ import { useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '../../../components/ui/useToast'
 import { ApiError } from '../../../lib/api/ApiError'
-import { deleteService, servicesQueryKey, type Service, type ServiceList } from '../../../lib/api/services'
+import { deleteService, type Service } from '../../../lib/api/services'
+import { removeFromList } from '../lib/servicesCache'
 
 /** How the dialog last closed: the service is gone from the list (`removed`), or the list is as it was (`kept`). */
 export type ClosedAs = 'removed' | 'kept'
@@ -34,30 +35,17 @@ export function useDeleteService() {
   // The pending flag lags a render behind; this stops a second confirm in the same tick.
   const inFlight = useRef(false)
 
-  /** Takes the service out of the cached list, keeping the time of the last real load. */
-  const removeFromList = async (id: string) => {
-    // A refresh that started before the delete must not put the row back when it answers.
-    await queryClient.cancelQueries({ queryKey: servicesQueryKey })
-    const entry = queryClient.getQueryState<ServiceList>(servicesQueryKey)
-    if (!entry?.data) return
-    queryClient.setQueryData<ServiceList>(
-      servicesQueryKey,
-      (list) => list?.filter((service) => service.id !== id),
-      { updatedAt: entry.dataUpdatedAt },
-    )
-  }
-
   const mutation = useMutation({
     mutationFn: (service: Service) => deleteService(service.id),
     onSuccess: async (_result, service) => {
-      await removeFromList(service.id)
+      await removeFromList(queryClient, service.id)
       toast.show({ kind: 'success', message: 'Service deleted.' })
       setClosedAs('removed')
     },
     onError: async (error, service) => {
       const outcome = toOutcome(error)
       if (outcome === 'already-deleted') {
-        await removeFromList(service.id)
+        await removeFromList(queryClient, service.id)
         toast.show({ kind: 'error', message: 'That service was already deleted.' })
         setClosedAs('removed')
         return

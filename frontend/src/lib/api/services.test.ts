@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { problem } from '../../test/fixtures'
 import { apiRequest } from './request'
-import { deleteService } from './services'
+import { makeService } from '../../test/fixtures'
+import { deleteService, pauseService, resumeService } from './services'
 
 vi.mock('./request')
 
@@ -27,5 +28,23 @@ describe('deleteService', () => {
     const error = problem(403, 'csrf_failed')
     vi.mocked(apiRequest).mockRejectedValue(error)
     await expect(deleteService('abc')).rejects.toBe(error)
+  })
+})
+
+describe('pauseService and resumeService', () => {
+  it('pauseService sends one POST with no body to the pause path and resolves with the service', async () => {
+    const answer = makeService({ paused: true })
+    vi.mocked(apiRequest).mockResolvedValue(answer)
+    await expect(pauseService('abc')).resolves.toBe(answer)
+    expect(apiRequest).toHaveBeenCalledTimes(1)
+    expect(apiRequest).toHaveBeenCalledWith('POST', '/api/services/abc/pause')
+  })
+
+  it('resumeService encodes the id and sends one POST with no body to the resume path', async () => {
+    const answer = makeService()
+    vi.mocked(apiRequest).mockResolvedValue(answer)
+    await expect(resumeService('x/y')).resolves.toBe(answer)
+    expect(apiRequest).toHaveBeenCalledTimes(1)
+    expect(apiRequest).toHaveBeenCalledWith('POST', '/api/services/x%2Fy/resume')
   })
 })

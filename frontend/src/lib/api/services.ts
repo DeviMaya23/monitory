@@ -25,3 +25,13 @@ export function createService(input: ServiceInput): Promise<Service> {
 export function deleteService(id: string): Promise<void> {
   return apiRequest<void>('DELETE', `/api/services/${encodeURIComponent(id)}`)
 }
+
+/** `pauseService`: stops the checks and alerts of a service. Resolves with the paused `Service`. */
+export function pauseService(id: string): Promise<Service> {
+  return apiRequest<Service>('POST', `/api/services/${encodeURIComponent(id)}/pause`)
+}
+
+/** `resumeService`: starts the checks again and runs one now. Resolves with the resumed `Service`. */
+export function resumeService(id: string): Promise<Service> {
+  return apiRequest<Service>('POST', `/api/services/${encodeURIComponent(id)}/resume`)
+}
