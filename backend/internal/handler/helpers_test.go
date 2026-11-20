@@ -61,6 +61,19 @@ type serviceSpy struct {
 	inputs    []domain.ServiceInput
 	listCalls int
 	deleted   []string
+	got       []string // ids given to GetService
+	updatedID []string // ids given to UpdateService, its inputs are in inputs
+}
+
+func (s *serviceSpy) GetService(_ context.Context, id string) (domain.ServiceView, error) {
+	s.got = append(s.got, id)
+	return s.view, s.err
+}
+
+func (s *serviceSpy) UpdateService(_ context.Context, id string, input domain.ServiceInput) (domain.ServiceView, error) {
+	s.updatedID = append(s.updatedID, id)
+	s.inputs = append(s.inputs, input)
+	return s.view, s.err
 }
 
 func (s *serviceSpy) ListServices(context.Context) ([]domain.ServiceView, error) {
