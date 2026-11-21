@@ -94,6 +94,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `tcp-probe`: an empty host reaches the dialer and counts as healthy: `net.JoinHostPort("", port)` is `:port`, which the standard dialer reads as the local machine, and the runner treats only a nil `TCPHost` as missing. Validation rejects an empty host on save, so the product cannot produce it today. Matters when: a row with `tcp_host = ''` reaches the runner (a hand-edited row, or a save path that skips `validateTCPCheck`).
 - `tcp-probe`: `TestCheckTCP_DialErrors/host with a space, real dialer` depends on the machine's resolver failing fast on an invalid name. Matters when: a runner's system resolver blocks on such a name for longer than the 2 s timeout, so the result is `timed_out` and the test fails.
 - `dashboard-pause-resume`: `useDeleteService.ts` and `usePauseService.ts` each hold the texts `That service was already deleted.` and `The request wasn’t accepted. Reload and try again.`. Matters when: someone rewords one toast and not the other.
+- `pause-resume-api`: the new `services` read in `ServiceStateRepository.Update` has no test for its not-found branch (a state update on an id with no service row). It guards the rule that a result for a paused or deleted service is dropped. Matters when: someone reorders the read so a missing service row falls through to a state error other than `ErrNotFound`, or a migration drops the foreign key so a state row can outlive its service.
 
 ## Decisions waiting on the user
 
