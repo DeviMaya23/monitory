@@ -269,7 +269,7 @@ describe('the form', () => {
     expect(screen.queryByText('No custom headers.')).not.toBeInTheDocument()
   })
 
-  it('adds a header row and focuses its name; names the inputs by number; renumbers and moves focus on removal; sends rows in order, empty ones too; has no limit (FR-92)', async () => {
+  it('adds a header row and focuses its name; names the inputs by number; renumbers and moves focus on removal; sends rows in order, empty ones too (FR-92)', async () => {
     vi.mocked(createTarget).mockResolvedValue(makeWebhookTarget())
     await shown(makeTargetList(mail))
     await openAddDialog()
@@ -284,9 +284,6 @@ describe('the form', () => {
     await userEvent.type(screen.getByLabelText('Header 2 value'), 'two')
     await userEvent.click(add)
     await userEvent.type(screen.getByLabelText('Header 3 name'), 'C')
-    for (let i = 4; i <= 21; i++) await userEvent.click(add)
-    expect(screen.getAllByRole('button', { name: /^Remove header/ })).toHaveLength(21)
-    for (let i = 21; i > 3; i--) await userEvent.click(screen.getByRole('button', { name: `Remove header ${i}` }))
     // Removing row 2 of 3 renumbers the rest and focuses the next row's name input.
     await userEvent.click(screen.getByRole('button', { name: 'Remove header 2' }))
     expect(screen.queryByLabelText('Header 3 name')).not.toBeInTheDocument()
@@ -304,6 +301,16 @@ describe('the form', () => {
         { name: '', value: '' },
       ],
     })
+  })
+
+  it('adds 21 header rows and offers each a Remove button: there is no limit (FR-92)', async () => {
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    await chooseWebhook()
+    const add = screen.getByRole('button', { name: 'Add header' })
+    for (let i = 1; i <= 21; i++) fireEvent.click(add)
+    expect(screen.getAllByRole('button', { name: /^Remove header/ })).toHaveLength(21)
+    expect(screen.getByLabelText('Header 21 name')).toBeInTheDocument()
   })
 
   it('focuses the previous row when the last row goes, and Add header when the only row goes', async () => {
