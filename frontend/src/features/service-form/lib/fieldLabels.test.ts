@@ -87,3 +87,30 @@ describe('summaryTitle (FR-12)', () => {
     expect(summaryTitle(1)).toBe('1 field needs fixing before this can be saved.')
   })
 })
+
+describe('fieldLabel of the rules and the certificate options', () => {
+  it.each([
+    ['check.json_rules[2].field', 'Rule 3 field path', 'service-rule-2-field'],
+    ['check.json_rules[0].failing_value', 'Rule 1 failing value', 'service-rule-0-kind'],
+    ['check.certificate_check.min_days_left', 'Minimum days left', 'service-cert-days'],
+  ] as const)('maps %s to %s with an input', (path, label, id) => {
+    expect(fieldLabel(path)).toEqual({ label, target: path })
+    expect(fieldId(path)).toBe(id)
+  })
+
+  it.each([
+    ['check.json_rules', 'Health rules'],
+    ['check.json_rule_mode', 'Mark unhealthy when'],
+    ['check.certificate_check.enabled', 'Check certificate expiry'],
+    ['check.ignore_certificate_errors', 'Ignore certificate errors'],
+  ])('maps %s to %s with no input', (path, label) => {
+    expect(fieldLabel(path)).toEqual({ label, target: null })
+  })
+
+  it.each(['check.json_rules[01].field', 'check.json_rules[1].other', 'check.json_rules[]'])(
+    'maps the near miss %s to itself with no input',
+    (path) => {
+      expect(fieldLabel(path)).toEqual({ label: path, target: null })
+    },
+  )
+})
