@@ -1490,6 +1490,9 @@ func TestTestHTTP_CallerContext(t *testing.T) {
 		defer cancel()
 		go func() {
 			<-started
+			// Once the headers are in the client's hands, so the cancel lands in the
+			// body read and not in the request.
+			time.Sleep(50 * time.Millisecond)
 			cancel()
 		}()
 		out, err := p.TestHTTP(ctx, get(url, longTimeout))
@@ -1518,4 +1521,26 @@ func TestTestHTTP_CallerContext(t *testing.T) {
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.Equal(t, domain.HTTPTestOutcome{}, out)
 	})
+}
+
+// A check with no JSON rules must not read the body (FR-73): the caller leaving during a
+// stalled body is not seen, because CheckHTTP is already done with the response. Reading
+// the body anyway would end with the caller's context error (the cancel comes 50 ms
+// after the headers).
+func TestCheckHTTP_NoRulesDoesNotReadStalledBody(t *testing.T) {
+	started := make(chan struct{})
+	url := stalledBody(t, 200, started)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-started
+		// Long after the headers have reached the client, which is done with them.
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	res, err := newTestProber(3).CheckHTTP(ctx, get(url, longTimeout))
+
+	require.NoError(t, err)
+	requireHealthy(t, res)
 }
