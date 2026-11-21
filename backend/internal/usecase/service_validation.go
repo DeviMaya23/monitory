@@ -283,6 +283,17 @@ func validateJSONRules(v *fieldErrors, check domain.HTTPCheckInput, limits domai
 	}
 }
 
+// validateTimeout adds the out-of-range error of a timeout in seconds, and reports
+// whether the value is in range. A save and a test of a check both use it.
+func validateTimeout(v *fieldErrors, seconds int, r domain.Range) bool {
+	if seconds >= r.Min && seconds <= r.Max {
+		return true
+	}
+	v.add("settings.timeout_seconds", domain.FieldErrorOutOfRange,
+		fmt.Sprintf("The timeout is %d to %d seconds.", r.Min, r.Max))
+	return false
+}
+
 func validateSettings(v *fieldErrors, in domain.ServiceInput, limits domain.ServiceLimits) {
 	s := effectiveSettings(in, limits)
 	inRange := true
@@ -293,7 +304,9 @@ func validateSettings(v *fieldErrors, in domain.ServiceInput, limits domain.Serv
 		}
 	}
 	check("settings.check_interval_seconds", s.CheckIntervalSeconds, limits.CheckInterval, "The check interval is %d to %d seconds.")
-	check("settings.timeout_seconds", s.TimeoutSeconds, limits.Timeout, "The timeout is %d to %d seconds.")
+	if !validateTimeout(v, s.TimeoutSeconds, limits.Timeout) {
+		inRange = false
+	}
 	check("settings.retry_count", s.RetryCount, limits.RetryCount, "The retry count is %d to %d.")
 	check("settings.retry_interval_seconds", s.RetryIntervalSeconds, limits.RetryInterval, "The retry interval is %d to %d seconds.")
 	if !inRange {
