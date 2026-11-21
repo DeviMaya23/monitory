@@ -94,7 +94,7 @@ In `handler/service_tests.go`, in the style of `target_tests.go`:
 
 ### Wiring (`cmd/server/main.go`)
 
-Hoist the HTTP prober (built inline today as an argument of `NewCheckRunner`) and the TCP prober (added by `tcp-probe`) into variables, and build `usecase.NewServiceCheckTestService` with those same instances (one instance of each, so the body limit and the redirect limit are the same as the runner's), `clock.Real{}` and the service limits, and pass it to `handler.NewServer` as a new argument (`NewServer` and its caller in `helpers_test.go`'s `newRouter` change together). Nothing else in `main.go` changes.
+The HTTP prober is already a variable in `main.go` (`httpProber`); the TCP prober is built inline as an argument of `NewCheckRunner` (`probe.NewTCPProber()`): hoist it into a variable too, and build `usecase.NewServiceCheckTestService` with those same instances (one instance of each, so the body limit and the redirect limit are the same as the runner's), `clock.Real{}` and the service limits, and pass it to `handler.NewServer` as a new argument (`NewServer` and its caller in `helpers_test.go`'s `newRouter` change together). Nothing else in `main.go` changes.
 
 ### Known gaps
 

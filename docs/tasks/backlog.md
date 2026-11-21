@@ -22,9 +22,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
 | FR-7, FR-39, FR-66 | `getService`, `updateService` | Edit a service | Left out of `update-service-api`, which builds the two operations: the screen (`edit-service-screen`) |
-| FR-44 to FR-48, FR-69, FR-73 | `createService`, `updateService` | JSON rules | The rows in the service form. Rule evaluation, any-or-all, the body read limit and the save-time validation are built (`http-json-rules`, `create-service-api`) |
-| FR-34, FR-50, FR-64 | `createService`, `updateService` | Certificate options | The switches and the days field in the service form. The probe's expiry check, "ignore certificate errors" and the save-time validation are built (`http-certificate-options`, `create-service-api`) |
-| FR-33, FR-49, FR-52 | `createService`, `updateService` | Type switch, TCP fields | Left out of `tcp-probe`, which builds the probe: the type switch and the TCP fields in the form (`service-form-type-tcp`) |
 | FR-104, FR-105, FR-106, NFR-7 | `testServiceCheck` | Test result area | Left out of `test-service-check-api`, which builds the operation: the test panel in the form (`service-test-panel`) |
 | Milestone journeys | all of the above | Service form | Each failure reason produced on purpose; limits and validation |
 
@@ -53,9 +50,15 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - Left out of `add-service-screen`: the "Discard unsaved changes?" prompt on the top-bar brand link, the browser's Back and Forward, and Sign out (it covers only the form's Cancel and back link, and the browser's own prompt on closing the tab). Blocking in-app navigation needs react-router's `useBlocker`, which needs a data router instead of `BrowserRouter`. Decided by the user: the edit-screen task moves the app to a data router and adds the prompt to both forms.
 
-- Left out of `add-service-screen`: the form has no `Type` control, no test panel and none of the rows below Request. The type switch comes with the TCP form task, the test panel with `testServiceCheck`, and the other rows with the milestone 3 form tasks (all already rows above).
+- Left out of `add-service-screen`: the form has no test panel. It comes with `testServiceCheck` (a row above); the type switch and the rows are built by the milestone 3 form tasks.
 
 - Left out of `service-form-request-rows`: the query parameter, header and body rows on the edit form (`getService`, `updateService`; FR-7, FR-39). The edit-screen task builds them from `NameValueRows` and the request rows group. Matters when: the edit-screen task is drafted.
+
+- Left out of `service-form-json-and-cert-rows`: the Health rules and HTTPS groups on the edit form (`getService`, `updateService`; FR-7, FR-44, FR-34). The edit-screen task builds them from `HealthRulesGroup` and `HttpsGroup`. Matters when: the edit-screen task is drafted.
+
+- Left out of `service-form-json-and-cert-rows`: its row-focus effect (`features/service-form/hooks/useRowFocus.ts`) repeats the one in `components/NameValueRows.tsx` (Add moves focus to the new row, Remove to the next, the previous or Add). Share it. Matters when: the focus rule changes in one of the two. Needs: the user's approval of the shared hook.
+
+- Left out of `service-form-type-tcp`: the Type control and the TCP port group on the edit form (`getService`, `updateService`; FR-7, FR-33, FR-66: changing the type of a saved service keeps its state). The edit-screen task builds them from `TypeField` and `TcpGroup`. Matters when: the edit-screen task is drafted.
 
 - Left out of `service-form-alerts`: the Alerts group (the `Send alerts` switch and the two messages) on the edit form, with `getService` and `updateService` (FR-20, FR-65). The edit-form task builds it from the add form's `AlertsGroup` and the `Switch` hint prop. Matters when: the edit-form task is drafted.
 
@@ -84,9 +87,13 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - `target-form-dialog`: a `422` summary keeps the entries of the inactive type. After a `url` error, switching to Email leaves `Webhook URL: …` in the summary with a link that moves focus nowhere, while its message is hidden with the field. Matters when: an admin gets a `url` or `headers` error and then switches type. Needs: the user, to decide whether a type switch drops the other type's entries.
 
-- `service-form-alerts`: `TargetDialog.test.tsx` "adds a header row… (FR-92)" timed out once at 5000 ms in a full parallel run (1 of 3 runs); it is not part of that diff. Matters when: the same case times out again on CI or on another task's branch; then raise its timeout in that file.
 
 - `webhook-sender`: a custom webhook header the HTTP library controls (`Host`, `Content-Length`, `Transfer-Encoding`, `Trailer`) is accepted on save and silently not sent, and a value loses its surrounding spaces. Matters when: an admin enters one of these names and expects it to reach the receiver; best fixed with the save-time header rule (the `targets-api` line above). Needs: the user's approval of that rule.
+
+- `update-service-api`: a scheduler regression hangs the `worker` package instead of failing it. The overlap tests hold a sequence open and release it only after their assertions; when an assertion fails, the cleanup `Close` waits for the held sequence for ever and `go test` ends with `panic: test timed out` after 10 minutes, hiding the failing message and every later test. Matters when: a future change breaks the order of `Restart`, `Start` or `Stop` and CI shows a ten-minute timeout. Fix: close the release channel in a `t.Cleanup` registered before `Close`.
+- `tcp-probe`: an empty host reaches the dialer and counts as healthy: `net.JoinHostPort("", port)` is `:port`, which the standard dialer reads as the local machine, and the runner treats only a nil `TCPHost` as missing. Validation rejects an empty host on save, so the product cannot produce it today. Matters when: a row with `tcp_host = ''` reaches the runner (a hand-edited row, or a save path that skips `validateTCPCheck`).
+- `tcp-probe`: `TestCheckTCP_DialErrors/host with a space, real dialer` depends on the machine's resolver failing fast on an invalid name. Matters when: a runner's system resolver blocks on such a name for longer than the 2 s timeout, so the result is `timed_out` and the test fails.
+- `dashboard-pause-resume`: `useDeleteService.ts` and `usePauseService.ts` each hold the texts `That service was already deleted.` and `The request wasn’t accepted. Reload and try again.`. Matters when: someone rewords one toast and not the other.
 
 ## Decisions waiting on the user
 
