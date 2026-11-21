@@ -281,3 +281,45 @@ func TestToAPIService_StateMapping(t *testing.T) {
 		})
 	}
 }
+
+func TestToServiceTestInput(t *testing.T) {
+	check := domain.CheckInput{Type: "tcp", TCP: domain.TCPCheckInput{Host: "h", Port: 80}}
+	tests := []struct {
+		name string
+		body string
+		want domain.ServiceTestInput
+	}{
+		{"timeout from settings", `{"check":{"type":"tcp","host":"h","port":80},"settings":{"timeout_seconds":9}}`,
+			domain.ServiceTestInput{Check: check, TimeoutSeconds: ptr(9)}},
+		{"no settings is a nil timeout", tcpTestBody, domain.ServiceTestInput{Check: check}},
+		{"other settings are not mapped", `{"check":{"type":"tcp","host":"h","port":80},"settings":{"check_interval_seconds":1,"retry_count":4,"retry_interval_seconds":5}}`,
+			domain.ServiceTestInput{Check: check}},
+		{"timeout among other settings", `{"check":{"type":"tcp","host":"h","port":80},"settings":{"check_interval_seconds":1,"timeout_seconds":3,"retry_count":4}}`,
+			domain.ServiceTestInput{Check: check, TimeoutSeconds: ptr(3)}},
+		{"a missing check is left to validation", `{}`, domain.ServiceTestInput{}},
+		{"an unknown type is left to validation", `{"check":{"type":"udp"}}`, domain.ServiceTestInput{Check: domain.CheckInput{Type: "udp"}}},
+		{"an http check with every field", `{"check":{"type":"http","method":"POST","url":"https://x/y",
+			"query_params":[{"name":"a","value":"1"}],"headers":[{"name":"H","value":"v"}],
+			"body":{"type":"text","content":"hi"},"json_rules":[{"field":"ok","failing_value":false}],
+			"json_rule_mode":"all","certificate_check":{"enabled":true,"min_days_left":14},"ignore_certificate_errors":true},
+			"settings":{"timeout_seconds":6}}`,
+			domain.ServiceTestInput{TimeoutSeconds: ptr(6), Check: domain.CheckInput{Type: "http", HTTP: domain.HTTPCheckInput{
+				Method: "POST", URL: "https://x/y",
+				QueryParams: []domain.NameValue{{Name: "a", Value: "1"}},
+				Headers:     []domain.NameValue{{Name: "H", Value: "v"}},
+				BodyType:    "text", BodyContent: "hi",
+				JSONRules:    []domain.JSONRule{{Field: "ok", FailingValue: false}},
+				JSONRuleMode: "all", CertificateCheckEnabled: true, CertMinDaysLeft: ptr(14), IgnoreCertificateErrors: true,
+			}}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spy := &checkTesterSpy{result: domain.ServiceTestResult{Healthy: true}}
+
+			res := postServiceTest(checkRouter(t, spy), tt.body)
+
+			require.Equal(t, http.StatusOK, res.StatusCode)
+			assert.Equal(t, []domain.ServiceTestInput{tt.want}, spy.inputs)
+		})
+	}
+}

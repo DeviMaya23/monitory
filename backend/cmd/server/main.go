@@ -134,7 +134,8 @@ func run(log *slog.Logger) error {
 
 	checkResults := usecase.NewCheckResultService(repository.NewServiceStateRepository(db), serviceRepo, targetRepo, dispatcher, clock.Real{})
 	httpProber := probe.NewHTTPProber(cfg.Limits.MaxRedirects, cfg.Limits.ResponseBodyMaxBytes, clock.Real{})
-	runner := worker.NewCheckRunner(httpProber, probe.NewTCPProber(), checkResults, clock.Real{}, log)
+	tcpProber := probe.NewTCPProber()
+	runner := worker.NewCheckRunner(httpProber, tcpProber, checkResults, clock.Real{}, log)
 	scheduler := worker.NewScheduler(runner.Run, clock.Real{}, log)
 	defer scheduler.Close()
 
@@ -143,10 +144,13 @@ func run(log *slog.Logger) error {
 	// The same mailer and webhook sender as the dispatcher's: a test is delivered as an
 	// alert is (FR-107).
 	targetTester := usecase.NewTargetTestService(serviceRepo, mail, sender, clock.Real{}, targetLimits(cfg.Limits))
+	// The runner's probers, so a test has the same body and redirect limits as a check
+	// (FR-104). It is given nothing that writes (FR-105).
+	checkTester := usecase.NewServiceCheckTestService(httpProber, tcpProber, clock.Real{}, serviceLimits(cfg.Limits))
 	sessions := memstore.NewSessions(clock.Real{})
 	auth := usecase.NewAuthService(cfg.AdminUsername, cfg.AdminPassword, cfg.RequireHTTPS, sessions, clock.Real{})
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(settings, services, targets, targetTester, auth, log, cfg.RequireHTTPS),
+		Server:          handler.NewServer(settings, services, targets, targetTester, checkTester, auth, log, cfg.RequireHTTPS),
 		Sessions:        sessions,
 		Log:             log,
 		MaxRequestBytes: cfg.Limits.APIRequestMaxBytes,
