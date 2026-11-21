@@ -50,3 +50,10 @@ type TCPCheckInput struct {
 	Host string
 	Port int
 }
+
+// ServiceTestInput is what the admin sent to test a check before saving it: the check
+// and the timeout, still unvalidated (FR-104). A nil timeout is the configured default.
+type ServiceTestInput struct {
+	Check          CheckInput
+	TimeoutSeconds *int
+}

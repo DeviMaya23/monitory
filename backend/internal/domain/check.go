@@ -49,3 +49,14 @@ type CheckResult struct {
 	Healthy bool
 	Failure *CheckFailure
 }
+
+// HTTPTestOutcome is the outcome of one HTTP test attempt (FR-104): the verdict a check
+// would get, and for a response in hand its status and body. HTTPStatus is nil and Body
+// empty when no response was received. Body holds at most the configured limit, and
+// BodyTruncated says the response had more.
+type HTTPTestOutcome struct {
+	CheckResult
+	HTTPStatus    *int
+	Body          string
+	BodyTruncated bool
+}

@@ -232,17 +232,56 @@ func toAPIState(st domain.ServiceState) *api.ServiceState {
 		LastCheckedAt:      utcOrNil(st.LastCheckedAt),
 		LastStatusChangeAt: utcOrNil(st.LastStatusChangeAt),
 	}
-	// A reason is returned only for an unhealthy service that has a stored code; the
-	// status code and the rule field only with the code they belong to.
+	// A reason is returned only for an unhealthy service that has a stored code.
 	if st.Status == domain.StatusUnhealthy && st.FailureCode != nil {
-		reason := &api.FailureReason{Code: api.FailureReasonCode(*st.FailureCode)}
-		switch *st.FailureCode {
-		case domain.FailureNon2xxStatus:
-			reason.HttpStatus = st.FailureHTTPStatus
-		case domain.FailureJSONRuleMatched:
-			reason.JsonRuleField = st.FailureJSONRuleField
-		}
-		out.LastFailureReason = reason
+		out.LastFailureReason = toAPIFailureReason(*st.FailureCode, st.FailureHTTPStatus, st.FailureJSONRuleField)
+	}
+	return out
+}
+
+// toAPIFailureReason maps a failure code to the contract's FailureReason: the status
+// code only with non_2xx_status and the rule field only with json_rule_matched.
+func toAPIFailureReason(code domain.FailureCode, httpStatus *int, ruleField *string) *api.FailureReason {
+	reason := &api.FailureReason{Code: api.FailureReasonCode(code)}
+	switch code {
+	case domain.FailureNon2xxStatus:
+		reason.HttpStatus = httpStatus
+	case domain.FailureJSONRuleMatched:
+		reason.JsonRuleField = ruleField
+	}
+	return reason
+}
+
+// toServiceTestInput maps a test request body to the domain input: the check, and the
+// timeout when settings are given. The other settings play no part in a test.
+func toServiceTestInput(body api.ServiceTestInput) (domain.ServiceTestInput, error) {
+	check, err := toCheckInput(body.Check)
+	if err != nil {
+		return domain.ServiceTestInput{}, err
+	}
+	input := domain.ServiceTestInput{Check: check}
+	if body.Settings != nil {
+		input.TimeoutSeconds = body.Settings.TimeoutSeconds
+	}
+	return input, nil
+}
+
+// toAPIServiceTestResult maps a test result to the contract's ServiceTestResult. The
+// status and the body are present together, only for a response that was received.
+func toAPIServiceTestResult(r domain.ServiceTestResult) api.ServiceTestResult {
+	truncated := r.BodyTruncated
+	out := api.ServiceTestResult{
+		Healthy:               r.Healthy,
+		DurationMs:            r.DurationMs,
+		ResponseBodyTruncated: &truncated,
+	}
+	if !r.Healthy && r.Failure != nil {
+		out.FailureReason = toAPIFailureReason(r.Failure.Code, r.Failure.HTTPStatus, r.Failure.JSONRuleField)
+	}
+	if r.HTTPStatus != nil {
+		status, body := *r.HTTPStatus, r.Body
+		out.HttpStatus = &status
+		out.ResponseBody = &body
 	}
 	return out
 }

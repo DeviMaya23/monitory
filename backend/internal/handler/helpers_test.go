@@ -177,11 +177,26 @@ func (s *testerSpy) TestTarget(_ context.Context, serviceID string, input domain
 	return s.result, s.err
 }
 
+// checkTesterSpy is a handler.ServiceCheckTester that returns a canned result or error
+// and records the inputs it was given.
+type checkTesterSpy struct {
+	result domain.ServiceTestResult
+	err    error
+
+	inputs []domain.ServiceTestInput
+}
+
+func (s *checkTesterSpy) TestServiceCheck(_ context.Context, input domain.ServiceTestInput) (domain.ServiceTestResult, error) {
+	s.inputs = append(s.inputs, input)
+	return s.result, s.err
+}
+
 type routerOptions struct {
 	settings        handler.SettingsService
 	services        handler.ServiceService
 	targets         handler.TargetService
 	tester          handler.TargetTester
+	checkTester     handler.ServiceCheckTester
 	auth            handler.AuthService
 	requireHTTPS    bool
 	logOutput       io.Writer
@@ -205,6 +220,9 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 	if opts.tester == nil {
 		opts.tester = &testerSpy{result: domain.TargetTestResult{Delivered: true}}
 	}
+	if opts.checkTester == nil {
+		opts.checkTester = &checkTesterSpy{result: domain.ServiceTestResult{Healthy: true}}
+	}
 	if opts.auth == nil {
 		opts.auth = &authSpy{}
 	}
@@ -219,7 +237,7 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 		opts.clientIPHeader = "X-Forwarded-For"
 	}
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(opts.settings, opts.services, opts.targets, opts.tester, opts.auth, log, opts.requireHTTPS),
+		Server:          handler.NewServer(opts.settings, opts.services, opts.targets, opts.tester, opts.checkTester, opts.auth, log, opts.requireHTTPS),
 		Sessions:        oneSession{},
 		Log:             log,
 		MaxRequestBytes: opts.maxRequestBytes,

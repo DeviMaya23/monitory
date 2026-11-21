@@ -1277,3 +1277,270 @@ func TestCertOptions_ZeroMinNeverFails(t *testing.T) {
 	check.CertMinDaysLeft = 1
 	requireFailed(t, probeOne(t, certProber(t, ts, false, -day), check), domain.FailureCertificateProblem)
 }
+
+const testBodyLimit = 10
+
+func newTestProber(maxRedirects int) *HTTPProber {
+	return NewHTTPProber(maxRedirects, testBodyLimit, clock.Real{})
+}
+
+func testOne(t *testing.T, p *HTTPProber, check domain.HTTPCheck) domain.HTTPTestOutcome {
+	t.Helper()
+	out, err := p.TestHTTP(context.Background(), check)
+	require.NoError(t, err)
+	return out
+}
+
+func TestTestHTTP_SameVerdictAsCheckHTTP(t *testing.T) {
+	ts := testutil.NewTargetServer(t)
+	ts.Script("/ok", testutil.Route{Status: 204})
+	ts.Script("/404", testutil.Route{Status: 404, Body: "gone"})
+	ts.Script("/500", testutil.Route{Status: 500, Body: "boom"})
+	ts.Script("/slow", testutil.Route{Delay: 400 * time.Millisecond})
+	ts.Script("/match", testutil.Route{Body: `{"s":"d"}`})
+	ts.Script("/match500", testutil.Route{Status: 500, Body: `{"s":"d"}`})
+	ts.Script("/invalid", testutil.Route{Body: `not json`})
+	ts.Script("/invalid502", testutil.Route{Status: 502, Body: `not json`})
+	ts.Script("/big", testutil.Route{Body: `{"s":"d"}` + strings.Repeat(" ", 20)})
+	ts.Script("/healthyjson", testutil.Route{Body: `{"s":"u"}`})
+	within, over := chain(ts, 2), chain(ts, 5)
+	closed := func() string {
+		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		addr := l.Addr().String()
+		require.NoError(t, l.Close())
+		return "http://" + addr + "/"
+	}()
+	rules := []domain.JSONRule{{Field: "s", FailingValue: "d"}}
+
+	secure := testutil.NewTargetServer(t, testutil.TargetTLS())
+	trusted := certProber(t, secure, true, 5*day)
+	untrusted := newTestProber(3)
+
+	tests := []struct {
+		name  string
+		p     *HTTPProber
+		check domain.HTTPCheck
+	}{
+		{"2xx", newTestProber(3), get(ts.URL()+"/ok", longTimeout)},
+		{"404", newTestProber(3), get(ts.URL()+"/404", longTimeout)},
+		{"500", newTestProber(3), get(ts.URL()+"/500", longTimeout)},
+		{"redirect chain within the limit", newTestProber(3), get(within, longTimeout)},
+		{"redirect chain over the limit", newTestProber(3), get(over, longTimeout)},
+		{"timeout", newTestProber(3), get(ts.URL()+"/slow", 100*time.Millisecond)},
+		{"closed port", newTestProber(3), get(closed, longTimeout)},
+		{"certificate problem", untrusted, get(secure.URL()+"/", longTimeout)},
+		{"expiry too close", trusted, certCheck(secure.URL()+"/", false, 30)},
+		{"rule match", newTestProber(3), withRules(get(ts.URL()+"/match", longTimeout), "", rules...)},
+		{"rule match on 500", newTestProber(3), withRules(get(ts.URL()+"/match500", longTimeout), "", rules...)},
+		{"healthy json", newTestProber(3), withRules(get(ts.URL()+"/healthyjson", longTimeout), "", rules...)},
+		{"invalid json", newTestProber(3), withRules(get(ts.URL()+"/invalid", longTimeout), "", rules...)},
+		{"invalid json on 502", newTestProber(3), withRules(get(ts.URL()+"/invalid502", longTimeout), "", rules...)},
+		{"rules with a body over the limit", newTestProber(3), withRules(get(ts.URL()+"/big", longTimeout), "", rules...)},
+		{"zero timeout", newTestProber(3), get(ts.URL()+"/ok", 0)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want, err := tt.p.CheckHTTP(context.Background(), tt.check)
+			require.NoError(t, err)
+			got, err := tt.p.TestHTTP(context.Background(), tt.check)
+			require.NoError(t, err)
+			assert.Equal(t, want, got.CheckResult)
+		})
+	}
+}
+
+func TestTestHTTP_StatusAndBody(t *testing.T) {
+	ts := testutil.NewTargetServer(t)
+	ts.Script("/ok", testutil.Route{Body: "hello"})
+	ts.Script("/404", testutil.Route{Status: 404, Body: "no page"})
+	ts.Script("/500", testutil.Route{Status: 500, Body: "boom"})
+	ts.Script("/match", testutil.Route{Status: 201, Body: `{"s":"d"}`})
+	p := newTestProber(3)
+
+	t.Run("2xx without rules gives the body whole", func(t *testing.T) {
+		out := testOne(t, p, get(ts.URL()+"/ok", longTimeout))
+		requireHealthy(t, out.CheckResult)
+		require.NotNil(t, out.HTTPStatus)
+		assert.Equal(t, 200, *out.HTTPStatus)
+		assert.Equal(t, "hello", out.Body)
+		assert.False(t, out.BodyTruncated)
+	})
+	t.Run("404 and 500", func(t *testing.T) {
+		for status, body := range map[int]string{404: "no page", 500: "boom"} {
+			out := testOne(t, p, get(ts.URL()+"/"+fmt.Sprint(status), longTimeout))
+			requireStatus(t, out.CheckResult, status)
+			require.NotNil(t, out.HTTPStatus)
+			assert.Equal(t, status, *out.HTTPStatus)
+			assert.Equal(t, body, out.Body)
+		}
+	})
+	t.Run("a rule match keeps status and body", func(t *testing.T) {
+		out := testOne(t, p, withRules(get(ts.URL()+"/match", longTimeout), "", domain.JSONRule{Field: "s", FailingValue: "d"}))
+		requireFailed(t, domain.CheckResult{Failure: &domain.CheckFailure{Code: out.Failure.Code}}, domain.FailureJSONRuleMatched)
+		require.NotNil(t, out.HTTPStatus)
+		assert.Equal(t, 201, *out.HTTPStatus)
+		assert.Equal(t, `{"s":"d"}`, out.Body)
+	})
+	t.Run("a certificate problem from expiry keeps status and body", func(t *testing.T) {
+		secure := testutil.NewTargetServer(t, testutil.TargetTLS())
+		secure.Script("/", testutil.Route{Body: "tls body"})
+		out := testOne(t, certProber(t, secure, true, 5*day), certCheck(secure.URL()+"/", false, 30))
+		requireFailed(t, out.CheckResult, domain.FailureCertificateProblem)
+		require.NotNil(t, out.HTTPStatus)
+		assert.Equal(t, 200, *out.HTTPStatus)
+		assert.Equal(t, "tls body", out.Body)
+	})
+}
+
+func TestTestHTTP_BodyLimit(t *testing.T) {
+	ts := testutil.NewTargetServer(t)
+	ts.Script("/exact", testutil.Route{Body: "0123456789"})
+	ts.Script("/over", testutil.Route{Body: "0123456789A"})
+	ts.Script("/empty", testutil.Route{Status: 204})
+	p := newTestProber(3)
+
+	exact := testOne(t, p, get(ts.URL()+"/exact", longTimeout))
+	assert.Equal(t, "0123456789", exact.Body)
+	assert.False(t, exact.BodyTruncated)
+
+	over := testOne(t, p, get(ts.URL()+"/over", longTimeout))
+	assert.Equal(t, "0123456789", over.Body)
+	assert.True(t, over.BodyTruncated)
+
+	empty := testOne(t, p, get(ts.URL()+"/empty", longTimeout))
+	assert.Equal(t, "", empty.Body)
+	assert.False(t, empty.BodyTruncated)
+	require.NotNil(t, empty.HTTPStatus)
+	assert.Equal(t, 204, *empty.HTTPStatus)
+}
+
+func TestTestHTTP_NoResponse(t *testing.T) {
+	ts := testutil.NewTargetServer(t)
+	ts.Script("/slow", testutil.Route{Delay: 400 * time.Millisecond, Body: "late"})
+	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := l.Addr().String()
+	require.NoError(t, l.Close())
+
+	tests := []struct {
+		name  string
+		check domain.HTTPCheck
+		code  domain.FailureCode
+	}{
+		{"closed port", get("http://"+addr+"/", longTimeout), domain.FailureCouldNotConnect},
+		{"timeout before the headers", get(ts.URL()+"/slow", 100*time.Millisecond), domain.FailureTimedOut},
+		{"too many redirects", get(chain(ts, 5), longTimeout), domain.FailureTooManyRedirects},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := testOne(t, NewHTTPProber(3, testBodyLimit, clock.Real{}), tt.check)
+			requireFailed(t, out.CheckResult, tt.code)
+			assert.Nil(t, out.HTTPStatus)
+			assert.Equal(t, "", out.Body)
+			assert.False(t, out.BodyTruncated)
+		})
+	}
+}
+
+// stalledBody serves the headers and the start of a body, then waits.
+func stalledBody(t *testing.T, status int, started chan<- struct{}) string {
+	t.Helper()
+	return rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte("part"))
+		w.(http.Flusher).Flush()
+		if started != nil {
+			close(started)
+		}
+		<-r.Context().Done()
+	})
+}
+
+func TestTestHTTP_StalledBodyWithoutRules(t *testing.T) {
+	const timeout = 150 * time.Millisecond
+	p := newTestProber(3)
+	for _, status := range []int{200, 503} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			url := stalledBody(t, status, nil)
+			want, err := p.CheckHTTP(context.Background(), get(url, timeout))
+			require.NoError(t, err)
+
+			out := testOne(t, p, get(url, timeout))
+			assert.Equal(t, want, out.CheckResult)
+			require.NotNil(t, out.HTTPStatus)
+			assert.Equal(t, status, *out.HTTPStatus)
+			assert.Equal(t, "part", out.Body)
+			assert.False(t, out.BodyTruncated)
+		})
+	}
+	t.Run("healthy for a 2xx", func(t *testing.T) {
+		requireHealthy(t, testOne(t, p, get(stalledBody(t, 200, nil), timeout)).CheckResult)
+	})
+}
+
+func TestTestHTTP_CallerContext(t *testing.T) {
+	ts := testutil.NewTargetServer(t)
+	p := newTestProber(3)
+
+	t.Run("cancelled during a stalled body, no rules", func(t *testing.T) {
+		started := make(chan struct{})
+		url := stalledBody(t, 200, started)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			<-started
+			// Once the headers are in the client's hands, so the cancel lands in the
+			// body read and not in the request.
+			time.Sleep(50 * time.Millisecond)
+			cancel()
+		}()
+		out, err := p.TestHTTP(ctx, get(url, longTimeout))
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Equal(t, domain.HTTPTestOutcome{}, out)
+	})
+	t.Run("already cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		out, err := p.TestHTTP(ctx, get(ts.URL()+"/", longTimeout))
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Equal(t, domain.HTTPTestOutcome{}, out)
+	})
+	t.Run("deadline already passed", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		defer cancel()
+		out, err := p.TestHTTP(ctx, get(ts.URL()+"/", longTimeout))
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.Equal(t, domain.HTTPTestOutcome{}, out)
+	})
+	t.Run("cancelled during the request", func(t *testing.T) {
+		ts.Script("/hold", testutil.Route{Delay: time.Second})
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+		defer cancel()
+		out, err := p.TestHTTP(ctx, get(ts.URL()+"/hold", longTimeout))
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.Equal(t, domain.HTTPTestOutcome{}, out)
+	})
+}
+
+// A check with no JSON rules must not read the body (FR-73): the caller leaving during a
+// stalled body is not seen, because CheckHTTP is already done with the response. Reading
+// the body anyway would end with the caller's context error (the cancel comes 50 ms
+// after the headers).
+func TestCheckHTTP_NoRulesDoesNotReadStalledBody(t *testing.T) {
+	started := make(chan struct{})
+	url := stalledBody(t, 200, started)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-started
+		// Long after the headers have reached the client, which is done with them.
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	res, err := newTestProber(3).CheckHTTP(ctx, get(url, longTimeout))
+
+	require.NoError(t, err)
+	requireHealthy(t, res)
+}

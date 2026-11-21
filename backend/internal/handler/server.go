@@ -41,6 +41,11 @@ type TargetTester interface {
 	TestTarget(ctx context.Context, serviceID string, input domain.TargetInput) (domain.TargetTestResult, error)
 }
 
+// ServiceCheckTester is what the service test handler needs from the usecase layer.
+type ServiceCheckTester interface {
+	TestServiceCheck(ctx context.Context, input domain.ServiceTestInput) (domain.ServiceTestResult, error)
+}
+
 // AuthService is what the session handlers need from the usecase layer.
 type AuthService interface {
 	SignIn(ctx context.Context, username, password string, https bool) (domain.Session, error)
@@ -62,6 +67,7 @@ type Server struct {
 	services ServiceService
 	targets  TargetService
 	tester   TargetTester
+	checks   ServiceCheckTester
 	auth     AuthService
 	log      *slog.Logger
 	// secureCookie is whether the session cookie carries Secure: it follows the
@@ -70,8 +76,8 @@ type Server struct {
 }
 
 // NewServer builds the Server from its dependencies.
-func NewServer(settings SettingsService, services ServiceService, targets TargetService, tester TargetTester, auth AuthService, log *slog.Logger, secureCookie bool) *Server {
-	return &Server{settings: settings, services: services, targets: targets, tester: tester, auth: auth, log: log, secureCookie: secureCookie}
+func NewServer(settings SettingsService, services ServiceService, targets TargetService, tester TargetTester, checks ServiceCheckTester, auth AuthService, log *slog.Logger, secureCookie bool) *Server {
+	return &Server{settings: settings, services: services, targets: targets, tester: tester, checks: checks, auth: auth, log: log, secureCookie: secureCookie}
 }
 
 // The compiler checks that Server covers every operation in the contract.
