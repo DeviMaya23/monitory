@@ -122,12 +122,14 @@ describe('idle', () => {
   it('has no Type control and no test button', () => {
     setup()
     expect(screen.queryByText('Type')).not.toBeInTheDocument()
-    // The only choice is the body's.
-    expect(screen.getAllByRole('radiogroup')).toHaveLength(1)
+    // The only choices are the body's and the rules' mode.
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(2)
     expect(screen.getByRole('radiogroup', { name: 'Body type' })).toBeInTheDocument()
+    expect(screen.getByRole('radiogroup', { name: 'Mark unhealthy when' })).toBeInTheDocument()
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
       'Add parameter',
       'Add header',
+      'Add rule',
       'Cancel',
       'Save service',
     ])
@@ -144,7 +146,17 @@ describe('saving a valid form (FR-6, FR-12)', () => {
     expect(createService).toHaveBeenCalledTimes(1)
     expect(sentInput()).toStrictEqual({
       name: '  Search API ',
-      check: { type: 'http', method: 'GET', url: URL_VALUE, query_params: [], headers: [] },
+      check: {
+        type: 'http',
+        method: 'GET',
+        url: URL_VALUE,
+        query_params: [],
+        headers: [],
+        json_rules: [],
+        json_rule_mode: 'any',
+        certificate_check: { enabled: false },
+        ignore_certificate_errors: false,
+      },
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
@@ -228,6 +240,10 @@ describe('the method (FR-36)', () => {
       url: URL_VALUE,
       query_params: [],
       headers: [],
+      json_rules: [],
+      json_rule_mode: 'any',
+      certificate_check: { enabled: false },
+      ignore_certificate_errors: false,
     })
   })
 
@@ -243,6 +259,10 @@ describe('the method (FR-36)', () => {
       url: URL_VALUE,
       query_params: [],
       headers: [],
+      json_rules: [],
+      json_rule_mode: 'any',
+      certificate_check: { enabled: false },
+      ignore_certificate_errors: false,
     })
   })
 })
@@ -367,6 +387,10 @@ describe('client checks', () => {
       url: 'ftp://files.example.com',
       query_params: [],
       headers: [],
+      json_rules: [],
+      json_rule_mode: 'any',
+      certificate_check: { enabled: false },
+      ignore_certificate_errors: false,
     })
   })
 })
@@ -560,7 +584,17 @@ describe('the banners', () => {
     expect(sentInput(1)).toStrictEqual(sentInput(0))
     expect(sentInput(1)).toStrictEqual({
       name: 'Search API',
-      check: { type: 'http', method: 'GET', url: URL_VALUE, query_params: [], headers: [] },
+      check: {
+        type: 'http',
+        method: 'GET',
+        url: URL_VALUE,
+        query_params: [],
+        headers: [],
+        json_rules: [],
+        json_rule_mode: 'any',
+        certificate_check: { enabled: false },
+        ignore_certificate_errors: false,
+      },
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
@@ -801,7 +835,7 @@ describe('the Alerts group (FR-20, FR-65)', () => {
   it('shows after the Request group: the switch on and described, two text areas with counters at 0/500', () => {
     setup()
     const legends = Array.from(document.querySelectorAll('legend.group__legend')).map((legend) => legend.textContent)
-    expect(legends).toEqual(['Service', 'Request', 'Timing', 'Alerts'])
+    expect(legends).toEqual(['Service', 'Request', 'Health rules (optional)', 'HTTPS', 'Timing', 'Alerts'])
     expect(alertsSwitch()).toHaveAttribute('aria-checked', 'true')
     expect(alertsSwitch()).toHaveAccessibleDescription('To this service’s alert list when it goes down or recovers.')
     expect(screen.getByText('On')).toBeInTheDocument()
@@ -815,6 +849,7 @@ describe('the Alerts group (FR-20, FR-65)', () => {
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
       'Add parameter',
       'Add header',
+      'Add rule',
       'Cancel',
       'Save service',
     ])
@@ -847,14 +882,25 @@ describe('the Alerts group (FR-20, FR-65)', () => {
     await fill(user)
     await user.click(alertsSwitch())
     expect(alertsSwitch()).toHaveAttribute('aria-checked', 'false')
-    expect(screen.getByText('Off')).toBeInTheDocument()
+    // The HTTPS switches also say Off: look at this switch's own row.
+    expect(within(alertsSwitch().closest('label') as HTMLElement).getByText('Off')).toBeInTheDocument()
     await user.type(unhealthyArea(), '  down ')
     await user.type(recoveryArea(), '<b>x</b>')
     await user.click(saveButton())
     await marker()
     expect(sentInput()).toStrictEqual({
       name: 'Search API',
-      check: { type: 'http', method: 'GET', url: URL_VALUE, query_params: [], headers: [] },
+      check: {
+        type: 'http',
+        method: 'GET',
+        url: URL_VALUE,
+        query_params: [],
+        headers: [],
+        json_rules: [],
+        json_rule_mode: 'any',
+        certificate_check: { enabled: false },
+        ignore_certificate_errors: false,
+      },
       alerts_enabled: false,
       unhealthy_message: '  down ',
       recovery_message: '<b>x</b>',
@@ -988,8 +1034,9 @@ describe('the Alerts group: boundaries and keyboard (FR-20, FR-65, NFR-4)', () =
   it('is reached by Tab in the order URL, the rows’ Add buttons, Body type, the four timing inputs, switch, Unhealthy message, Recovery message, Cancel, Save; Space toggles the switch', async () => {
     const { user } = setup()
     await user.click(urlInput())
-    // Add parameter, Add header, the Body type choice, then the four timing inputs.
-    for (let stop = 0; stop < 3 + 4; stop++) await user.tab()
+    // Add parameter, Add header, the Body type choice, Add rule, the mode choice (the HTTPS options are disabled
+    // for an empty URL), then the four timing inputs.
+    for (let stop = 0; stop < 3 + 2 + 4; stop++) await user.tab()
     await user.tab()
     expect(alertsSwitch()).toHaveFocus()
     await user.keyboard(' ')
@@ -1343,7 +1390,7 @@ describe('the Timing group (FR-41, FR-51, FR-53, FR-56, FR-57)', () => {
   it('is reached by Tab from the URL: the four inputs in order, then the alert switch', async () => {
     const { user } = setup()
     await user.click(urlInput())
-    for (let stop = 0; stop < 3; stop++) await user.tab() // Add parameter, Add header, Body type
+    for (let stop = 0; stop < 3 + 2; stop++) await user.tab() // Add parameter, Add header, Body type, Add rule, the mode
     for (const input of inputs()) {
       await user.tab()
       expect(input).toHaveFocus()
@@ -1394,7 +1441,7 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
       expect(screen.getByRole('group', { name: 'Headers' })).toHaveAccessibleDescription('Values are shown in full.')
       expect(screen.getByText('No headers.')).toBeInTheDocument()
       expect(screen.getByRole('radio', { name: 'None' })).toBeChecked()
-      expect(screen.getAllByRole('radio')).toHaveLength(4)
+      expect(screen.getAllByRole('radio')).toHaveLength(6)
       expect(screen.queryByLabelText('Body')).not.toBeInTheDocument()
       const request = screen.getByRole('group', { name: 'Request' })
       expect(request).toContainElement(screen.getByRole('group', { name: 'Headers' }))
@@ -1423,6 +1470,10 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
         ],
         headers: [{ name: 'X-Key', value: 'secret-value' }],
         body: { type: 'json', content: '{"a":1}' },
+        json_rules: [],
+        json_rule_mode: 'any',
+        certificate_check: { enabled: false },
+        ignore_certificate_errors: false,
       })
       expect(screen.queryByDisplayValue('••••')).not.toBeInTheDocument()
     })
@@ -1762,7 +1813,7 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
   })
 
   describe('Tab order (NFR-4)', () => {
-    it('goes from the URL to Add parameter, Add header, one Body type stop, then Check interval, with arrow keys moving the choice', async () => {
+    it('goes from the URL to Add parameter, Add header, one Body type stop, the Body, Add rule, the mode, then Check interval, with arrow keys moving the choice', async () => {
       const { user } = setup()
       await user.click(urlInput())
       await user.tab()
@@ -1777,12 +1828,20 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
       await user.tab()
       expect(bodyText()).toHaveFocus()
       await user.tab()
+      expect(screen.getByRole('button', { name: 'Add rule' })).toHaveFocus()
+      await user.tab()
+      expect(screen.getByRole('radio', { name: 'Any rule matches' })).toHaveFocus()
+      await user.tab()
       expect(screen.getByLabelText('Check interval')).toHaveFocus()
     })
 
-    it('goes to Check interval right after the Body type with the body None', async () => {
+    it('goes to Add rule, the mode and then Check interval right after the Body type with the body None', async () => {
       const { user } = setup()
       await user.click(screen.getByRole('radio', { name: 'None' }))
+      await user.tab()
+      expect(screen.getByRole('button', { name: 'Add rule' })).toHaveFocus()
+      await user.tab()
+      expect(screen.getByRole('radio', { name: 'Any rule matches' })).toHaveFocus()
       await user.tab()
       expect(screen.getByLabelText('Check interval')).toHaveFocus()
     })
