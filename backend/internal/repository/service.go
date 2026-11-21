@@ -189,6 +189,41 @@ func (r *ServiceRepository) Update(ctx context.Context, service domain.Service) 
 	return view, nil
 }
 
+// SetPaused sets the paused flag of the service in one write transaction. It reads the
+// flag first: when it already has the wanted value nothing is written, updated_at
+// included, and changed is false. Otherwise it writes paused and updated_at (at, in
+// UTC) and nothing else, and changed is true. It returns the service read back with its
+// state, as Get does, in the same transaction. No row with that id is
+// domain.ErrNotFound (FR-75, FR-78).
+func (r *ServiceRepository) SetPaused(ctx context.Context, id string, paused bool, at time.Time) (domain.ServiceView, bool, error) {
+	var view domain.ServiceView
+	var changed bool
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var current domain.Service
+		if err := tx.Select("id", "paused").Where("id = ?", id).Take(&current).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.ErrNotFound
+			}
+			return err
+		}
+		if current.Paused != paused {
+			err := tx.Model(&domain.Service{}).Where("id = ?", id).
+				Updates(map[string]any{"paused": paused, "updated_at": at.UTC()}).Error
+			if err != nil {
+				return err
+			}
+			changed = true
+		}
+		var err error
+		view, err = getView(tx, id)
+		return err
+	})
+	if err != nil {
+		return domain.ServiceView{}, false, err
+	}
+	return view, changed, nil
+}
+
 func utc(t *time.Time) *time.Time {
 	if t == nil {
 		return nil

@@ -616,3 +616,127 @@ func TestUpdateService_GateFailuresNeverReachTheSpy(t *testing.T) {
 		assert.Equal(t, []string{"id-1"}, spy.updatedID)
 	})
 }
+
+// pauseOps are the two operations of the pause and resume tests: the spy field that holds
+// the ids they receive, the log message, and the paused flag of the view they answer.
+var pauseOps = []struct {
+	name, op, path, msg string
+	paused              bool
+	ids                 func(*serviceSpy) []string
+}{
+	{"pause", "pauseService", "/pause", "service paused", true, func(s *serviceSpy) []string { return s.paused }},
+	{"resume", "resumeService", "/resume", "service resumed", false, func(s *serviceSpy) []string { return s.resumed }},
+}
+
+func postAction(e *echo.Echo, id, path string, opts ...requestOption) *http.Response {
+	return do(e, http.MethodPost, "/api/services/"+id+path, "", append([]requestOption{withSession, withCSRF}, opts...)...)
+}
+
+func TestPauseAndResumeService_Answer200WithTheMappedService(t *testing.T) {
+	for _, op := range pauseOps {
+		t.Run(op.name, func(t *testing.T) {
+			view := fullHTTPView()
+			view.Service.Paused = op.paused
+			view.State = domain.ServiceState{ServiceID: "id-1", Status: domain.StatusHealthy, LastCheckedAt: &createdAt, LastStatusChangeAt: &createdAt}
+			spy := &serviceSpy{view: view}
+			e := newRouter(t, routerOptions{services: spy})
+
+			res := postAction(e, "id-5", op.path)
+
+			require.Equal(t, http.StatusOK, res.StatusCode)
+			testutil.AssertConforms(t, op.op, res)
+			var got, want map[string]any
+			body := readBody(t, res)
+			require.NoError(t, json.Unmarshal([]byte(body), &got))
+			assert.Equal(t, op.paused, got["paused"])
+			assert.Equal(t, "healthy", got["state"].(map[string]any)["status"])
+			require.NoError(t, json.Unmarshal([]byte(readBody(t, getOneService(newRouter(t, routerOptions{services: spy}), "id-1"))), &want))
+			assert.Equal(t, want, got, "the same mapping as getService")
+			assert.Equal(t, []string{"id-5"}, op.ids(spy))
+		})
+	}
+}
+
+func TestPauseAndResumeService_ErrorsMapToTheirCodes(t *testing.T) {
+	for _, op := range pauseOps {
+		t.Run(op.name+" not found", func(t *testing.T) {
+			e := newRouter(t, routerOptions{services: &serviceSpy{err: domain.ErrNotFound}})
+
+			res := postAction(e, "id-1", op.path)
+
+			require.Equal(t, http.StatusNotFound, res.StatusCode)
+			testutil.AssertConforms(t, op.op, res)
+			assert.Equal(t, "not_found", problemCode(t, res))
+		})
+		t.Run(op.name+" unexpected error hides its text", func(t *testing.T) {
+			e := newRouter(t, routerOptions{services: &serviceSpy{err: errors.New("disk I/O error at /data/monitory.db")}})
+
+			res := postAction(e, "id-1", op.path)
+
+			require.Equal(t, http.StatusInternalServerError, res.StatusCode)
+			testutil.AssertConforms(t, op.op, res)
+			body := readBody(t, res)
+			assert.Contains(t, body, `"code":"internal_error"`)
+			assert.NotContains(t, body, "disk")
+		})
+	}
+}
+
+func TestPauseAndResumeService_LogOneLineWithTheIDAndNameOnly(t *testing.T) {
+	for _, op := range pauseOps {
+		t.Run(op.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			view := fullHTTPView()
+			view.Service.HTTPURL = ptr("https://secret.example/path")
+			view.Service.HTTPHeaders = []domain.NameValue{{Name: "Authorization", Value: "Bearer s3cret"}}
+			e := newRouter(t, routerOptions{services: &serviceSpy{view: view}, logOutput: &logs})
+
+			res := postAction(e, "id-1", op.path)
+
+			require.Equal(t, http.StatusOK, res.StatusCode)
+			lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+			require.Len(t, lines, 1)
+			_, attrs, found := strings.Cut(lines[0], `msg="`+op.msg+`" `)
+			require.True(t, found, "line: %s", lines[0])
+			assert.Equal(t, "service_id=id-1 service_name=Full", attrs)
+			for _, secret := range []string{"secret", "Authorization"} {
+				assert.NotContains(t, logs.String(), secret)
+			}
+		})
+	}
+}
+
+func TestPauseAndResumeService_GateFailuresNeverReachTheSpy(t *testing.T) {
+	tests := []struct {
+		name   string
+		opts   []requestOption
+		status int
+		code   string
+	}{
+		{"no session", []requestOption{withCSRF}, http.StatusUnauthorized, "unauthenticated"},
+		{"no CSRF token", []requestOption{withSession}, http.StatusForbidden, "csrf_failed"},
+	}
+	for _, op := range pauseOps {
+		for _, tc := range tests {
+			t.Run(op.name+" "+tc.name, func(t *testing.T) {
+				spy := &serviceSpy{view: tcpView()}
+				e := newRouter(t, routerOptions{services: spy})
+
+				res := do(e, http.MethodPost, "/api/services/id-1"+op.path, "", tc.opts...)
+
+				require.Equal(t, tc.status, res.StatusCode)
+				testutil.AssertConforms(t, op.op, res)
+				assert.Equal(t, tc.code, problemCode(t, res))
+				assert.Empty(t, op.ids(spy))
+			})
+		}
+
+		t.Run(op.name+" baseline: with both, the spy is called", func(t *testing.T) {
+			spy := &serviceSpy{view: tcpView()}
+			e := newRouter(t, routerOptions{services: spy})
+
+			require.Equal(t, http.StatusOK, postAction(e, "id-1", op.path).StatusCode)
+			assert.Equal(t, []string{"id-1"}, op.ids(spy))
+		})
+	}
+}

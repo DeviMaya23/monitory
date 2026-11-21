@@ -11,6 +11,9 @@ import (
 type fakeStates struct {
 	states map[string]domain.ServiceState
 	err    error
+	// paused holds the ids of the paused services, filled by the test: Update answers
+	// domain.ErrServicePaused for them, without applying.
+	paused map[string]bool
 	// afterApply, when set, receives the context Update was given and runs once the
 	// change is applied.
 	afterApply func(ctx context.Context)
@@ -27,6 +30,9 @@ func newFakeStates(states ...domain.ServiceState) *fakeStates {
 func (f *fakeStates) Update(ctx context.Context, id string, apply func(domain.ServiceState) domain.ServiceState) error {
 	if f.err != nil {
 		return f.err
+	}
+	if f.paused[id] {
+		return domain.ErrServicePaused
 	}
 	state, ok := f.states[id]
 	if !ok {

@@ -28,11 +28,25 @@ var stateColumns = []string{
 }
 
 // Update reads the state row of serviceID, passes it to apply and writes the row apply
-// returns, in one write transaction. It returns domain.ErrNotFound, writing nothing,
-// when the service has no row. The row's service id is never changed. Times are read
+// returns, in one write transaction. Before it reads the state it reads the paused flag
+// of the service in the same transaction: a service with no row in services is
+// domain.ErrNotFound, and a paused one is domain.ErrServicePaused; in both nothing is
+// written and apply is not called (FR-76). A service with no state row is
+// domain.ErrNotFound too. The row's service id is never changed. Times are read
 // and stored in UTC.
 func (r *ServiceStateRepository) Update(ctx context.Context, serviceID string, apply func(domain.ServiceState) domain.ServiceState) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var service domain.Service
+		if err := tx.Select("id", "paused").Where("id = ?", serviceID).Take(&service).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.ErrNotFound
+			}
+			return err
+		}
+		if service.Paused {
+			return domain.ErrServicePaused
+		}
+
 		var current domain.ServiceState
 		if err := tx.Where("service_id = ?", serviceID).Take(&current).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {

@@ -409,3 +409,33 @@ func TestRecordCheckResult_RestartUsesSavedStatusOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestRecordCheckResult_PausedServiceDropsTheResult(t *testing.T) {
+	cases := []struct {
+		name   string
+		saved  domain.Status
+		result domain.CheckResult
+		want   domain.AlertStatus // what an unpaused service dispatches
+	}{
+		{"unhealthy result", domain.StatusHealthy, unhealthyResult(), domain.AlertUnhealthy},
+		{"healthy result", domain.StatusUnhealthy, healthyResult(), domain.AlertHealthy},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Baseline: the same call for an unpaused service saves the state and dispatches.
+			base := newAlertSetup(tc.saved, alertService(), emailTarget)
+			require.NoError(t, base.svc.RecordCheckResult(t.Context(), svcID, tc.result))
+			require.Len(t, base.spy.calls, 1)
+			require.Equal(t, tc.want, base.spy.calls[0].alert.Status)
+			require.NotEqual(t, savedState(tc.saved), base.states.states[svcID])
+
+			a := newAlertSetup(tc.saved, alertService(), emailTarget)
+			a.states.paused = map[string]bool{svcID: true}
+
+			require.NoError(t, a.svc.RecordCheckResult(t.Context(), svcID, tc.result))
+
+			assert.Equal(t, savedState(tc.saved), a.states.states[svcID], "the state is as before")
+			assert.Empty(t, a.spy.calls, "no alert is sent")
+		})
+	}
+}
