@@ -16,6 +16,9 @@
 .form-summary { margin: var(--space-1) 0 0; padding-left: 18px; list-style: disc; }
 .url-row { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: var(--space-2); align-items: start; }
 
+/* The TCP group's Host (wide) and Port (narrow); the compact width below stacks them. */
+.url-row--host-port { grid-template-columns: minmax(0, 1fr) 140px; }
+
 .form-foot {
   position: sticky;
   bottom: 0;

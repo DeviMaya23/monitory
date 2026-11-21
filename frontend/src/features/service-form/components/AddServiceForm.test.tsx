@@ -119,11 +119,11 @@ describe('idle', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('has no Type control and no test button', () => {
+  it('has the Type control and no test button', () => {
     setup()
-    expect(screen.queryByText('Type')).not.toBeInTheDocument()
-    // The only choices are the body's and the rules' mode.
-    expect(screen.getAllByRole('radiogroup')).toHaveLength(2)
+    // The choices are the type, the body's and the rules' mode.
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(3)
+    expect(screen.getByRole('radiogroup', { name: 'Type' })).toBeInTheDocument()
     expect(screen.getByRole('radiogroup', { name: 'Body type' })).toBeInTheDocument()
     expect(screen.getByRole('radiogroup', { name: 'Mark unhealthy when' })).toBeInTheDocument()
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
@@ -477,10 +477,10 @@ describe('422 validation_failed (FR-12, FR-74, NFR-4)', () => {
 
   it('lists an unmapped path as plain text with no link, and no field shows an error', async () => {
     const { user } = setup()
-    await failWith(user, validationProblem(fieldError('check.type', 'The value is not allowed.')))
+    await failWith(user, validationProblem(fieldError('check.unknown', 'The value is not allowed.')))
     const summary = screen.getByRole('alert')
     expect(summary).toHaveTextContent('1 field needs fixing before this can be saved.')
-    expect(within(summary).getByRole('listitem')).toHaveTextContent('check.type: The value is not allowed.')
+    expect(within(summary).getByRole('listitem')).toHaveTextContent('check.unknown: The value is not allowed.')
     expect(within(summary).queryByRole('link')).not.toBeInTheDocument()
     expect(summary).toHaveFocus()
     expect(document.querySelector('[aria-invalid]')).toBeNull()
@@ -988,9 +988,9 @@ describe('the Alerts group (FR-20, FR-65)', () => {
 
     it('lists a header path as plain text with no link and no field error', async () => {
       const { user } = setup()
-      await failWith(user, validationProblem(fieldError('check.type', 'Not on this screen.')))
+      await failWith(user, validationProblem(fieldError('check.unknown', 'Not on this screen.')))
       expect(within(screen.getByRole('alert')).queryByRole('link')).toBeNull()
-      expect(screen.getByRole('alert')).toHaveTextContent('check.type: Not on this screen.')
+      expect(screen.getByRole('alert')).toHaveTextContent('check.unknown: Not on this screen.')
       expect(document.querySelector('.error-text')).toBeNull()
     })
 
@@ -1441,7 +1441,7 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
       expect(screen.getByRole('group', { name: 'Headers' })).toHaveAccessibleDescription('Values are shown in full.')
       expect(screen.getByText('No headers.')).toBeInTheDocument()
       expect(screen.getByRole('radio', { name: 'None' })).toBeChecked()
-      expect(screen.getAllByRole('radio')).toHaveLength(6)
+      expect(screen.getAllByRole('radio')).toHaveLength(8)
       expect(screen.queryByLabelText('Body')).not.toBeInTheDocument()
       const request = screen.getByRole('group', { name: 'Request' })
       expect(request).toContainElement(screen.getByRole('group', { name: 'Headers' }))
@@ -2515,6 +2515,415 @@ describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, 
       expect(screen.getByRole('button', { name: 'Remove rule 1' })).toHaveFocus()
       await user.tab()
       expect(screen.getByRole('button', { name: 'Add rule' })).toHaveFocus()
+    })
+  })
+})
+
+describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NFR-4, NFR-7)', () => {
+  type User = ReturnType<typeof userEvent.setup>
+  const typeGroup = () => screen.getByRole('radiogroup', { name: 'Type' })
+  const chooseType = (user: User, name: 'HTTP(S)' | 'TCP port') => user.click(screen.getByRole('radio', { name }))
+  const hostInput = () => screen.getByLabelText('Host')
+  const portInput = () => screen.getByLabelText('Port')
+  const legends = () => Array.from(document.querySelectorAll('legend.group__legend')).map((el) => el.textContent)
+  const summary = () => screen.getByRole('alert')
+  const summaryItems = () => within(summary()).getAllByRole('listitem').map((item) => item.textContent)
+  const WHOLE = 'Enter a whole number.'
+  const set = (input: HTMLElement, value: string) => fireEvent.change(input, { target: { value } })
+  const chooseTcp = async (user: User) => {
+    await chooseType(user, 'TCP port')
+    await screen.findByLabelText('Host')
+  }
+  /** Fills the name, chooses TCP, types host and port, has the request refused with `error`, and waits. */
+  async function tcpRefused(user: User, error: unknown, host = 'db.internal', port = '5432') {
+    vi.mocked(createService).mockRejectedValueOnce(error)
+    await user.type(nameInput(), 'DB')
+    await chooseTcp(user)
+    if (host !== '') await user.type(hostInput(), host)
+    await user.type(portInput(), port)
+    await user.click(saveButton())
+    await waitFor(() => expect(saveButton()).toBeEnabled())
+  }
+
+  describe('idle and choosing', () => {
+    it('shows Type with HTTP(S) chosen and its hint, and the HTTP groups only (FR-33)', () => {
+      setup()
+      expect(within(typeGroup()).getByRole('radio', { name: 'HTTP(S)' })).toBeChecked()
+      expect(within(typeGroup()).getByRole('radio', { name: 'TCP port' })).not.toBeChecked()
+      expect(screen.getByText('Changing type swaps the fields below.')).toBeInTheDocument()
+      expect(legends()).toEqual(['Service', 'Request', 'Health rules (optional)', 'HTTPS', 'Timing', 'Alerts'])
+      expect(screen.queryByLabelText('Host')).toBeNull()
+      expect(screen.queryByLabelText('Port')).toBeNull()
+      const name = nameInput().closest('.field') as HTMLElement
+      expect(name.nextElementSibling).toContainElement(typeGroup())
+    })
+
+    it('swaps to the TCP port group, keeps focus on the radio and keeps the Timing and Alerts values (FR-33, FR-52)', async () => {
+      const { user } = setup()
+      await user.clear(screen.getByLabelText('Timeout'))
+      await user.type(screen.getByLabelText('Timeout'), '5')
+      await user.click(screen.getByRole('switch', { name: 'Send alerts' }))
+      await chooseType(user, 'TCP port')
+      expect(legends()).toEqual(['Service', 'TCP port', 'Timing', 'Alerts'])
+      expect(hostInput()).toHaveValue('')
+      expect(hostInput()).toHaveAttribute('placeholder', 'db.internal or 10.0.0.12')
+      expect(portInput()).toHaveValue('')
+      expect(portInput()).toHaveAttribute('placeholder', '5432')
+      expect(portInput()).toHaveAttribute('inputmode', 'numeric')
+      expect(portInput()).toHaveAccessibleDescription('1 to 65535')
+      expect(screen.queryByLabelText('URL')).toBeNull()
+      expect(screen.queryByRole('combobox', { name: 'Method' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Add rule' })).toBeNull()
+      expect(screen.queryByText('Minimum days left')).toBeNull()
+      expect(screen.getByRole('radio', { name: 'TCP port' })).toHaveFocus()
+      expect(screen.getByLabelText('Timeout')).toHaveValue('5')
+      expect(screen.getByRole('switch', { name: 'Send alerts' })).toHaveAttribute('aria-checked', 'false')
+    })
+
+    it('keeps the HTTP values while TCP is chosen and the TCP values while HTTP(S) is chosen', async () => {
+      const { user } = setup()
+      await user.type(urlInput(), 'https://a.example')
+      await user.click(screen.getByRole('button', { name: 'Add parameter' }))
+      await user.type(screen.getByLabelText('Query parameter 1 name'), 'q')
+      await user.click(screen.getByRole('button', { name: 'Add rule' }))
+      await user.type(screen.getByLabelText('Rule 1 field path'), 'ok')
+      await user.click(screen.getByRole('switch', { name: /Ignore certificate errors/ }))
+      await chooseTcp(user)
+      await user.type(hostInput(), 'db.internal')
+      await user.type(portInput(), '5432')
+      await chooseType(user, 'HTTP(S)')
+      expect(urlInput()).toHaveValue('https://a.example')
+      expect(screen.getByLabelText('Query parameter 1 name')).toHaveValue('q')
+      expect(screen.getByLabelText('Rule 1 field path')).toHaveValue('ok')
+      expect(screen.getByRole('switch', { name: /Ignore certificate errors/ })).toHaveAttribute('aria-checked', 'true')
+      await chooseType(user, 'TCP port')
+      expect(hostInput()).toHaveValue('db.internal')
+      expect(portInput()).toHaveValue('5432')
+    })
+  })
+
+  describe('sending', () => {
+    it('sends only type, host and port for TCP with an empty URL, then the HTTP check when HTTP(S) is chosen again (FR-33, FR-49)', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await chooseTcp(user)
+      await user.type(hostInput(), 'db.internal')
+      await user.type(portInput(), ' 5432 ')
+      await user.click(saveButton())
+      await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
+      expect(sentInput().check).toStrictEqual({ type: 'tcp', host: 'db.internal', port: 5432 })
+      expect(sentInput()).toMatchObject({ name: 'DB', alerts_enabled: true, settings: { timeout_seconds: 10 } })
+      await marker()
+    })
+
+    it('sends the HTTP check, with no host or port, when HTTP(S) is chosen again with a URL', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await chooseTcp(user)
+      await user.type(hostInput(), 'db.internal')
+      await user.type(portInput(), '5432')
+      await chooseType(user, 'HTTP(S)')
+      await user.type(urlInput(), URL_VALUE)
+      await user.click(saveButton())
+      await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
+      const check = sentInput().check
+      expect(check).toMatchObject({ type: 'http', method: 'GET', url: URL_VALUE })
+      expect(check).not.toHaveProperty('host')
+      expect(check).not.toHaveProperty('port')
+    })
+
+    it('sends the Timing values as typed with a TCP check (FR-52)', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await chooseTcp(user)
+      await user.type(hostInput(), 'h')
+      await user.type(portInput(), '1')
+      set(screen.getByLabelText('Check interval'), '45')
+      set(screen.getByLabelText('Timeout'), '5')
+      set(screen.getByLabelText('Retries'), '0')
+      set(screen.getByLabelText('Retry interval'), '1')
+      await user.click(saveButton())
+      await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
+      expect(sentInput().settings).toEqual({
+        check_interval_seconds: 45,
+        timeout_seconds: 5,
+        retry_count: 0,
+        retry_interval_seconds: 1,
+      })
+    })
+
+    it.each(['0', '70000'])('sends port %s and an empty host: the range and the host are the server’s (FR-74)', async (port) => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await chooseTcp(user)
+      await user.type(portInput(), port)
+      await user.click(saveButton())
+      await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
+      expect(sentInput().check).toStrictEqual({ type: 'tcp', host: '', port: Number(port) })
+    })
+  })
+
+  describe('the client check of the port', () => {
+    it.each(['', 'abc', '1.5', '-3'])('refuses %j under Port, focuses it, sends nothing (FR-74)', async (port) => {
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await chooseTcp(user)
+      await user.type(hostInput(), 'h')
+      if (port !== '') await user.type(portInput(), port)
+      await user.click(saveButton())
+      expect(createService).not.toHaveBeenCalled()
+      expect(portInput()).toHaveAttribute('aria-invalid', 'true')
+      expect(describedBy(portInput())).toBe(WHOLE)
+      expect(portInput()).toHaveFocus()
+      expect(hostInput()).not.toHaveAttribute('aria-invalid')
+    })
+
+    it('goes when the port is edited, and when the type is changed', async () => {
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await chooseTcp(user)
+      await user.click(saveButton())
+      expect(screen.getByText(WHOLE)).toBeInTheDocument()
+      await user.type(portInput(), '5')
+      expect(screen.queryByText(WHOLE)).toBeNull()
+      await user.clear(portInput())
+      await user.click(saveButton())
+      expect(screen.getByText(WHOLE)).toBeInTheDocument()
+      await chooseType(user, 'HTTP(S)')
+      await chooseType(user, 'TCP port')
+      expect(screen.queryByText(WHOLE)).toBeNull()
+      expect(portInput()).not.toHaveAttribute('aria-invalid')
+    })
+
+    it('focuses Port before a bad timing field, which comes later on the page', async () => {
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await chooseTcp(user)
+      set(screen.getByLabelText('Retries'), 'x')
+      await user.click(saveButton())
+      expect(screen.getAllByText(WHOLE)).toHaveLength(2)
+      expect(portInput()).toHaveFocus()
+    })
+
+    it('focuses the URL, not a bad timing field, after choosing TCP and then HTTP(S) again', async () => {
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await chooseTcp(user)
+      await chooseType(user, 'HTTP(S)')
+      set(screen.getByLabelText('Retries'), 'x')
+      await user.click(saveButton())
+      expect(screen.getByText('Enter a URL.')).toBeInTheDocument()
+      expect(urlInput()).toHaveFocus()
+    })
+
+    it('does not check the hidden URL, and a URL error left from HTTP(S) does not come back', async () => {
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await user.click(saveButton())
+      expect(screen.getByText('Enter a URL.')).toBeInTheDocument()
+      await chooseTcp(user)
+      await user.type(hostInput(), 'h')
+      await user.type(portInput(), '1')
+      await chooseType(user, 'HTTP(S)')
+      expect(screen.queryByText('Enter a URL.')).toBeNull()
+      expect(urlInput()).not.toHaveAttribute('aria-invalid')
+    })
+
+    it('does not check a hidden days field, and its error does not come back', async () => {
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await user.type(urlInput(), 'https://x')
+      await user.click(screen.getByRole('switch', { name: /Check certificate expiry/ }))
+      set(screen.getByLabelText('Minimum days left'), 'x')
+      await user.click(saveButton())
+      expect(screen.getByText(WHOLE)).toBeInTheDocument()
+      await chooseTcp(user)
+      await user.type(hostInput(), 'h')
+      await user.type(portInput(), '1')
+      await chooseType(user, 'HTTP(S)')
+      expect(screen.queryByText(WHOLE)).toBeNull()
+      await chooseType(user, 'TCP port')
+      vi.mocked(createService).mockResolvedValue(makeService())
+      await user.click(saveButton())
+      await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
+    })
+  })
+
+  describe('in flight', () => {
+    it('locks the Type choice, Host and Port, and releases them after a failure', async () => {
+      const settle = pending()
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await chooseTcp(user)
+      await user.type(hostInput(), 'h')
+      await user.type(portInput(), '1')
+      await user.click(saveButton())
+      expect(hostInput()).toHaveAttribute('readonly')
+      expect(portInput()).toHaveAttribute('readonly')
+      for (const radio of within(typeGroup()).getAllByRole('radio')) expect(radio).toHaveAttribute('aria-disabled', 'true')
+      await act(async () => settle.reject(problem(500, 'internal_error')))
+      await waitFor(() => expect(saveButton()).toBeEnabled())
+      expect(hostInput()).not.toHaveAttribute('readonly')
+      expect(portInput()).not.toHaveAttribute('readonly')
+      for (const radio of within(typeGroup()).getAllByRole('radio'))
+        expect(radio).not.toHaveAttribute('aria-disabled', 'true')
+    })
+  })
+
+  describe('a 422', () => {
+    it('lists Host and Port as links, shows each message under its input, and focuses the summary (NFR-7)', async () => {
+      const { user } = setup()
+      await tcpRefused(
+        user,
+        validationProblem(
+          fieldError('check.host', 'Enter a <b>host</b>.', 'required'),
+          fieldError('check.port', 'Must be between 1 and 65535.', 'out_of_range'),
+        ),
+        '',
+        '70000',
+      )
+      expect(summaryItems()).toEqual(['Host: Enter a <b>host</b>.', 'Port: Must be between 1 and 65535.'])
+      expect(summary()).toHaveFocus()
+      expect(within(summary()).queryByRole('strong')).toBeNull()
+      expect(hostInput()).toHaveAttribute('aria-invalid', 'true')
+      expect(describedBy(hostInput())).toBe('Enter a <b>host</b>.')
+      expect(portInput()).toHaveAttribute('aria-invalid', 'true')
+      expect(describedBy(portInput())).toBe('Must be between 1 and 65535.')
+      expect(screen.queryByText('1 to 65535')).toBeNull()
+      await user.click(within(summary()).getByRole('link', { name: /^Port/ }))
+      expect(portInput()).toHaveFocus()
+      await user.click(within(summary()).getByRole('link', { name: /^Host/ }))
+      expect(hostInput()).toHaveFocus()
+    })
+
+    it('lists check.type as plain text with no link and no input invalid', async () => {
+      const { user } = setup()
+      await tcpRefused(user, validationProblem(fieldError('check.type', 'Not a type.', 'invalid_value')))
+      expect(summaryItems()).toEqual(['Type: Not a type.'])
+      expect(within(summary()).queryByRole('link')).toBeNull()
+      expect(document.querySelector('[aria-invalid="true"]')).toBeNull()
+    })
+
+    const FOUR = () =>
+      validationProblem(
+        fieldError('name', 'Name problem.'),
+        fieldError('check.host', 'Host problem.'),
+        fieldError('check.port', 'Port problem.'),
+        fieldError('settings.timeout_seconds', 'Timeout problem.', 'out_of_range'),
+      )
+
+    it('editing the host clears only its error', async () => {
+      const { user } = setup()
+      await tcpRefused(user, FOUR())
+      await user.type(hostInput(), 'x')
+      expect(summaryItems()).toEqual(['Name: Name problem.', 'Port: Port problem.', 'Timeout: Timeout problem.'])
+      expect(hostInput()).not.toHaveAttribute('aria-invalid')
+    })
+
+    it('editing the port clears only its error', async () => {
+      const { user } = setup()
+      await tcpRefused(user, FOUR())
+      await user.type(portInput(), '1')
+      expect(summaryItems()).toEqual(['Name: Name problem.', 'Host: Host problem.', 'Timeout: Timeout problem.'])
+      expect(describedBy(portInput())).toBe('1 to 65535')
+    })
+
+    it('changing the type clears every check. entry, keeps the name and timing ones, and removes the summary after the last', async () => {
+      const { user } = setup()
+      vi.mocked(createService).mockRejectedValueOnce(
+        validationProblem(
+          fieldError('check.url', 'URL problem.'),
+          fieldError('check.query_params[0].name', 'Row problem.'),
+          fieldError('check.host', 'Host problem.'),
+          fieldError('name', 'Name problem.'),
+          fieldError('settings.timeout_seconds', 'Timeout problem.', 'out_of_range'),
+        ),
+      )
+      await fill(user)
+      await user.click(screen.getByRole('button', { name: 'Add parameter' }))
+      await user.click(saveButton())
+      await waitFor(() => expect(saveButton()).toBeEnabled())
+      expect(summaryItems()).toHaveLength(5)
+      await chooseType(user, 'TCP port')
+      expect(summaryItems()).toEqual(['Name: Name problem.', 'Timeout: Timeout problem.'])
+      await user.type(nameInput(), 'x')
+      await user.type(screen.getByLabelText('Timeout'), '1')
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+  })
+
+  describe('leaving without saving', () => {
+    it.each([
+      ['choosing TCP port', async (user: User) => chooseType(user, 'TCP port')],
+      [
+        'typing a host',
+        async (user: User) => {
+          await chooseTcp(user)
+          await chooseType(user, 'HTTP(S)')
+          await chooseType(user, 'TCP port')
+          await user.type(hostInput(), 'h')
+          await user.click(screen.getByRole('radio', { name: 'TCP port' }))
+        },
+      ],
+    ])('%s makes the form changed, and putting it back makes it unchanged', async (_label, change) => {
+      const { user } = setup()
+      expect(footerStatus()).toBeEmptyDOMElement()
+      await change(user)
+      expect(footerStatus()).toHaveTextContent('Unsaved changes')
+      expect(unloadPrompts()).toBe(true)
+      await user.click(cancelButton())
+      expect(discardDialog()).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+      if (screen.queryByLabelText('Host')) await user.clear(hostInput())
+      await chooseType(user, 'HTTP(S)')
+      expect(footerStatus()).toBeEmptyDOMElement()
+      expect(unloadPrompts()).toBe(false)
+      await user.click(cancelButton())
+      await marker()
+    })
+
+    it('a typed port counts as changed while HTTP(S) is chosen', async () => {
+      const { user } = setup()
+      await chooseTcp(user)
+      await user.type(portInput(), '1')
+      await chooseType(user, 'HTTP(S)')
+      expect(footerStatus()).toHaveTextContent('Unsaved changes')
+      await chooseType(user, 'TCP port')
+      await user.clear(portInput())
+      await chooseType(user, 'HTTP(S)')
+      expect(footerStatus()).toBeEmptyDOMElement()
+    })
+  })
+
+  describe('Tab order (NFR-4)', () => {
+    it('goes Name, the Type choice as one stop, then Method with HTTP(S)', async () => {
+      const { user } = setup()
+      expect(nameInput()).toHaveFocus()
+      await user.tab()
+      expect(screen.getByRole('radio', { name: 'HTTP(S)' })).toHaveFocus()
+      await user.keyboard('{ArrowRight}')
+      expect(screen.getByRole('radio', { name: 'TCP port' })).toBeChecked()
+      await user.keyboard('{ArrowLeft}')
+      expect(screen.getByRole('radio', { name: 'HTTP(S)' })).toBeChecked()
+      await user.tab()
+      expect(methodTrigger()).toHaveFocus()
+    })
+
+    it('goes Name, Type, Host, Port, Check interval with TCP', async () => {
+      const { user } = setup()
+      await user.tab()
+      await user.keyboard('{ArrowRight}')
+      expect(screen.getByRole('radio', { name: 'TCP port' })).toHaveFocus()
+      await user.tab()
+      expect(hostInput()).toHaveFocus()
+      await user.tab()
+      expect(portInput()).toHaveFocus()
+      await user.tab()
+      expect(screen.getByLabelText('Check interval')).toHaveFocus()
     })
   })
 })
