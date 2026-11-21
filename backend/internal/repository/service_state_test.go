@@ -272,7 +272,7 @@ func TestServiceStateUpdate_ServiceRowGoneButStateRowRemains(t *testing.T) {
 	before := readState(t, db, "s1")
 	called := false
 
-	err := repo.Update(t.Context(), "s1", func(s domain.ServiceState) domain.ServiceState {
+	err := repo.Update(t.Context(), "s1", func(domain.ServiceState) domain.ServiceState {
 		called = true
 		return domain.ServiceState{ServiceID: "s1", Status: domain.StatusHealthy}
 	})
