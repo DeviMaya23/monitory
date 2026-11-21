@@ -2655,6 +2655,58 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
       })
     })
 
+    it.each([
+      ['1', 1],
+      ['65535', 65535],
+      ['65536', 65536],
+      [' 80 ', 80],
+      ['00080', 80],
+    ])('sends port %j as the integer %d, the range being the server’s (FR-74)', async (port, expected) => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await chooseTcp(user)
+      await user.type(hostInput(), 'h')
+      await user.type(portInput(), port)
+      await user.click(saveButton())
+      await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
+      expect(sentInput().check).toStrictEqual({ type: 'tcp', host: 'h', port: expected })
+    })
+
+    it('sends a host with spaces and markup as typed, and shows it back as text (NFR-7)', async () => {
+      vi.mocked(createService).mockRejectedValue(
+        validationProblem(fieldError('check.host', '<b>bad</b> host', 'invalid_value')),
+      )
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await chooseTcp(user)
+      await user.type(hostInput(), '  <img src=x onerror=1> a b  ')
+      await user.type(portInput(), '1')
+      await user.click(saveButton())
+      await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
+      expect(sentInput().check).toStrictEqual({ type: 'tcp', host: '  <img src=x onerror=1> a b  ', port: 1 })
+      expect((await screen.findAllByText('<b>bad</b> host')).length).toBeGreaterThan(0)
+      expect(document.querySelector('b')).toBeNull()
+    })
+
+    it('keeps both sets of values through five type switches and sends the chosen type', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await user.type(nameInput(), 'DB')
+      await user.type(urlInput(), URL_VALUE)
+      await chooseTcp(user)
+      await user.type(hostInput(), 'db.internal')
+      await user.type(portInput(), '5432')
+      for (const next of ['HTTP(S)', 'TCP port', 'HTTP(S)', 'TCP port', 'HTTP(S)'] as const) await chooseType(user, next)
+      expect(urlInput()).toHaveValue(URL_VALUE)
+      await chooseType(user, 'TCP port')
+      expect(hostInput()).toHaveValue('db.internal')
+      expect(portInput()).toHaveValue('5432')
+      await user.click(saveButton())
+      await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
+      expect(sentInput().check).toStrictEqual({ type: 'tcp', host: 'db.internal', port: 5432 })
+    })
+
     it.each(['0', '70000'])('sends port %s and an empty host: the range and the host are the server’s (FR-74)', async (port) => {
       vi.mocked(createService).mockResolvedValue(makeService())
       const { user } = setup()
@@ -2668,7 +2720,7 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
   })
 
   describe('the client check of the port', () => {
-    it.each(['', 'abc', '1.5', '-3'])('refuses %j under Port, focuses it, sends nothing (FR-74)', async (port) => {
+    it.each(['', 'abc', '1.5', '-3', '8o', '9007199254740992', '9999999999999999999999'])('refuses %j under Port, focuses it, sends nothing (FR-74)', async (port) => {
       const { user } = setup()
       await user.type(nameInput(), 'DB')
       await chooseTcp(user)
