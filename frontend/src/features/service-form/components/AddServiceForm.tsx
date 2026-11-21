@@ -9,6 +9,8 @@ import { useCreateService, type ServiceFormValues } from '../hooks/useCreateServ
 import { DEFAULT_METHOD, useLeaveGuard } from '../hooks/useLeaveGuard'
 import { useServerErrors } from '../hooks/useServerErrors'
 import { errorId, FIELD_IDS, focusField } from '../lib/fieldIds'
+import { CERT_DAYS_PATH, DEFAULT_CERT_DAYS, startsWithHttps } from '../lib/certificateOptions'
+import { DEFAULT_RULE_MODE } from '../lib/jsonRules'
 import { DEFAULT_BODY_TYPE } from '../lib/requestRows'
 import { TIMING_DEFAULTS, TIMING_FIELDS, TIMING_NAMES, type TimingName } from '../lib/timingGroup'
 import { AlertsGroup } from './AlertsGroup'
@@ -16,6 +18,8 @@ import { DiscardDialog } from './DiscardDialog'
 import { ErrorSummary } from './ErrorSummary'
 import { FieldErrorText } from './FieldErrorText'
 import { FormBanners } from './FormBanners'
+import { HealthRulesGroup } from './HealthRulesGroup'
+import { HttpsGroup } from './HttpsGroup'
 import { RequestRowsGroup } from './RequestRowsGroup'
 import { TimingGroup } from './TimingGroup'
 import '../service-form.css'
@@ -40,6 +44,7 @@ export function AddServiceForm() {
     control,
     handleSubmit,
     clearErrors,
+    setValue,
     formState: { errors: clientErrors },
   } = useForm<ServiceFormValues>({
     defaultValues: {
@@ -50,6 +55,11 @@ export function AddServiceForm() {
       headers: [],
       body_type: DEFAULT_BODY_TYPE,
       body_content: '',
+      json_rules: [],
+      json_rule_mode: DEFAULT_RULE_MODE,
+      cert_enabled: false,
+      cert_days: DEFAULT_CERT_DAYS,
+      ignore_cert_errors: false,
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
@@ -71,6 +81,11 @@ export function AddServiceForm() {
     headers,
     bodyType,
     bodyContent,
+    rules,
+    ruleMode,
+    certEnabled,
+    certDays,
+    ignoreCertErrors,
     alertsEnabled,
     unhealthyMessage,
     recoveryMessage,
@@ -85,6 +100,11 @@ export function AddServiceForm() {
       'headers',
       'body_type',
       'body_content',
+      'json_rules',
+      'json_rule_mode',
+      'cert_enabled',
+      'cert_days',
+      'ignore_cert_errors',
       'alerts_enabled',
       'unhealthy_message',
       'recovery_message',
@@ -100,6 +120,11 @@ export function AddServiceForm() {
     headerRowCount: headers.length,
     bodyType,
     bodyContent,
+    ruleCount: rules.length,
+    ruleMode,
+    certEnabled,
+    certDays,
+    ignoreCertErrors,
     alertsEnabled,
     unhealthyMessage,
     recoveryMessage,
@@ -142,9 +167,14 @@ export function AddServiceForm() {
   })
   const urlField = register('url', {
     validate: (value) => filled(value) || 'Enter a URL.',
-    onChange: () => {
-      clearErrors('url')
-      serverErrors.clearField('check.url')
+    onChange: (event) => {
+      clearErrors(['url', 'cert_days'])
+      serverErrors.clearUrl()
+      // The HTTPS options belong to an https:// URL: they go off the moment it stops being one.
+      if (!startsWithHttps(event.target.value)) {
+        setValue('cert_enabled', false)
+        setValue('ignore_cert_errors', false)
+      }
     },
   })
 
@@ -155,6 +185,7 @@ export function AddServiceForm() {
   const timingErrors = Object.fromEntries(
     TIMING_NAMES.map((key) => [key, clientErrors[key]?.message ?? serverErrors.errorFor(TIMING_FIELDS[key].path)]),
   ) as Record<TimingName, string | null>
+  const daysError = clientErrors.cert_days?.message ?? serverErrors.errorFor(CERT_DAYS_PATH)
   const status = saving ? SAVING : guard.changed ? 'Unsaved changes' : ''
 
   return (
@@ -252,6 +283,17 @@ export function AddServiceForm() {
                 <RequestRowsGroup control={control} register={register} saving={saving} serverErrors={serverErrors} />
               </div>
             </fieldset>
+
+            <HealthRulesGroup control={control} register={register} saving={saving} serverErrors={serverErrors} />
+
+            <HttpsGroup
+              control={control}
+              register={register}
+              saving={saving}
+              daysError={daysError}
+              clearDaysError={() => clearErrors('cert_days')}
+              serverErrors={serverErrors}
+            />
 
             <TimingGroup
               control={control}

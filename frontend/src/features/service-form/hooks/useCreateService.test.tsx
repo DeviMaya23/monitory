@@ -19,6 +19,11 @@ const VALUES: ServiceFormValues = {
   headers: [],
   body_type: 'none',
   body_content: '',
+  json_rules: [],
+  json_rule_mode: 'any',
+  cert_enabled: false,
+  cert_days: '14',
+  ignore_cert_errors: false,
   alerts_enabled: true,
   unhealthy_message: '',
   recovery_message: '',
@@ -83,6 +88,37 @@ describe('the request rows and body (FR-35, FR-37)', () => {
       ],
       headers: [{ name: 'X-Key', value: 'secret-value' }],
       body: { type: 'json', content: '{"a":1}' },
+      json_rules: [],
+      json_rule_mode: 'any',
+      certificate_check: { enabled: false },
+      ignore_certificate_errors: false,
+    })
+  })
+
+  it('sends the rules, the mode and the certificate options as typed (FR-44, FR-47, FR-34, FR-50, FR-64)', async () => {
+    vi.mocked(createService).mockResolvedValue(makeService())
+    const { result } = setup()
+    await act(() =>
+      result.current.submit({
+        ...VALUES,
+        json_rules: [
+          { field: 'checks.db.status', kind: 'text', text: ' down ' },
+          { field: 'ok', kind: 'false', text: 'kept' },
+        ],
+        json_rule_mode: 'all',
+        cert_enabled: true,
+        cert_days: '45',
+        ignore_cert_errors: true,
+      }),
+    )
+    expect(vi.mocked(createService).mock.calls[0][0].check).toMatchObject({
+      json_rules: [
+        { field: 'checks.db.status', failing_value: ' down ' },
+        { field: 'ok', failing_value: false },
+      ],
+      json_rule_mode: 'all',
+      certificate_check: { enabled: true, min_days_left: 45 },
+      ignore_certificate_errors: true,
     })
   })
 
@@ -123,6 +159,10 @@ describe('a 201', () => {
         url: 'https://search.example.com/health',
         query_params: [],
         headers: [],
+        json_rules: [],
+        json_rule_mode: 'any',
+        certificate_check: { enabled: false },
+        ignore_certificate_errors: false,
       },
       alerts_enabled: true,
       unhealthy_message: '',

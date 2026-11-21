@@ -1,5 +1,7 @@
 import { useEffect, useState, type MouseEvent } from 'react'
 import type { HttpMethod } from '../../../lib/api/services'
+import { DEFAULT_CERT_DAYS } from '../lib/certificateOptions'
+import { DEFAULT_RULE_MODE } from '../lib/jsonRules'
 import { DEFAULT_BODY_TYPE } from '../lib/requestRows'
 import { TIMING_DEFAULTS, TIMING_NAMES, type TimingTexts } from '../lib/timingGroup'
 
@@ -16,6 +18,12 @@ type Options = {
   headerRowCount: number
   bodyType: string
   bodyContent: string
+  /** How many rules there are (an empty one counts), and the mode. */
+  ruleCount: number
+  ruleMode: string
+  certEnabled: boolean
+  certDays: string
+  ignoreCertErrors: boolean
   alertsEnabled: boolean
   unhealthyMessage: string
   recoveryMessage: string
@@ -41,6 +49,11 @@ export function useLeaveGuard({
   headerRowCount,
   bodyType,
   bodyContent,
+  ruleCount,
+  ruleMode,
+  certEnabled,
+  certDays,
+  ignoreCertErrors,
   alertsEnabled,
   unhealthyMessage,
   recoveryMessage,
@@ -58,6 +71,11 @@ export function useLeaveGuard({
     headerRowCount > 0 ||
     bodyType !== DEFAULT_BODY_TYPE ||
     bodyContent !== '' ||
+    ruleCount > 0 ||
+    ruleMode !== DEFAULT_RULE_MODE ||
+    certEnabled ||
+    certDays !== DEFAULT_CERT_DAYS ||
+    ignoreCertErrors ||
     !alertsEnabled ||
     unhealthyMessage !== '' ||
     recoveryMessage !== '' ||

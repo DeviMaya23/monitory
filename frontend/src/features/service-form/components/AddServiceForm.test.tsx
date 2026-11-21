@@ -122,12 +122,14 @@ describe('idle', () => {
   it('has no Type control and no test button', () => {
     setup()
     expect(screen.queryByText('Type')).not.toBeInTheDocument()
-    // The only choice is the body's.
-    expect(screen.getAllByRole('radiogroup')).toHaveLength(1)
+    // The only choices are the body's and the rules' mode.
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(2)
     expect(screen.getByRole('radiogroup', { name: 'Body type' })).toBeInTheDocument()
+    expect(screen.getByRole('radiogroup', { name: 'Mark unhealthy when' })).toBeInTheDocument()
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
       'Add parameter',
       'Add header',
+      'Add rule',
       'Cancel',
       'Save service',
     ])
@@ -144,7 +146,17 @@ describe('saving a valid form (FR-6, FR-12)', () => {
     expect(createService).toHaveBeenCalledTimes(1)
     expect(sentInput()).toStrictEqual({
       name: '  Search API ',
-      check: { type: 'http', method: 'GET', url: URL_VALUE, query_params: [], headers: [] },
+      check: {
+        type: 'http',
+        method: 'GET',
+        url: URL_VALUE,
+        query_params: [],
+        headers: [],
+        json_rules: [],
+        json_rule_mode: 'any',
+        certificate_check: { enabled: false },
+        ignore_certificate_errors: false,
+      },
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
@@ -228,6 +240,10 @@ describe('the method (FR-36)', () => {
       url: URL_VALUE,
       query_params: [],
       headers: [],
+      json_rules: [],
+      json_rule_mode: 'any',
+      certificate_check: { enabled: false },
+      ignore_certificate_errors: false,
     })
   })
 
@@ -243,6 +259,10 @@ describe('the method (FR-36)', () => {
       url: URL_VALUE,
       query_params: [],
       headers: [],
+      json_rules: [],
+      json_rule_mode: 'any',
+      certificate_check: { enabled: false },
+      ignore_certificate_errors: false,
     })
   })
 })
@@ -367,6 +387,10 @@ describe('client checks', () => {
       url: 'ftp://files.example.com',
       query_params: [],
       headers: [],
+      json_rules: [],
+      json_rule_mode: 'any',
+      certificate_check: { enabled: false },
+      ignore_certificate_errors: false,
     })
   })
 })
@@ -560,7 +584,17 @@ describe('the banners', () => {
     expect(sentInput(1)).toStrictEqual(sentInput(0))
     expect(sentInput(1)).toStrictEqual({
       name: 'Search API',
-      check: { type: 'http', method: 'GET', url: URL_VALUE, query_params: [], headers: [] },
+      check: {
+        type: 'http',
+        method: 'GET',
+        url: URL_VALUE,
+        query_params: [],
+        headers: [],
+        json_rules: [],
+        json_rule_mode: 'any',
+        certificate_check: { enabled: false },
+        ignore_certificate_errors: false,
+      },
       alerts_enabled: true,
       unhealthy_message: '',
       recovery_message: '',
@@ -801,7 +835,7 @@ describe('the Alerts group (FR-20, FR-65)', () => {
   it('shows after the Request group: the switch on and described, two text areas with counters at 0/500', () => {
     setup()
     const legends = Array.from(document.querySelectorAll('legend.group__legend')).map((legend) => legend.textContent)
-    expect(legends).toEqual(['Service', 'Request', 'Timing', 'Alerts'])
+    expect(legends).toEqual(['Service', 'Request', 'Health rules (optional)', 'HTTPS', 'Timing', 'Alerts'])
     expect(alertsSwitch()).toHaveAttribute('aria-checked', 'true')
     expect(alertsSwitch()).toHaveAccessibleDescription('To this service’s alert list when it goes down or recovers.')
     expect(screen.getByText('On')).toBeInTheDocument()
@@ -815,6 +849,7 @@ describe('the Alerts group (FR-20, FR-65)', () => {
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
       'Add parameter',
       'Add header',
+      'Add rule',
       'Cancel',
       'Save service',
     ])
@@ -847,14 +882,25 @@ describe('the Alerts group (FR-20, FR-65)', () => {
     await fill(user)
     await user.click(alertsSwitch())
     expect(alertsSwitch()).toHaveAttribute('aria-checked', 'false')
-    expect(screen.getByText('Off')).toBeInTheDocument()
+    // The HTTPS switches also say Off: look at this switch's own row.
+    expect(within(alertsSwitch().closest('label') as HTMLElement).getByText('Off')).toBeInTheDocument()
     await user.type(unhealthyArea(), '  down ')
     await user.type(recoveryArea(), '<b>x</b>')
     await user.click(saveButton())
     await marker()
     expect(sentInput()).toStrictEqual({
       name: 'Search API',
-      check: { type: 'http', method: 'GET', url: URL_VALUE, query_params: [], headers: [] },
+      check: {
+        type: 'http',
+        method: 'GET',
+        url: URL_VALUE,
+        query_params: [],
+        headers: [],
+        json_rules: [],
+        json_rule_mode: 'any',
+        certificate_check: { enabled: false },
+        ignore_certificate_errors: false,
+      },
       alerts_enabled: false,
       unhealthy_message: '  down ',
       recovery_message: '<b>x</b>',
@@ -988,8 +1034,9 @@ describe('the Alerts group: boundaries and keyboard (FR-20, FR-65, NFR-4)', () =
   it('is reached by Tab in the order URL, the rows’ Add buttons, Body type, the four timing inputs, switch, Unhealthy message, Recovery message, Cancel, Save; Space toggles the switch', async () => {
     const { user } = setup()
     await user.click(urlInput())
-    // Add parameter, Add header, the Body type choice, then the four timing inputs.
-    for (let stop = 0; stop < 3 + 4; stop++) await user.tab()
+    // Add parameter, Add header, the Body type choice, Add rule, the mode choice (the HTTPS options are disabled
+    // for an empty URL), then the four timing inputs.
+    for (let stop = 0; stop < 3 + 2 + 4; stop++) await user.tab()
     await user.tab()
     expect(alertsSwitch()).toHaveFocus()
     await user.keyboard(' ')
@@ -1343,7 +1390,7 @@ describe('the Timing group (FR-41, FR-51, FR-53, FR-56, FR-57)', () => {
   it('is reached by Tab from the URL: the four inputs in order, then the alert switch', async () => {
     const { user } = setup()
     await user.click(urlInput())
-    for (let stop = 0; stop < 3; stop++) await user.tab() // Add parameter, Add header, Body type
+    for (let stop = 0; stop < 3 + 2; stop++) await user.tab() // Add parameter, Add header, Body type, Add rule, the mode
     for (const input of inputs()) {
       await user.tab()
       expect(input).toHaveFocus()
@@ -1394,7 +1441,7 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
       expect(screen.getByRole('group', { name: 'Headers' })).toHaveAccessibleDescription('Values are shown in full.')
       expect(screen.getByText('No headers.')).toBeInTheDocument()
       expect(screen.getByRole('radio', { name: 'None' })).toBeChecked()
-      expect(screen.getAllByRole('radio')).toHaveLength(4)
+      expect(screen.getAllByRole('radio')).toHaveLength(6)
       expect(screen.queryByLabelText('Body')).not.toBeInTheDocument()
       const request = screen.getByRole('group', { name: 'Request' })
       expect(request).toContainElement(screen.getByRole('group', { name: 'Headers' }))
@@ -1423,6 +1470,10 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
         ],
         headers: [{ name: 'X-Key', value: 'secret-value' }],
         body: { type: 'json', content: '{"a":1}' },
+        json_rules: [],
+        json_rule_mode: 'any',
+        certificate_check: { enabled: false },
+        ignore_certificate_errors: false,
       })
       expect(screen.queryByDisplayValue('••••')).not.toBeInTheDocument()
     })
@@ -1762,7 +1813,7 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
   })
 
   describe('Tab order (NFR-4)', () => {
-    it('goes from the URL to Add parameter, Add header, one Body type stop, then Check interval, with arrow keys moving the choice', async () => {
+    it('goes from the URL to Add parameter, Add header, one Body type stop, the Body, Add rule, the mode, then Check interval, with arrow keys moving the choice', async () => {
       const { user } = setup()
       await user.click(urlInput())
       await user.tab()
@@ -1777,12 +1828,20 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
       await user.tab()
       expect(bodyText()).toHaveFocus()
       await user.tab()
+      expect(screen.getByRole('button', { name: 'Add rule' })).toHaveFocus()
+      await user.tab()
+      expect(screen.getByRole('radio', { name: 'Any rule matches' })).toHaveFocus()
+      await user.tab()
       expect(screen.getByLabelText('Check interval')).toHaveFocus()
     })
 
-    it('goes to Check interval right after the Body type with the body None', async () => {
+    it('goes to Add rule, the mode and then Check interval right after the Body type with the body None', async () => {
       const { user } = setup()
       await user.click(screen.getByRole('radio', { name: 'None' }))
+      await user.tab()
+      expect(screen.getByRole('button', { name: 'Add rule' })).toHaveFocus()
+      await user.tab()
+      expect(screen.getByRole('radio', { name: 'Any rule matches' })).toHaveFocus()
       await user.tab()
       expect(screen.getByLabelText('Check interval')).toHaveFocus()
     })
@@ -1806,6 +1865,656 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
         await user.tab()
         expect(document.activeElement).toHaveAccessibleName(label)
       }
+    })
+  })
+})
+
+describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, FR-64, FR-74)', () => {
+  type User = ReturnType<typeof userEvent.setup>
+  const addRule = (user: User) => user.click(screen.getByRole('button', { name: 'Add rule' }))
+  const expiry = () => screen.getByRole('switch', { name: 'Check certificate expiry' })
+  const ignore = () => screen.getByRole('switch', { name: 'Ignore certificate errors' })
+  const days = () => screen.getByLabelText('Minimum days left')
+  const kindTrigger = (n: number) => screen.getByRole('combobox', { name: `Rule ${n} failing value type` })
+  const summary = () => screen.getByRole('alert')
+  const summaryItems = () =>
+    within(summary())
+      .getAllByRole('listitem')
+      .map((item) => item.textContent)
+  const isOn = (control: HTMLElement) => control.getAttribute('aria-checked') === 'true'
+  const isDisabled = (control: HTMLElement) => control.getAttribute('aria-disabled') === 'true'
+  const setUrl = (value: string) => fireEvent.change(urlInput(), { target: { value } })
+  const chooseKind = async (user: User, n: number, kind: string) => {
+    await user.click(kindTrigger(n))
+    await user.click(await screen.findByRole('option', { name: kind }))
+  }
+  /** Adds a rule and types its path and, for a Text rule, its text. */
+  async function rule(user: User, n: number, field: string, text?: string) {
+    await addRule(user)
+    fireEvent.change(screen.getByLabelText(`Rule ${n} field path`), { target: { value: field } })
+    if (text !== undefined)
+      fireEvent.change(screen.getByLabelText(`Rule ${n} failing text`), { target: { value: text } })
+  }
+  const GROUPS = ['Service', 'Request', 'Health rules (optional)', 'HTTPS', 'Timing', 'Alerts']
+  /** Saves a filled form that the server refuses with `error`, with the rules added by `prepare`. */
+  async function saveRefused(user: User, error: unknown, prepare: () => Promise<void> = async () => {}) {
+    vi.mocked(createService).mockRejectedValueOnce(error)
+    await fill(user)
+    await prepare()
+    await user.click(saveButton())
+    await waitFor(() => expect(saveButton()).toBeEnabled())
+  }
+
+  describe('idle', () => {
+    it('shows both groups between Request and Timing with their words, the HTTPS note, both switches off and disabled, and an empty footer', () => {
+      setup()
+      const legends = Array.from(document.querySelectorAll('legend.group__legend')).map((legend) => legend.textContent)
+      expect(legends).toEqual(GROUPS)
+      expect(
+        screen.getByText(
+          'The response is parsed as JSON. A rule matches when the value at the field path equals the failing value.',
+        ),
+      ).toBeInTheDocument()
+      expect(screen.getByText('No JSON rules. Any 2xx response counts as healthy.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Add rule' })).toBeInTheDocument()
+      expect(screen.getByText('Path example:', { exact: false })).toHaveTextContent('Path example: checks.db.status')
+      expect(screen.getByRole('radiogroup', { name: 'Mark unhealthy when' })).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'Any rule matches' })).toBeChecked()
+      expect(screen.getByText('Available only when the URL starts with https://.')).toBeInTheDocument()
+      expect(isOn(expiry()) || isOn(ignore())).toBe(false)
+      expect(isDisabled(expiry()) && isDisabled(ignore())).toBe(true)
+      expect(days()).toHaveValue('14')
+      expect(days()).toBeDisabled()
+      expect(footerStatus()).toBeEmptyDOMElement()
+      const request = screen.getByRole('group', { name: 'Request' })
+      const rules = screen.getByRole('group', { name: /Health rules/ })
+      const timing = screen.getByRole('group', { name: 'Timing' })
+      expect(request.compareDocumentPosition(rules)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+      expect(rules.compareDocumentPosition(timing)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    })
+  })
+
+  describe('sending the rules', () => {
+    it('sends Text, false and true rules in order with the mode, and an empty path as it is', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await fill(user)
+      await rule(user, 1, 'checks.db.status', 'down')
+      await rule(user, 2, 'ok')
+      await chooseKind(user, 2, 'false')
+      await rule(user, 3, 'maintenance')
+      await chooseKind(user, 3, 'true')
+      await addRule(user)
+      await user.click(screen.getByRole('radio', { name: 'All rules match' }))
+      await user.click(saveButton())
+      await marker()
+      expect(sentInput().check).toMatchObject({
+        json_rules: [
+          { field: 'checks.db.status', failing_value: 'down' },
+          { field: 'ok', failing_value: false },
+          { field: 'maintenance', failing_value: true },
+          { field: '', failing_value: '' },
+        ],
+        json_rule_mode: 'all',
+      })
+    }, 15_000)
+
+    it('does not send the text typed before the kind became true', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await fill(user)
+      await rule(user, 1, 'a', 'abc')
+      await chooseKind(user, 1, 'true')
+      await user.click(saveButton())
+      await marker()
+      expect(sentInput().check).toMatchObject({ json_rules: [{ field: 'a', failing_value: true }] })
+    }, 15_000)
+  })
+
+  describe('the HTTPS options and the URL', () => {
+    it.each(['https://x.example.com', 'HTTPS://x'])('enables the switches for %s and drops the note', (url) => {
+      setup()
+      setUrl(url)
+      expect(screen.queryByText('Available only when the URL starts with https://.')).not.toBeInTheDocument()
+      expect(isDisabled(expiry())).toBe(false)
+      expect(isDisabled(ignore())).toBe(false)
+    })
+
+    it.each(['http://x.example.com', ''])('keeps the note and the disabled controls for %j', (url) => {
+      setup()
+      setUrl('https://x')
+      setUrl(url)
+      expect(screen.getByText('Available only when the URL starts with https://.')).toBeInTheDocument()
+      expect(isDisabled(expiry()) && isDisabled(ignore())).toBe(true)
+      expect(days()).toBeDisabled()
+    })
+
+    it('turns both switches off when the URL stops being https, and typing https:// again leaves them off (FR-74)', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await fill(user, 'Search API', 'https://x')
+      await user.click(expiry())
+      await user.click(ignore())
+      expect(isOn(expiry()) && isOn(ignore())).toBe(true)
+      setUrl('http://x')
+      expect(isOn(expiry()) || isOn(ignore())).toBe(false)
+      setUrl('https://x')
+      expect(isOn(expiry()) || isOn(ignore())).toBe(false)
+      await user.click(saveButton())
+      await marker()
+      expect(sentInput().check).toMatchObject({
+        certificate_check: { enabled: false },
+        ignore_certificate_errors: false,
+      })
+    })
+
+    it('turns them off for a URL typed through its scheme one character at a time, keeping the days text', async () => {
+      const { user } = setup()
+      await fill(user, 'Search API', 'https://x')
+      await user.click(expiry())
+      await user.clear(days())
+      await user.type(days(), '30')
+      await user.type(urlInput(), '{Backspace}'.repeat('https://x'.length))
+      await user.type(urlInput(), 'https://')
+      expect(isOn(expiry())).toBe(false)
+      expect(days()).toHaveValue('30')
+    })
+
+    it('leaves both switches on when the URL goes from one https URL to another', async () => {
+      const { user } = setup()
+      await fill(user, 'Search API', 'https://a')
+      await user.click(expiry())
+      await user.click(ignore())
+      setUrl('https://b')
+      expect(isOn(expiry()) && isOn(ignore())).toBe(true)
+    })
+
+    it('keeps the days text while the switch is off and sends it when the switch is turned on again', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await fill(user, 'Search API', 'https://x')
+      await user.click(expiry())
+      await user.clear(days())
+      await user.type(days(), '30')
+      await user.click(expiry())
+      expect(days()).toBeDisabled()
+      await user.click(expiry())
+      await user.click(saveButton())
+      await marker()
+      expect(sentInput().check).toMatchObject({ certificate_check: { enabled: true, min_days_left: 30 } })
+    })
+
+    it('sends the days with the switch on, the ignore switch as set, and no days with the switch off even over abc', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await fill(user, 'Search API', 'https://x')
+      await user.click(expiry())
+      await user.clear(days())
+      await user.type(days(), '45')
+      await user.click(ignore())
+      await user.click(saveButton())
+      await marker()
+      expect(sentInput().check).toMatchObject({
+        certificate_check: { enabled: true, min_days_left: 45 },
+        ignore_certificate_errors: true,
+      })
+    })
+
+    it('sends { enabled: false } with abc in the days while the switch is off, with no client error', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await fill(user, 'Search API', 'https://x')
+      await user.click(expiry())
+      await user.clear(days())
+      await user.type(days(), 'abc')
+      await user.click(expiry())
+      await user.click(saveButton())
+      await marker()
+      expect(screen.queryByText('Enter a whole number.')).not.toBeInTheDocument()
+      expect(sentInput().check).toMatchObject({ certificate_check: { enabled: false } })
+      expect(JSON.stringify(sentInput().check)).not.toContain('min_days_left')
+    })
+  })
+
+  describe('the client check of the days', () => {
+    async function withDays(user: User, text: string) {
+      await fill(user, 'Search API', 'https://x')
+      await user.click(expiry())
+      await user.clear(days())
+      if (text !== '') await user.type(days(), text)
+      await user.click(saveButton())
+    }
+
+    it.each(['', 'abc', '1.5', '-3', '9007199254740992', '12345678901234567890', '1e3', '+5'])(
+      'refuses %j with the message under the days, focus on it, and nothing sent',
+      async (text) => {
+        const { user } = setup()
+        await withDays(user, text)
+        expect(createService).not.toHaveBeenCalled()
+        expect(days()).toHaveFocus()
+        expect(days()).toHaveAttribute('aria-invalid', 'true')
+        expect(describedBy(days())).toBe('Enter a whole number.')
+      },
+    )
+
+    it('focuses the first invalid field of the whole form in its order, the days before the timing', async () => {
+      const { user } = setup()
+      await fill(user, 'Search API', 'https://x')
+      await user.click(expiry())
+      await user.clear(days())
+      await user.type(days(), 'abc')
+      await user.clear(screen.getByLabelText('Timeout'))
+      await user.type(screen.getByLabelText('Timeout'), 'x')
+      await user.click(saveButton())
+      expect(days()).toHaveFocus()
+      expect(screen.getByLabelText('Timeout')).toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('drops the message when the days are edited, when the switch is turned off and when the URL is edited', async () => {
+      const { user } = setup()
+      await withDays(user, 'abc')
+      await user.type(days(), '1')
+      expect(screen.queryByText('Enter a whole number.')).not.toBeInTheDocument()
+      await user.click(saveButton())
+      expect(screen.getByText('Enter a whole number.')).toBeInTheDocument()
+      await user.click(expiry())
+      expect(screen.queryByText('Enter a whole number.')).not.toBeInTheDocument()
+      await user.click(expiry())
+      await user.click(saveButton())
+      expect(screen.getByText('Enter a whole number.')).toBeInTheDocument()
+      setUrl('https://y')
+      expect(screen.queryByText('Enter a whole number.')).not.toBeInTheDocument()
+    })
+
+    it.each([
+      ['1', 1],
+      [' 7 ', 7],
+      ['9007199254740991', Number.MAX_SAFE_INTEGER],
+    ])('sends %j as the whole number %d', async (text, sent) => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await withDays(user, text)
+      await marker()
+      expect(sentInput().check).toMatchObject({ certificate_check: { enabled: true, min_days_left: sent } })
+    })
+
+    it('sends 0 (the server refuses it)', async () => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await withDays(user, '0')
+      await marker()
+      expect(sentInput().check).toMatchObject({ certificate_check: { enabled: true, min_days_left: 0 } })
+    })
+  })
+
+  describe('in flight', () => {
+    it('locks the inputs, the select, the switches, the radios and the buttons, and releases them after a failure', async () => {
+      const settle = pending()
+      const { user } = setup()
+      await fill(user, 'Search API', 'https://x')
+      await rule(user, 1, 'a', 'b')
+      await user.click(expiry())
+      await user.click(saveButton())
+      await waitFor(() => expect(saveButton()).toBeDisabled())
+      expect(screen.getByLabelText('Rule 1 field path')).toHaveAttribute('readonly')
+      expect(screen.getByLabelText('Rule 1 failing text')).toHaveAttribute('readonly')
+      expect(days()).toHaveAttribute('readonly')
+      expect(kindTrigger(1)).toBeDisabled()
+      expect(isDisabled(expiry()) && isDisabled(ignore())).toBe(true)
+      expect(screen.getByRole('button', { name: 'Add rule' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Remove rule 1' })).toBeDisabled()
+      for (const radio of screen.getAllByRole('radio')) expect(radio).toHaveAttribute('aria-disabled', 'true')
+      await act(async () => settle.reject(problem(500, 'internal_error')))
+      await waitFor(() => expect(saveButton()).toBeEnabled())
+      expect(screen.getByLabelText('Rule 1 field path')).not.toHaveAttribute('readonly')
+      expect(days()).not.toHaveAttribute('readonly')
+      expect(kindTrigger(1)).toBeEnabled()
+      expect(isDisabled(expiry())).toBe(false)
+      expect(screen.getByRole('button', { name: 'Add rule' })).toBeEnabled()
+      for (const radio of screen.getAllByRole('radio')) expect(radio).not.toHaveAttribute('aria-disabled', 'true')
+    })
+  })
+
+  describe('a 422', () => {
+    it('on two rules lists them in the order sent as links to the path input and the kind trigger, shows each message with its control marked, and the summary has focus (NFR-7)', async () => {
+      const { user } = setup()
+      await saveRefused(
+        user,
+        validationProblem(
+          fieldError('check.json_rules[1].field', 'Rule 2 needs a <b>field</b>.', 'required'),
+          fieldError('check.json_rules[0].failing_value', 'Rule 1 needs a value.', 'required'),
+        ),
+        async () => {
+          await rule(user, 1, 'a')
+          await addRule(user)
+        },
+      )
+      expect(summaryItems()).toEqual([
+        'Rule 2 field path: Rule 2 needs a <b>field</b>.',
+        'Rule 1 failing value: Rule 1 needs a value.',
+      ])
+      expect(summary()).toHaveFocus()
+      const path = screen.getByLabelText('Rule 2 field path')
+      expect(path).toHaveAttribute('aria-invalid', 'true')
+      expect(describedBy(path)).toBe('Rule 2 needs a <b>field</b>.')
+      expect(within(summary()).queryByRole('strong')).toBeNull()
+      expect(kindTrigger(1)).toHaveAttribute('aria-invalid', 'true')
+      expect(describedBy(kindTrigger(1))).toBe('Rule 1 needs a value.')
+      expect(screen.getByLabelText('Rule 1 failing text')).not.toHaveAttribute('aria-invalid')
+      await user.click(within(summary()).getByRole('link', { name: /^Rule 2 field path/ }))
+      expect(path).toHaveFocus()
+      await user.click(within(summary()).getByRole('link', { name: /^Rule 1 failing value/ }))
+      expect(kindTrigger(1)).toHaveFocus()
+    })
+
+    it('on the list shows the message under the rows, plain text in the summary, and no input invalid', async () => {
+      const { user } = setup()
+      await saveRefused(
+        user,
+        validationProblem(fieldError('check.json_rules', 'Too many rules (10).', 'too_many')),
+        () => rule(user, 1, 'a'),
+      )
+      expect(summaryItems()).toEqual(['Health rules: Too many rules (10).'])
+      expect(within(summary()).queryByRole('link')).toBeNull()
+      // The message under the rows; the summary line carries its label as well.
+      expect(screen.getByText('Too many rules (10).').closest('.rows')).not.toBeNull()
+      expect(document.querySelector('[aria-invalid="true"]')).toBeNull()
+    })
+
+    it('on the days shows the message under the days and links the summary entry to the input', async () => {
+      const { user } = setup()
+      await saveRefused(
+        user,
+        validationProblem(fieldError('check.certificate_check.min_days_left', 'Must be 1 or more.', 'out_of_range')),
+        async () => {
+          setUrl('https://x')
+          await user.click(expiry())
+        },
+      )
+      expect(days()).toHaveAttribute('aria-invalid', 'true')
+      expect(describedBy(days())).toBe('Must be 1 or more.')
+      expect(summaryItems()).toEqual(['Minimum days left: Must be 1 or more.'])
+      await user.click(within(summary()).getByRole('link', { name: /Minimum days left/ }))
+      expect(days()).toHaveFocus()
+    })
+
+    it('on the two switches shows each message under its switch and lists them as plain text', async () => {
+      const { user } = setup()
+      await saveRefused(
+        user,
+        validationProblem(
+          fieldError('check.certificate_check.enabled', 'Needs an https:// URL.', 'requires_https_url'),
+          fieldError('check.ignore_certificate_errors', 'Needs an https:// URL, too.', 'requires_https_url'),
+        ),
+      )
+      expect(summaryItems()).toEqual([
+        'Check certificate expiry: Needs an https:// URL.',
+        'Ignore certificate errors: Needs an https:// URL, too.',
+      ])
+      expect(within(summary()).queryByRole('link')).toBeNull()
+      expect(expiry().closest('div')).toContainElement(screen.getByText('Needs an https:// URL.'))
+      expect(ignore().closest('div')).toContainElement(screen.getByText('Needs an https:// URL, too.'))
+      expect(document.querySelector('[aria-invalid="true"]')).toBeNull()
+    })
+
+    it('on the mode lists it as plain text with no link and no input invalid', async () => {
+      const { user } = setup()
+      await saveRefused(user, validationProblem(fieldError('check.json_rule_mode', 'Bad mode.')))
+      expect(summaryItems()).toEqual(['Mark unhealthy when: Bad mode.'])
+      expect(within(summary()).queryByRole('link')).toBeNull()
+      expect(document.querySelector('[aria-invalid="true"]')).toBeNull()
+    })
+
+    it('shows a check.url error and a rule error together and clears them independently', async () => {
+      const { user } = setup()
+      await saveRefused(
+        user,
+        validationProblem(
+          fieldError('check.url', 'Not a good URL.'),
+          fieldError('check.json_rules[0].field', 'Needs a field.', 'required'),
+        ),
+        () => addRule(user),
+      )
+      expect(summaryItems()).toEqual(['URL: Not a good URL.', 'Rule 1 field path: Needs a field.'])
+      await user.type(screen.getByLabelText('Rule 1 field path'), 'a')
+      expect(summaryItems()).toEqual(['URL: Not a good URL.'])
+      expect(describedBy(urlInput())).toBe('Not a good URL.')
+    })
+  })
+
+  describe('clearing the errors', () => {
+    const MANY = [
+      fieldError('check.json_rules', 'List.', 'too_many'),
+      fieldError('check.json_rules[0].field', 'Path 1.', 'required'),
+      fieldError('check.json_rules[1].failing_value', 'Value 2.', 'required'),
+      fieldError('check.headers[0].name', 'Header 1.'),
+      fieldError('check.json_rule_mode', 'Mode.'),
+      fieldError('check.certificate_check.enabled', 'Expiry.', 'requires_https_url'),
+      fieldError('check.certificate_check.min_days_left', 'Days.', 'out_of_range'),
+      fieldError('check.ignore_certificate_errors', 'Ignore.', 'requires_https_url'),
+    ]
+    async function refused(user: User) {
+      await saveRefused(user, validationProblem(...MANY), async () => {
+        await user.click(screen.getByRole('button', { name: 'Add header' }))
+        await rule(user, 1, 'a')
+        await addRule(user)
+        setUrl('https://x')
+      })
+    }
+    const labels = () => summaryItems().map((item) => (item ?? '').split(':')[0])
+
+    it('editing a rule’s path clears only its error', async () => {
+      const { user } = setup()
+      await refused(user)
+      await user.type(screen.getByLabelText('Rule 1 field path'), 'b')
+      expect(labels()).not.toContain('Rule 1 field path')
+      expect(labels()).toContain('Rule 2 failing value')
+      expect(labels()).toHaveLength(7)
+    })
+
+    it('changing a rule’s kind clears its failing value error; typing its text does too', async () => {
+      const { user } = setup()
+      await refused(user)
+      await chooseKind(user, 2, 'true')
+      expect(labels()).not.toContain('Rule 2 failing value')
+      expect(labels()).toContain('Rule 1 field path')
+    })
+
+    it('typing a rule’s text clears its failing value error', async () => {
+      const { user } = setup()
+      await refused(user)
+      await user.type(screen.getByLabelText('Rule 2 failing text'), 'x')
+      expect(labels()).not.toContain('Rule 2 failing value')
+    })
+
+    it('Add rule clears the list’s error only', async () => {
+      const { user } = setup()
+      await refused(user)
+      await addRule(user)
+      expect(labels()).not.toContain('Health rules')
+      expect(labels()).toContain('Rule 1 field path')
+      expect(labels()).toHaveLength(7)
+    })
+
+    it('Remove clears the list’s error and every rule row error, and leaves the request rows’ error', async () => {
+      const { user } = setup()
+      await refused(user)
+      await user.click(screen.getByRole('button', { name: 'Remove rule 1' }))
+      expect(labels()).toEqual([
+        'Header 1 name',
+        'Mark unhealthy when',
+        'Check certificate expiry',
+        'Minimum days left',
+        'Ignore certificate errors',
+      ])
+    })
+
+    it('changing the mode clears the mode error', async () => {
+      const { user } = setup()
+      await refused(user)
+      await user.click(screen.getByRole('radio', { name: 'All rules match' }))
+      expect(labels()).not.toContain('Mark unhealthy when')
+      expect(labels()).toHaveLength(7)
+    })
+
+    it('turning a switch clears its own error; turning the expiry switch off also clears the days error', async () => {
+      const { user } = setup()
+      await refused(user)
+      await user.click(ignore())
+      expect(labels()).not.toContain('Ignore certificate errors')
+      expect(labels()).toContain('Check certificate expiry')
+      await user.click(expiry())
+      expect(labels()).not.toContain('Check certificate expiry')
+      expect(labels()).toContain('Minimum days left')
+      await user.click(expiry())
+      expect(labels()).not.toContain('Minimum days left')
+    })
+
+    it('editing the days clears only the days error', async () => {
+      const { user } = setup()
+      await refused(user)
+      await user.click(expiry())
+      await user.type(days(), '1')
+      expect(labels()).not.toContain('Minimum days left')
+      expect(labels()).toContain('Ignore certificate errors')
+    })
+
+    it('editing the URL clears the two requires_https_url errors and the days error', async () => {
+      const { user } = setup()
+      await refused(user)
+      setUrl('https://other')
+      expect(labels()).toEqual([
+        'Health rules',
+        'Rule 1 field path',
+        'Rule 2 failing value',
+        'Header 1 name',
+        'Mark unhealthy when',
+      ])
+    })
+
+    it('removes the summary with the last clearing', async () => {
+      const { user } = setup()
+      await saveRefused(
+        user,
+        validationProblem(fieldError('check.json_rules[0].field', 'Needs a field.', 'required')),
+        () => addRule(user),
+      )
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+      await user.type(screen.getByLabelText('Rule 1 field path'), 'a')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('leaving without saving', () => {
+    it.each([
+      [
+        'adding a rule',
+        (user: User) => addRule(user),
+        (user: User) => user.click(screen.getByRole('button', { name: 'Remove rule 1' })),
+      ],
+      [
+        'choosing All rules match',
+        (user: User) => user.click(screen.getByRole('radio', { name: 'All rules match' })),
+        (user: User) => user.click(screen.getByRole('radio', { name: 'Any rule matches' })),
+      ],
+    ])(
+      '%s makes the footer say Unsaved changes, arms the prompt and asks on Cancel; putting it back leaves at once',
+      async (_label, change, undo) => {
+        const { user } = setup()
+        await change(user)
+        expect(footerStatus()).toHaveTextContent('Unsaved changes')
+        expect(unloadPrompts()).toBe(true)
+        await user.click(cancelButton())
+        expect(discardDialog()).toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+        await undo(user)
+        expect(footerStatus()).toBeEmptyDOMElement()
+        expect(unloadPrompts()).toBe(false)
+        await user.click(cancelButton())
+        expect(await marker()).toBeInTheDocument()
+      },
+    )
+
+    it.each([
+      ['the expiry switch on', () => expiry()],
+      ['the ignore switch on', () => ignore()],
+    ])(
+      '%s makes the footer say Unsaved changes and arms the prompt; turning it off again clears both',
+      async (_label, control) => {
+        const { user } = setup()
+        setUrl('https://x')
+        setUrl('')
+        expect(footerStatus()).toBeEmptyDOMElement()
+        setUrl('https://x')
+        await user.click(control())
+        expect(footerStatus()).toHaveTextContent('Unsaved changes')
+        expect(unloadPrompts()).toBe(true)
+        await user.click(control())
+        setUrl('')
+        expect(footerStatus()).toBeEmptyDOMElement()
+        expect(unloadPrompts()).toBe(false)
+      },
+    )
+
+    it('changing the days counts as a change, a trailing space too, and putting 14 back does not', async () => {
+      const { user } = setup()
+      setUrl('https://x')
+      await user.click(expiry())
+      await user.click(expiry())
+      setUrl('')
+      expect(footerStatus()).toBeEmptyDOMElement()
+      for (const [text, changed] of [
+        ['14 ', true],
+        ['7', true],
+        ['14', false],
+      ] as const) {
+        fireEvent.change(days(), { target: { value: text } })
+        if (changed) expect(footerStatus()).toHaveTextContent('Unsaved changes')
+        else expect(footerStatus()).toBeEmptyDOMElement()
+      }
+    })
+  })
+
+  describe('Tab order (NFR-4)', () => {
+    it('goes from the Body type to Add rule, the mode (one stop), the expiry switch, the ignore switch, then Check interval', async () => {
+      const { user } = setup()
+      await fill(user, 'Search API', 'https://x')
+      await user.click(screen.getByRole('radio', { name: 'None' }))
+      await user.tab()
+      expect(screen.getByRole('button', { name: 'Add rule' })).toHaveFocus()
+      await user.tab()
+      expect(screen.getByRole('radio', { name: 'Any rule matches' })).toHaveFocus()
+      await user.tab()
+      expect(expiry()).toHaveFocus()
+      await user.tab()
+      expect(ignore()).toHaveFocus()
+      await user.tab()
+      expect(screen.getByLabelText('Check interval')).toHaveFocus()
+    })
+
+    it('puts the days between the two switches while it is enabled', async () => {
+      const { user } = setup()
+      await fill(user, 'Search API', 'https://x')
+      await user.click(expiry())
+      expect(expiry()).toHaveFocus()
+      await user.tab()
+      expect(days()).toHaveFocus()
+      await user.tab()
+      expect(ignore()).toHaveFocus()
+    })
+
+    it('goes path, kind, text, Remove, Add rule with one rule', async () => {
+      const { user } = setup()
+      await addRule(user)
+      expect(screen.getByLabelText('Rule 1 field path')).toHaveFocus()
+      await user.tab()
+      expect(kindTrigger(1)).toHaveFocus()
+      await user.tab()
+      expect(screen.getByLabelText('Rule 1 failing text')).toHaveFocus()
+      await user.tab()
+      expect(screen.getByRole('button', { name: 'Remove rule 1' })).toHaveFocus()
+      await user.tab()
+      expect(screen.getByRole('button', { name: 'Add rule' })).toHaveFocus()
     })
   })
 })

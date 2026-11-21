@@ -8,6 +8,8 @@ import {
   type HttpMethod,
   type Service,
 } from '../../../lib/api/services'
+import { certificateParts } from '../lib/certificateOptions'
+import { ruleParts, type RuleMode, type RuleValue } from '../lib/jsonRules'
 import { requestParts, type BodyType } from '../lib/requestRows'
 
 /** What the form sends: the values on this screen. The two messages are sent as typed. */
@@ -21,6 +23,13 @@ export type ServiceFormValues = {
   /** The body's type and text; the text is kept while the type is `none`, and not sent. */
   body_type: BodyType
   body_content: string
+  /** The JSON rules as typed; the text is kept while the kind is `true` or `false`, and not sent. */
+  json_rules: RuleValue[]
+  json_rule_mode: RuleMode
+  /** The certificate-expiry switch, its days as typed, and the ignore-errors switch. */
+  cert_enabled: boolean
+  cert_days: string
+  ignore_cert_errors: boolean
   alerts_enabled: boolean
   unhealthy_message: string
   recovery_message: string
@@ -84,6 +93,11 @@ export function useCreateService(onCreated: (service: Service) => void) {
     headers,
     body_type,
     body_content,
+    json_rules,
+    json_rule_mode,
+    cert_enabled,
+    cert_days,
+    ignore_cert_errors,
     alerts_enabled,
     unhealthy_message,
     recovery_message,
@@ -104,6 +118,8 @@ export function useCreateService(onCreated: (service: Service) => void) {
           method,
           url,
           ...requestParts({ query_params, headers, body_type, body_content }),
+          ...ruleParts({ json_rules, json_rule_mode }),
+          ...certificateParts({ cert_enabled, cert_days, ignore_cert_errors }),
         },
         alerts_enabled,
         unhealthy_message,

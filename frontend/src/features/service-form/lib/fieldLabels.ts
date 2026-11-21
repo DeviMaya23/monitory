@@ -1,3 +1,5 @@
+import { CERT_DAYS_PATH, CERT_ENABLED_PATH, HTTPS_TEXT, IGNORE_CERT_PATH } from './certificateOptions'
+import { parseRulePath, ruleLabel, RULE_MODE_PATH, RULES_PATH, RULES_TEXT, type RulePart } from './jsonRules'
 import {
   BODY_CONTENT_PATH,
   BODY_TEXT,
@@ -11,16 +13,27 @@ import {
 /** The paths of a row's input: the index is part of the path. */
 export type RowTarget = `check.query_params[${number}].${RowPart}` | `check.headers[${number}].${RowPart}`
 
-/** The paths of the Request group that name a list or the body type as a whole: no input of their own. */
-export type BarePath = 'check.query_params' | 'check.headers' | typeof BODY_TYPE_PATH
+/** The paths of a rule's two parts: the path input and the failing value's kind trigger. */
+export type RuleTarget = `check.json_rules[${number}].${RulePart}`
+
+/** The paths that name a list, the body type, the mode or a switch as a whole: no input of their own. */
+export type BarePath =
+  | 'check.query_params'
+  | 'check.headers'
+  | typeof BODY_TYPE_PATH
+  | typeof RULES_PATH
+  | typeof RULE_MODE_PATH
+  | typeof CERT_ENABLED_PATH
+  | typeof IGNORE_CERT_PATH
 
 /** The server `field` paths that have an input on this screen. */
-export type FieldTarget = StaticTarget | RowTarget | typeof BODY_CONTENT_PATH
+export type FieldTarget = StaticTarget | RowTarget | RuleTarget | typeof BODY_CONTENT_PATH
 
 export type StaticTarget =
   | 'name'
   | 'check.method'
   | 'check.url'
+  | typeof CERT_DAYS_PATH
   | 'settings.check_interval_seconds'
   | 'settings.timeout_seconds'
   | 'settings.retry_count'
@@ -36,6 +49,7 @@ const LABELS: Record<StaticTarget, string> = {
   name: 'Name',
   'check.method': 'Method',
   'check.url': 'URL',
+  [CERT_DAYS_PATH]: HTTPS_TEXT.daysLabel,
   'settings.check_interval_seconds': 'Check interval',
   'settings.timeout_seconds': 'Timeout',
   'settings.retry_count': 'Retries',
@@ -49,6 +63,10 @@ const BARE_LABELS: Record<BarePath, string> = {
   'check.query_params': ROW_LISTS.query_params.legend,
   'check.headers': ROW_LISTS.headers.legend,
   [BODY_TYPE_PATH]: BODY_TEXT.typeLabel,
+  [RULES_PATH]: RULES_TEXT.legend,
+  [RULE_MODE_PATH]: RULES_TEXT.modeLabel,
+  [CERT_ENABLED_PATH]: HTTPS_TEXT.expiryLabel,
+  [IGNORE_CERT_PATH]: HTTPS_TEXT.ignoreLabel,
 }
 
 function isStatic(path: string): path is StaticTarget {
@@ -73,6 +91,12 @@ export function fieldLabel(path: string): {
     return {
       label: rowLabel(row.list, row.index, row.part),
       target: path as RowTarget,
+    }
+  const rule = parseRulePath(path)
+  if (rule !== null)
+    return {
+      label: ruleLabel(rule.index, rule.part),
+      target: path as RuleTarget,
     }
   if (isBarePath(path)) return { label: BARE_LABELS[path], target: null }
   return { label: path, target: null }

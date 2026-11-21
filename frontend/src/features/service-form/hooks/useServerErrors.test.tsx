@@ -219,3 +219,121 @@ describe('useServerErrors', () => {
     })
   })
 })
+
+describe('the rules and the certificate options', () => {
+  const ALL = [
+    fieldError('check.json_rules', 'Too many rules.', 'too_many'),
+    fieldError('check.json_rules[0].field', 'Rule 0 needs a field.', 'required'),
+    fieldError('check.json_rules[1].failing_value', 'Rule 1 needs a value.', 'required'),
+    fieldError('check.headers[0].name', 'Header 0 is bad.'),
+    fieldError('check.certificate_check.enabled', 'Needs https.', 'requires_https_url'),
+    fieldError('check.certificate_check.min_days_left', 'Must be 1 or more.', 'out_of_range'),
+    fieldError('check.ignore_certificate_errors', 'Needs https.', 'requires_https_url'),
+    fieldError('check.json_rule_mode', 'Bad mode.', 'invalid_value'),
+  ]
+  const labels = (result: { current: ReturnType<typeof useServerErrors> }) =>
+    result.current.entries.map((entry) => entry.label)
+
+  it('maps the paths to labels and inputs, and shows the paths with no input as bare messages', () => {
+    const { result } = setup(ALL)
+    expect(result.current.entries.map(({ label, target }) => ({ label, target }))).toEqual([
+      { label: 'Health rules', target: null },
+      { label: 'Rule 1 field path', target: 'check.json_rules[0].field' },
+      {
+        label: 'Rule 2 failing value',
+        target: 'check.json_rules[1].failing_value',
+      },
+      { label: 'Header 1 name', target: 'check.headers[0].name' },
+      { label: 'Check certificate expiry', target: null },
+      {
+        label: 'Minimum days left',
+        target: 'check.certificate_check.min_days_left',
+      },
+      { label: 'Ignore certificate errors', target: null },
+      { label: 'Mark unhealthy when', target: null },
+    ])
+    expect(result.current.bareError('check.json_rules')).toBe('Too many rules.')
+    expect(result.current.bareError('check.json_rule_mode')).toBe('Bad mode.')
+  })
+
+  it('clearing a rule’s field path removes only that entry', () => {
+    const { result } = setup(ALL)
+    act(() => result.current.clearField('check.json_rules[0].field'))
+    expect(labels(result)).not.toContain('Rule 1 field path')
+    expect(labels(result)).toContain('Rule 2 failing value')
+    expect(result.current.count).toBe(7)
+  })
+
+  it('clearing a rule’s failing value removes only that entry', () => {
+    const { result } = setup(ALL)
+    act(() => result.current.clearField('check.json_rules[1].failing_value'))
+    expect(labels(result)).not.toContain('Rule 2 failing value')
+    expect(labels(result)).toContain('Rule 1 field path')
+    expect(result.current.count).toBe(7)
+  })
+
+  it('clearing all rules removes the list’s entry and every rule row, and leaves the request rows and the certificate entries', () => {
+    const { result } = setup(ALL)
+    act(() => result.current.clearRuleRows())
+    expect(labels(result)).toEqual([
+      'Header 1 name',
+      'Check certificate expiry',
+      'Minimum days left',
+      'Ignore certificate errors',
+      'Mark unhealthy when',
+    ])
+  })
+
+  it('adding a rule removes only the list’s own entry', () => {
+    const { result } = setup(ALL)
+    act(() => result.current.clearRulesList())
+    expect(result.current.bareError('check.json_rules')).toBeNull()
+    expect(result.current.count).toBe(7)
+    expect(labels(result)).toContain('Rule 1 field path')
+  })
+
+  it('clearing the days leaves the switch entries', () => {
+    const { result } = setup(ALL)
+    act(() => result.current.clearField('check.certificate_check.min_days_left'))
+    expect(labels(result)).not.toContain('Minimum days left')
+    expect(labels(result)).toContain('Check certificate expiry')
+    expect(labels(result)).toContain('Ignore certificate errors')
+  })
+
+  it('turning the expiry switch off removes its entry and the days’; the ignore entry stays', () => {
+    const { result } = setup(ALL)
+    act(() => result.current.clearExpiryOff())
+    expect(labels(result)).not.toContain('Check certificate expiry')
+    expect(labels(result)).not.toContain('Minimum days left')
+    expect(labels(result)).toContain('Ignore certificate errors')
+  })
+
+  it('clearing the mode or one switch removes only its own entry', () => {
+    const { result } = setup(ALL)
+    act(() => result.current.clearBare('check.json_rule_mode'))
+    act(() => result.current.clearBare('check.ignore_certificate_errors'))
+    expect(labels(result)).not.toContain('Mark unhealthy when')
+    expect(labels(result)).not.toContain('Ignore certificate errors')
+    expect(labels(result)).toContain('Check certificate expiry')
+  })
+
+  it('editing the URL removes the two requires_https_url entries, the days entry and the URL’s own', () => {
+    const { result } = setup([fieldError('check.url', 'Bad URL.'), ...ALL])
+    act(() => result.current.clearUrl())
+    expect(labels(result)).toEqual([
+      'Health rules',
+      'Rule 1 field path',
+      'Rule 2 failing value',
+      'Header 1 name',
+      'Mark unhealthy when',
+    ])
+  })
+
+  it('a new response starts with nothing cleared', () => {
+    const { result, rerender } = setup(ALL)
+    act(() => result.current.clearRuleRows())
+    act(() => result.current.clearUrl())
+    rerender({ errors: [...ALL] })
+    expect(result.current.count).toBe(8)
+  })
+})

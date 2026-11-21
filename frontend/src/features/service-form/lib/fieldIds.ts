@@ -1,4 +1,6 @@
+import { CERT_DAYS_ID, CERT_DAYS_PATH } from './certificateOptions'
 import type { FieldTarget, StaticTarget } from './fieldLabels'
+import { parseRulePath, ruleInputId } from './jsonRules'
 import { BODY_CONTENT_ID, BODY_CONTENT_PATH, parseRowPath, rowInputId } from './requestRows'
 
 /** The element id of each field's control: the inputs, the text areas and the method select's trigger. */
@@ -6,6 +8,7 @@ export const FIELD_IDS: Record<StaticTarget, string> = {
   name: 'service-name',
   'check.method': 'service-method',
   'check.url': 'service-url',
+  [CERT_DAYS_PATH]: CERT_DAYS_ID,
   'settings.check_interval_seconds': 'service-check-interval',
   'settings.timeout_seconds': 'service-timeout',
   'settings.retry_count': 'service-retries',
@@ -19,6 +22,8 @@ export function fieldId(target: FieldTarget): string {
   if (target === BODY_CONTENT_PATH) return BODY_CONTENT_ID
   const row = parseRowPath(target)
   if (row !== null) return rowInputId(row.list, row.index, row.part)
+  const rule = parseRulePath(target)
+  if (rule !== null) return ruleInputId(rule.index, rule.part === 'field' ? 'field' : 'kind')
   return FIELD_IDS[target as StaticTarget]
 }
 
