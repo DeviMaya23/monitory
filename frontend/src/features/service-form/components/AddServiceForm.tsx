@@ -89,7 +89,11 @@ export function AddServiceForm() {
     // Groups that mount later register later: focus goes by the order of the page instead (see invalidInputs).
     shouldFocusError: false,
   })
-  const { saving, saved, failure, submit, clearFailure } = useCreateService((service) => {
+  // The guard is built after this callback; the ref hands it the guard's `markSaved`.
+  const markSavedRef = useRef<() => void>(() => {})
+  const { saving, failure, submit, clearFailure } = useCreateService((service) => {
+    // First, in the same tick: the navigation below must not be asked about.
+    markSavedRef.current()
     toast.show({ kind: 'success', message: `Service “${service.name}” added.` })
     void navigate('/')
   })
@@ -160,8 +164,9 @@ export function AddServiceForm() {
     recoveryMessage,
     timing,
     saving,
-    saved,
-    onLeave: () => void navigate('/'),
+  })
+  useEffect(() => {
+    markSavedRef.current = guard.markSaved
   })
   const summaryRef = useRef<HTMLDivElement>(null)
   const saveRef = useRef<HTMLButtonElement>(null)
@@ -228,7 +233,7 @@ export function AddServiceForm() {
 
   return (
     <main className="page">
-      <Link className="back-link" to="/" {...guard.backLinkProps}>
+      <Link className="back-link" to="/">
         <ArrowLeft className="icon icon--sm" aria-hidden="true" />
         Services
       </Link>
@@ -384,7 +389,7 @@ export function AddServiceForm() {
           <span className="form-foot__status" aria-live="polite">
             {status}
           </span>
-          <button type="button" className="btn" disabled={saving} onClick={guard.cancel}>
+          <button type="button" className="btn" disabled={saving} onClick={() => void navigate('/')}>
             <span>Cancel</span>
           </button>
           <button

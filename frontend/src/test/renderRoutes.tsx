@@ -2,9 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider, type RouteObject } from 'react-router'
 
-type Options = {
-  initialEntries?: string[]
-  initialIndex?: number
+type Options = Pick<NonNullable<Parameters<typeof createMemoryRouter>[1]>, 'initialEntries' | 'initialIndex'> & {
   /** The query client to use; a new one when left out. */
   client?: QueryClient
 }

@@ -51,13 +51,14 @@ describe('confirmLeave', () => {
 
   it('leaves proceed to the registered side when the ask takes over', async () => {
     const proceed = vi.fn()
-    const ask = vi.fn(() => true)
+    const ask = vi.fn<LeaveAsk>(() => true)
     render(<Page ask={ask} proceed={proceed} />)
     await userEvent.click(screen.getByRole('button', { name: 'leave' }))
     expect(ask).toHaveBeenCalledWith(proceed)
     expect(proceed).not.toHaveBeenCalled()
     // The registered side answers by calling it.
-    ask.mock.calls[0][0]()
+    const [kept] = ask.mock.calls[0] as unknown as [() => void]
+    kept()
     expect(proceed).toHaveBeenCalledTimes(1)
   })
 

@@ -8,7 +8,7 @@ type Props = {
   onDiscard: () => void
 }
 
-/** Asks before a changed form is left by Cancel or the back link. */
+/** Asks before a changed form is left by any exit: a navigation (Cancel, the links, Back and Forward) or Sign out. */
 export function DiscardDialog({ open, onKeep, onDiscard }: Props) {
   const keepRef = useRef<HTMLButtonElement>(null)
   return (
