@@ -2071,7 +2071,8 @@ describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, 
       await user.click(saveButton())
       await marker()
       expect(screen.queryByText('Enter a whole number.')).not.toBeInTheDocument()
-      expect(sentInput().check.certificate_check).toStrictEqual({ enabled: false })
+      expect(sentInput().check).toMatchObject({ certificate_check: { enabled: false } })
+      expect(JSON.stringify(sentInput().check)).not.toContain('min_days_left')
     })
   })
 
