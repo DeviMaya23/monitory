@@ -40,11 +40,14 @@
 .svc__title { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .svc__name {
   min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: var(--weight-semibold);
-  color: var(--color-text);
+  color: var(--color-text) !important;
+  text-decoration: none;
 }
+.svc__name:hover { text-decoration: underline; }
 .svc__reason { display: flex; align-items: flex-start; gap: var(--space-1); font-size: var(--text-sm); color: var(--color-bad); }
 .svc__reason .icon { margin-top: 1px; }
 .svc__delivery { font-size: var(--text-sm); color: var(--color-warn) !important; font-weight: var(--weight-medium); text-decoration: none; display: inline-flex; align-items: flex-start; gap: var(--space-1); align-self: flex-start; }
@@ -98,5 +101,6 @@
   .svc__actions .btn { flex: 1 1 0; width: auto; padding: 0 var(--space-1); gap: 6px; }
   .svc__actions .btn__label { position: static; width: auto; height: auto; clip-path: none; overflow: visible; }
   .loading-row .skeleton--flags { grid-area: flags; justify-self: end; }
+  .svc__name { white-space: normal; overflow-wrap: anywhere; }
   .svc__label { display: block; }
 }

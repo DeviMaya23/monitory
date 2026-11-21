@@ -1,6 +1,7 @@
 import { Link } from 'react-router'
-import { Bell, BellOff, CircleAlert, Eye, EyeOff, Pause, Play, Trash2, TriangleAlert } from 'lucide-react'
+import { Bell, BellOff, CircleAlert, Eye, EyeOff, Pause, Pencil, Play, Trash2, TriangleAlert } from 'lucide-react'
 import type { Service } from '../../../lib/api/services'
+import { Tooltip } from '../../../components/ui/Tooltip'
 import { failureReasonText } from '../lib/failureReason'
 import { formatTime } from '../../../lib/formatTime'
 import { StatusBadge } from './StatusBadge'
@@ -31,7 +32,8 @@ export function ServiceRow({
   const { state } = service
   const reason = !service.paused && state.status === 'unhealthy' ? state.last_failure_reason : null
   const alertsOn = service.alerts_enabled ?? true
-  const alertsPath = `/services/${encodeURIComponent(service.id)}/alerts`
+  const servicePath = `/services/${encodeURIComponent(service.id)}`
+  const alertsPath = `${servicePath}/alerts`
   const shown = service.shown_on_public_view ?? false
 
   return (
@@ -41,7 +43,11 @@ export function ServiceRow({
       </div>
       <div className="svc__main">
         <div className="svc__title">
-          <span className="svc__name">{service.name}</span>
+          <Tooltip content={service.name}>
+            <Link className="svc__name" to={servicePath}>
+              {service.name}
+            </Link>
+          </Tooltip>
           <span className="chip">{service.check.type === 'tcp' ? 'TCP' : 'HTTP'}</span>
         </div>
         {reason && (
@@ -131,6 +137,12 @@ export function ServiceRow({
           <Bell className="icon icon--sm" aria-hidden="true" />
           <span className="btn__label" aria-hidden="true">
             Alerts
+          </span>
+        </Link>
+        <Link className="btn btn--ghost btn--icon" to={servicePath} aria-label={`Edit ${service.name}`}>
+          <Pencil className="icon icon--sm" aria-hidden="true" />
+          <span className="btn__label" aria-hidden="true">
+            Edit
           </span>
         </Link>
         <button
