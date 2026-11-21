@@ -69,6 +69,6 @@ func (s *TargetTestService) TestTarget(ctx context.Context, serviceID string, in
 	case ctx.Err() != nil:
 		return domain.TargetTestResult{}, ctx.Err()
 	default:
-		return domain.TargetTestResult{FailureReason: err.Error()}, nil
+		return domain.TargetTestResult{FailureReason: err.Error(), FailureCause: domain.FailureCause(err)}, nil
 	}
 }

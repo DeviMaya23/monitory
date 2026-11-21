@@ -109,6 +109,16 @@ func (d *AlertDispatcher) Dispatch(alert domain.Alert, targets []domain.Target) 
 	}
 }
 
+// failureAttrs are the log attributes of a failed attempt: the reason, and the cause
+// when the error carries one. The cause is a fixed word, never the text of an error.
+func failureAttrs(err error) []any {
+	attrs := []any{"reason", err.Error()}
+	if cause := domain.FailureCause(err); cause != "" {
+		attrs = append(attrs, "cause", cause)
+	}
+	return attrs
+}
+
 // deliver runs the sequence of one target and logs its end: delivered, failed,
 // superseded or abandoned. Delivered and failed are reported to the OutcomeRecorder. No log line holds an address, a URL, a name or the message
 // (CONVENTIONS.md, Logging).
@@ -136,7 +146,7 @@ func (d *AlertDispatcher) deliver(alert domain.Alert, target domain.Target, rec 
 			log.Warn("alert delivery abandoned")
 			return
 		case attempt == 1+d.retry.Retries:
-			log.Warn("alert delivery failed", "attempts", attempt, "reason", err.Error())
+			log.Warn("alert delivery failed", append([]any{"attempts", attempt}, failureAttrs(err)...)...)
 			d.record(log, alert, target, false)
 			return
 		case rec.isSuperseded():
@@ -144,7 +154,7 @@ func (d *AlertDispatcher) deliver(alert domain.Alert, target domain.Target, rec 
 			return
 		}
 		timer := d.clock.NewTimer(d.retry.Interval)
-		log.Warn("alert delivery attempt failed", "attempt", attempt, "reason", err.Error())
+		log.Warn("alert delivery attempt failed", append([]any{"attempt", attempt}, failureAttrs(err)...)...)
 		select {
 		case <-timer.C():
 		case <-d.ctx.Done():
