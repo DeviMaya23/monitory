@@ -21,8 +21,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-7, FR-39, FR-66 | `getService`, `updateService` | Edit a service | Left out of `update-service-api`, which builds the two operations: the screen (`edit-service-screen`) |
-| FR-104, FR-105, FR-106, NFR-7 | `testServiceCheck` | Test result area | Left out of `test-service-check-api`, which builds the operation: the test panel in the form (`service-test-panel`) |
 | Milestone journeys | all of the above | Service form | Each failure reason produced on purpose; limits and validation |
 
 ### Milestone 4: public view and health endpoint
@@ -46,21 +44,9 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 ## Cross-cutting and later
 
-- Left out of `dashboard-screen`, to be added by the task that builds what each does: the name as a link to Edit, with the desktop ellipsis and the full-name tooltip (the edit screen); the public-page switch and the "Open public page" link (their own tasks, listed above). The failed-action toasts for row actions come with the row action that causes them (Pause and Resume: `dashboard-pause-resume`).
-
-- Left out of `add-service-screen`: the "Discard unsaved changes?" prompt on the top-bar brand link, the browser's Back and Forward, and Sign out (it covers only the form's Cancel and back link, and the browser's own prompt on closing the tab). Blocking in-app navigation needs react-router's `useBlocker`, which needs a data router instead of `BrowserRouter`. Decided by the user: the edit-screen task moves the app to a data router and adds the prompt to both forms.
-
-- Left out of `add-service-screen`: the form has no test panel. It comes with `testServiceCheck` (a row above); the type switch and the rows are built by the milestone 3 form tasks.
-
-- Left out of `service-form-request-rows`: the query parameter, header and body rows on the edit form (`getService`, `updateService`; FR-7, FR-39). The edit-screen task builds them from `NameValueRows` and the request rows group. Matters when: the edit-screen task is drafted.
-
-- Left out of `service-form-json-and-cert-rows`: the Health rules and HTTPS groups on the edit form (`getService`, `updateService`; FR-7, FR-44, FR-34). The edit-screen task builds them from `HealthRulesGroup` and `HttpsGroup`. Matters when: the edit-screen task is drafted.
+- Left out of `dashboard-screen`, to be added by the task that builds what each does: the public-page switch and the "Open public page" link (their own tasks, listed above). The failed-action toasts for row actions come with the row action that causes them (Pause and Resume: `dashboard-pause-resume`).
 
 - Left out of `service-form-json-and-cert-rows`: its row-focus effect (`features/service-form/hooks/useRowFocus.ts`) repeats the one in `components/NameValueRows.tsx` (Add moves focus to the new row, Remove to the next, the previous or Add). Share it. Matters when: the focus rule changes in one of the two. Needs: the user's approval of the shared hook.
-
-- Left out of `service-form-type-tcp`: the Type control and the TCP port group on the edit form (`getService`, `updateService`; FR-7, FR-33, FR-66: changing the type of a saved service keeps its state). The edit-screen task builds them from `TypeField` and `TcpGroup`. Matters when: the edit-screen task is drafted.
-
-- Left out of `service-form-alerts`: the Alerts group (the `Send alerts` switch and the two messages) on the edit form, with `getService` and `updateService` (FR-20, FR-65). The edit-form task builds it from the add form's `AlertsGroup` and the `Switch` hint prop. Matters when: the edit-form task is drafted.
 
 - Left out of `target-form-dialog` (by the user's decision, the alert-list feature keeps its own copies): the discard dialog, the `422` error summary with its server-error hook, and the failure banners exist twice, in `service-form` and in `alert-list`. Promote them to shared places (`components/`, `lib/`). Matters when: a third form needs them, or the wording or behaviour of one copy changes and the other is forgotten. Needs: the user's approval of the shared components (`CONVENTIONS.md`, "Matching existing shapes").
 
@@ -73,7 +59,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `sign-in-screen`: the three focus effects and four refs sit in `SignInForm` rather than a hook, against the hook-per-concern rule in `CONVENTIONS.md` ("Component and hook granularity"). Matters when: a second screen needs the same focus-follows-outcome logic, or the convention is read as strict.
 
 - `create-service-api`: the handler suite takes about 30 s because `newRouter` parses the contract for every case, in the shared `helpers_test.go`. Matters when: later tasks add more handler cases to the same helper and CI time grows with each.
-- `targets-api`: a webhook target's header names and values are checked for length only, so a name or value with CR or LF, or two headers with the same name, is saved. By the user's decision `webhook-sender` refuses to send such a header (the delivery fails with a reason), and rejecting on save is left here: a `targets-api` change (`422 validation_failed`, code `invalid_value`, already in the contract; FR-38 lists no such rule, so the user approves it first). Matters when: an admin saves a webhook with such a header and learns only from the failed delivery or the failed test alert. Needs: the user's approval of the new rule.
 - `http-probe`: wall-clock assertions can flake under load (`TestTargetServer_DelayAndRedirect` expects an answer in under 100 ms; several probe tests rely on a 20 ms delay against a 200 ms timeout). Matters when: CI runs the suite on a loaded runner with `-race` and one fails with no code change.
 - `add-service-screen`: the services query key exists twice: `servicesQueryKey` (used by `service-form`) and `SERVICES_KEY` in `useServiceList.ts`. Using the shared one needs the mock factory in `useServiceList.test.tsx` to export it, a second `service-list` edit. Matters when: someone changes the value of either key, so the form drops a cache entry the dashboard does not read. Best done by a task that already changes `service-list`.
 - `add-service-screen`: if the admin leaves by the back link while a save is in flight, the dashboard stays stale until the next automatic refresh (FR-95), because `removeQueries` does not refetch a query that is already mounted. Adding `invalidateQueries` would cover it, but changes what the task specified. Matters when: a slow or overloaded server makes a save take longer than the admin waits. Needs: the user, to approve the change.
@@ -82,13 +67,9 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `portal-into-app`: the dialog host has `z-index: 40`, above the toast viewport (30), so a toast fired while a dialog or alert dialog is open sits under the backdrop and cannot be read. Today's order before the task had the toast above. A host value below 30 (for example 25) keeps the old order. Matters when: a toast fires while a dialog is open (a failed removal in the alert list, a save result while a dialog is still closing).
 
 - `alert-dispatch`: authentication over `starttls` is never exercised: go-mail v0.8.1 authenticates only on an encrypted connection, so `SMTP_TLS=none` with `SMTP_USERNAME` set can never send, and the `starttls` success path is untested (the `tls` path, authentication included, is covered by `mailer-implicit-tls`). Matters when: the SMTP provider is chosen and `SMTP_USERNAME` is set; run the Milestone 2 manual check (`docs/manual-checks.md`) with the real `starttls` or `tls` settings.
-- `alert-dispatch`: the real cause of a failed email is never logged or shown. The mailer returns only its two fixed reasons (`no SMTP account configured`, `the SMTP server did not accept the message`), the dispatcher logs that reason, and the cause (a timeout, a TLS error, a refused recipient) is dropped on purpose because go-mail's messages can hold the address (`CONVENTIONS.md`, Logging: never log an email address). So a misconfigured provider shows only the generic reason in the log and in the test alert's `Failed: …` line, which hid the `tls` bug above. Matters when: an admin or the installer has to find out why a provider refuses or times out. Needs: the user, to decide how to log a cause without the address (a redacted cause, or finer fixed reasons such as `could not connect`, `TLS failed`, `login refused`, `recipient refused`, `timed out`), then a backend task; the reasons the board and the requirements show (FR-85, FR-107) stay the visible ones unless the user approves finer text.
 - `alert-dispatch`: the Mailpit integration test clears the mailbox of whichever Mailpit answers on `localhost:8025`, including one from another worktree's compose project. Matters when: two worktrees run integration or end-to-end tests at the same time.
 
 - `target-form-dialog`: a `422` summary keeps the entries of the inactive type. After a `url` error, switching to Email leaves `Webhook URL: …` in the summary with a link that moves focus nowhere, while its message is hidden with the field. Matters when: an admin gets a `url` or `headers` error and then switches type. Needs: the user, to decide whether a type switch drops the other type's entries.
-
-
-- `webhook-sender`: a custom webhook header the HTTP library controls (`Host`, `Content-Length`, `Transfer-Encoding`, `Trailer`) is accepted on save and silently not sent, and a value loses its surrounding spaces. Matters when: an admin enters one of these names and expects it to reach the receiver; best fixed with the save-time header rule (the `targets-api` line above). Needs: the user's approval of that rule.
 
 - Left out of `toast-text-shared`: the Reload toast (`The request wasn’t accepted. Reload and try again.` with a Reload button) is also spelled in `features/alert-list/hooks/useRemoveTarget.ts` (which also has its own `toOutcome`) and `app-shell/SessionProvider.tsx`, and a related title in the banners in `service-form` and `alert-list`; the task shares it only inside `features/service-list/lib/`. Matters when: someone rewords one of these and not the others, or a fifth place needs it. Needs: the user's approval of a shared place (`components/` or `lib/`; `CONVENTIONS.md`, "Matching existing shapes").
 
