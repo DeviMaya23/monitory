@@ -188,15 +188,15 @@ func (p *HTTPProber) attempt(ctx context.Context, check domain.HTTPCheck, forTes
 		out.Body = string(data[:min(len(data), p.maxBodyBytes)])
 		out.BodyTruncated = tooLarge
 	}
-	out.CheckResult = p.judge(check, probeCtx, status, certProblem, data, tooLarge, readErr)
+	out.CheckResult = p.judge(check, errors.Is(probeCtx.Err(), context.DeadlineExceeded), status, certProblem, data, tooLarge, readErr)
 	return out, nil
 }
 
 // judge gives the verdict on a response in hand: certificate expiry first; with no
 // JSON rules the status; with rules the body, where a rule match wins over a non-2xx
 // status and a non-2xx status wins over an unjudgeable body. data and readErr are the
-// body as read, when it was read.
-func (p *HTTPProber) judge(check domain.HTTPCheck, probeCtx context.Context, status int, certProblem bool, data []byte, tooLarge bool, readErr error) domain.CheckResult {
+// body as read, when it was read; deadlinePassed says the probe's own deadline ended.
+func (p *HTTPProber) judge(check domain.HTTPCheck, deadlinePassed bool, status int, certProblem bool, data []byte, tooLarge bool, readErr error) domain.CheckResult {
 	if certProblem {
 		return failure(domain.FailureCertificateProblem)
 	}
@@ -214,7 +214,7 @@ func (p *HTTPProber) judge(check domain.HTTPCheck, probeCtx context.Context, sta
 	}
 	if readErr != nil {
 		switch {
-		case errors.Is(probeCtx.Err(), context.DeadlineExceeded):
+		case deadlinePassed:
 			return failure(domain.FailureTimedOut)
 		case !ok2xx:
 			return statusFailure
