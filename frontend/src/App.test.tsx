@@ -1,9 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router'
+import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import App from './App'
+import { appRoutes } from './App'
 import { setUnauthenticatedHandler } from './lib/api/request'
 import { createService, deleteService, listServices } from './lib/api/services'
 import { getPublicDashboard } from './lib/api/publicDashboard'
@@ -18,6 +17,7 @@ import {
   problem,
   sessionInfo,
 } from './test/fixtures'
+import { renderRoutes } from './test/renderRoutes'
 
 vi.mock('./lib/api/session')
 vi.mock('./lib/api/publicDashboard')
@@ -39,13 +39,7 @@ vi.mock('./lib/api/request', () => ({
 }))
 
 function renderAt(path: string) {
-  return render(
-    <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter initialEntries={[path]}>
-        <App />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  )
+  return renderRoutes(appRoutes, { initialEntries: [path] })
 }
 
 const PLACEHOLDER = /is not built yet/
@@ -353,13 +347,7 @@ describe('The dashboard and a session that ends (FR-4)', () => {
     vi.mocked(getSession).mockResolvedValue(sessionInfo)
     vi.mocked(listServices).mockResolvedValueOnce(makeServiceList(makeService()))
     const client = new QueryClient()
-    render(
-      <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={['/']}>
-          <App />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    )
+    renderRoutes(appRoutes, { initialEntries: ['/'], client })
     await screen.findByText('API gateway')
     expect(client.getQueryData(['services'])).toBeDefined()
 
@@ -379,13 +367,7 @@ describe('The dashboard and a session that ends (FR-4)', () => {
     vi.mocked(getSession).mockResolvedValue(sessionInfo)
     vi.mocked(listServices).mockResolvedValueOnce(makeServiceList(makeService()))
     const client = new QueryClient()
-    render(
-      <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={['/']}>
-          <App />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    )
+    renderRoutes(appRoutes, { initialEntries: ['/'], client })
     await screen.findByText('API gateway')
     // As apiRequest does: run the registered handler, then reject.
     vi.mocked(deleteService).mockImplementationOnce(async () => {
