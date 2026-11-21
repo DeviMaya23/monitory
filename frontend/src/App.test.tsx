@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -472,5 +472,198 @@ describe('Add service (FR-6, FR-4)', () => {
     expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Add service' })).not.toBeInTheDocument()
     expect(createService).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Leaving a changed Add service form', () => {
+  const question = () => screen.findByRole('dialog', { name: 'Discard unsaved changes?' })
+  const noQuestion = () => screen.queryByRole('dialog', { name: 'Discard unsaved changes?' })
+  const brand = () => screen.getByRole('link', { name: 'Monitory' })
+
+  async function openForm(entries = ['/services/new'], index?: number) {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    vi.mocked(listTargets).mockResolvedValue([])
+    const rendered = renderRoutes(appRoutes, { initialEntries: entries, initialIndex: index })
+    await addServiceForm()
+    return rendered
+  }
+  const typeName = () => userEvent.type(screen.getByLabelText('Name'), 'Search API')
+  const discard = async () => {
+    await userEvent.click(within(await question()).getByRole('button', { name: 'Discard changes' }))
+  }
+  const location = (router: { state: { location: { pathname: string } } }) => router.state.location.pathname
+
+  describe('the brand link', () => {
+    it('asks for a changed form, stays on it, and Discard changes ends on the dashboard', async () => {
+      const { router } = await openForm()
+      await typeName()
+      await userEvent.click(brand())
+      await question()
+      expect(location(router)).toBe('/services/new')
+      expect(screen.getByLabelText('Name')).toHaveValue('Search API')
+      await discard()
+      expect(await dashboard()).toBeInTheDocument()
+      expect(noQuestion()).not.toBeInTheDocument()
+    })
+
+    it('goes at once for an untouched form', async () => {
+      await openForm()
+      await userEvent.click(brand())
+      expect(await dashboard()).toBeInTheDocument()
+      expect(noQuestion()).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Back and Forward', () => {
+    const entries = ['/', '/services/new', '/services/s1/alerts']
+
+    it('ask for a changed form each way; Keep editing leaves the page and the values; Discard changes completes the move', async () => {
+      const { router } = await openForm(entries, 1)
+      await typeName()
+      await act(async () => router.navigate(-1))
+      await question()
+      expect(location(router)).toBe('/services/new')
+      await userEvent.click(within(await question()).getByRole('button', { name: 'Keep editing' }))
+      await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
+      expect(location(router)).toBe('/services/new')
+      expect(screen.getByLabelText('Name')).toHaveValue('Search API')
+
+      await act(async () => router.navigate(1))
+      await question()
+      expect(location(router)).toBe('/services/new')
+      await userEvent.click(within(await question()).getByRole('button', { name: 'Keep editing' }))
+      await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
+      expect(screen.getByLabelText('Name')).toHaveValue('Search API')
+
+      await act(async () => router.navigate(-1))
+      await discard()
+      expect(await dashboard()).toBeInTheDocument()
+      expect(location(router)).toBe('/')
+    })
+
+    it('move at once for an untouched form', async () => {
+      const { router } = await openForm(entries, 1)
+      await act(async () => router.navigate(-1))
+      expect(await dashboard()).toBeInTheDocument()
+      await act(async () => router.navigate(1))
+      await addServiceForm()
+      await act(async () => router.navigate(1))
+      expect(await screen.findByRole('heading', { name: 'Alert list' })).toBeInTheDocument()
+      expect(noQuestion()).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Sign out', () => {
+    it('asks first and Keep editing signs nothing out; Discard changes signs out once, ends on the sign-in form with no second question (FR-3)', async () => {
+      await openForm()
+      await typeName()
+      vi.mocked(signOut).mockResolvedValue()
+      await userEvent.click(signOutButton())
+      await question()
+      expect(signOut).not.toHaveBeenCalled()
+      await userEvent.click(within(await question()).getByRole('button', { name: 'Keep editing' }))
+      await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
+      expect(signOut).not.toHaveBeenCalled()
+      expect(screen.getByLabelText('Name')).toHaveValue('Search API')
+
+      await userEvent.click(signOutButton())
+      await discard()
+      await form()
+      expect(signOut).toHaveBeenCalledTimes(1)
+      expect(noQuestion()).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('failing leaves the form in place and guarded: the next brand-link click asks again', async () => {
+      await openForm()
+      await typeName()
+      vi.mocked(signOut).mockRejectedValue(problem(500, 'internal_error'))
+      await userEvent.click(signOutButton())
+      await discard()
+      expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t sign out. Try again.')
+      await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
+      expect(screen.getByLabelText('Name')).toHaveValue('Search API')
+      await waitFor(() => expect(signOutButton()).toBeEnabled())
+
+      await userEvent.click(brand())
+      await question()
+    })
+
+    it('signs out at once for an untouched form, with no dialog', async () => {
+      await openForm()
+      vi.mocked(signOut).mockResolvedValue()
+      await userEvent.click(signOutButton())
+      await form()
+      expect(signOut).toHaveBeenCalledTimes(1)
+      expect(noQuestion()).not.toBeInTheDocument()
+    })
+  })
+
+  describe('the keyboard (NFR-4)', () => {
+    it.each([
+      ['Sign out', signOutButton],
+      ['the brand link', brand],
+    ])('Enter on %s opens the question with Keep editing focused; Enter on it closes it', async (_name, opener) => {
+      await openForm()
+      await typeName()
+      opener().focus()
+      await userEvent.keyboard('{Enter}')
+      const dialog = await question()
+      await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Keep editing' })).toHaveFocus())
+      await userEvent.keyboard('{Enter}')
+      await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
+      expect(signOut).not.toHaveBeenCalled()
+      await waitFor(() => expect(opener()).toHaveFocus())
+    })
+
+    it.each([
+      ['Sign out', signOutButton],
+      ['the brand link', brand],
+    ])('Esc closes the question asked by %s', async (_name, opener) => {
+      await openForm()
+      await typeName()
+      await userEvent.click(opener())
+      await question()
+      await userEvent.keyboard('{Escape}')
+      await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
+      expect(screen.getByLabelText('Name')).toHaveValue('Search API')
+    })
+
+    it('a click on the backdrop closes the question', async () => {
+      await openForm()
+      await typeName()
+      await userEvent.click(signOutButton())
+      await question()
+      await userEvent.click(document.querySelector('.dialog-backdrop') as HTMLElement)
+      await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
+      expect(screen.getByLabelText('Name')).toHaveValue('Search API')
+    })
+  })
+
+  it('Back while saving arrives at once, with no question', async () => {
+    const { router } = await openForm(['/', '/services/new'], 1)
+    vi.mocked(createService).mockReturnValue(new Promise(() => {}))
+    await typeName()
+    await userEvent.type(screen.getByLabelText('URL'), 'https://search.example.com/health')
+    await userEvent.click(screen.getByRole('button', { name: 'Save service' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled())
+    await act(async () => router.navigate(-1))
+    expect(await dashboard()).toBeInTheDocument()
+    expect(noQuestion()).not.toBeInTheDocument()
+  })
+
+  it('a 401 on a changed form ends on the sign-in form with the notice and no question (FR-4)', async () => {
+    await openForm()
+    vi.mocked(createService).mockImplementationOnce(async () => {
+      registeredHandler()()
+      throw problem(401, 'unauthenticated')
+    })
+    await typeName()
+    await userEvent.type(screen.getByLabelText('URL'), 'https://search.example.com/health')
+    await userEvent.click(screen.getByRole('button', { name: 'Save service' }))
+    await form()
+    expect(screen.getByText('Your session has ended.')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('alertdialog', { hidden: true })).toHaveLength(0)
   })
 })
