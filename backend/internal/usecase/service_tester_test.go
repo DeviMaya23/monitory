@@ -443,6 +443,16 @@ func TestTestServiceCheck_Errors(t *testing.T) {
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Equal(t, domain.ServiceTestResult{}, res)
 	})
+	t.Run("an ended context wins over the probe's own error", func(t *testing.T) {
+		c := newCheckTester()
+		ctx, cancel := context.WithCancel(context.Background())
+		c.http.onCall = cancel
+		c.http.err = errors.New("boom")
+		res, err := c.svc.TestServiceCheck(ctx, httpTestInput(nil))
+		require.ErrorIs(t, err, context.Canceled)
+		assert.NotContains(t, err.Error(), "boom")
+		assert.Equal(t, domain.ServiceTestResult{}, res)
+	})
 	t.Run("an unexpected error of a probe is wrapped and hides the check", func(t *testing.T) {
 		boom := errors.New("boom")
 		for _, tcp := range []bool{false, true} {
