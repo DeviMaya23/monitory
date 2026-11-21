@@ -7,6 +7,8 @@ describe('fieldLabel', () => {
     ['name', 'Name'],
     ['check.method', 'Method'],
     ['check.url', 'URL'],
+    ['check.host', 'Host'],
+    ['check.port', 'Port'],
     ['unhealthy_message', 'Unhealthy message'],
     ['recovery_message', 'Recovery message'],
     ['settings.check_interval_seconds', 'Check interval'],
@@ -17,8 +19,17 @@ describe('fieldLabel', () => {
     expect(fieldLabel(path)).toEqual({ label, target: path })
   })
 
-  it.each(['check.type', 'toString'])('maps %s to itself with no target', (path) => {
+  it.each(['check.unknown', 'toString'])('maps %s to itself with no target', (path) => {
     expect(fieldLabel(path)).toEqual({ label: path, target: null })
+  })
+
+  it('maps check.type to Type with no target', () => {
+    expect(fieldLabel('check.type')).toEqual({ label: 'Type', target: null })
+  })
+
+  it('gives the host and the port their own input ids', () => {
+    expect(fieldId('check.host')).toBe('service-host')
+    expect(fieldId('check.port')).toBe('service-port')
   })
 })
 

@@ -43,7 +43,8 @@ export function HttpsGroup({ control, register, saving, daysError, clearDaysErro
   const expiryError = serverErrors.bareError(CERT_ENABLED_PATH)
   const ignoreError = serverErrors.bareError(IGNORE_CERT_PATH)
   const daysField = register('cert_days', {
-    validate: (value, values) => !values.cert_enabled || readWholeNumber(value) !== null || TIMING_TEXT.notWhole,
+    validate: (value, values) =>
+      values.type === 'tcp' || !values.cert_enabled || readWholeNumber(value) !== null || TIMING_TEXT.notWhole,
     onChange: () => {
       clearDaysError()
       serverErrors.clearField(CERT_DAYS_PATH)

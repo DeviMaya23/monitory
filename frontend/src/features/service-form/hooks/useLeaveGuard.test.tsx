@@ -9,6 +9,9 @@ type Props = { saving?: boolean; saved?: boolean; onLeave?: () => void }
 /** The hook over three real inputs, since "changed" reads what the inputs hold and the unload prompt is a window listener. */
 function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
   const [name, setName] = useState('')
+  const [type, setType] = useState('http')
+  const [host, setHost] = useState('')
+  const [port, setPort] = useState('')
   const [url, setUrl] = useState('')
   const [method, setMethod] = useState('GET')
   const [queryRows, setQueryRows] = useState(0)
@@ -26,6 +29,9 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
   const [timing, setTiming] = useState<TimingTexts>(TIMING_DEFAULTS)
   const guard = useLeaveGuard({
     name,
+    type,
+    host,
+    port,
     method,
     url,
     queryRowCount: queryRows,
@@ -48,6 +54,10 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
   return (
     <>
       <input aria-label="name" value={name} onChange={(event) => setName(event.target.value)} />
+      <input aria-label="host" value={host} onChange={(event) => setHost(event.target.value)} />
+      <input aria-label="port" value={port} onChange={(event) => setPort(event.target.value)} />
+      <button onClick={() => setType('tcp')}>type tcp</button>
+      <button onClick={() => setType('http')}>type http</button>
       <input aria-label="url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} />
       <input aria-label="body" value={bodyContent} onChange={(event) => setBodyContent(event.target.value)} />
       <button onClick={() => setQueryRows((n) => n + 1)}>add query</button>
@@ -153,6 +163,18 @@ describe('changed', () => {
     type('days', days)
     expect(changed()).toBe('true')
     type('days', '14')
+    expect(changed()).toBe('false')
+  })
+
+  it.each([
+    ['the type TCP port', () => click('type tcp'), () => click('type http')],
+    ['a host', () => type('host', 'db'), () => type('host', '')],
+    ['a port', () => type('port', '5432'), () => type('port', '')],
+  ])('is true with %s (also while HTTP(S) is chosen for the text), and false again when put back', (_label, on, off) => {
+    render(<Harness />)
+    on()
+    expect(changed()).toBe('true')
+    off()
     expect(changed()).toBe('false')
   })
 

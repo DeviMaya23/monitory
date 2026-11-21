@@ -1,4 +1,5 @@
 import { CERT_DAYS_PATH, CERT_ENABLED_PATH, HTTPS_TEXT, IGNORE_CERT_PATH } from './certificateOptions'
+import { HOST_PATH, PORT_PATH, TCP_TEXT, TYPE_PATH, TYPE_TEXT } from './serviceType'
 import { parseRulePath, ruleLabel, RULE_MODE_PATH, RULES_PATH, RULES_TEXT, type RulePart } from './jsonRules'
 import {
   BODY_CONTENT_PATH,
@@ -25,6 +26,7 @@ export type BarePath =
   | typeof RULE_MODE_PATH
   | typeof CERT_ENABLED_PATH
   | typeof IGNORE_CERT_PATH
+  | typeof TYPE_PATH
 
 /** The server `field` paths that have an input on this screen. */
 export type FieldTarget = StaticTarget | RowTarget | RuleTarget | typeof BODY_CONTENT_PATH
@@ -33,6 +35,8 @@ export type StaticTarget =
   | 'name'
   | 'check.method'
   | 'check.url'
+  | typeof HOST_PATH
+  | typeof PORT_PATH
   | typeof CERT_DAYS_PATH
   | 'settings.check_interval_seconds'
   | 'settings.timeout_seconds'
@@ -49,6 +53,8 @@ const LABELS: Record<StaticTarget, string> = {
   name: 'Name',
   'check.method': 'Method',
   'check.url': 'URL',
+  [HOST_PATH]: TCP_TEXT.hostLabel,
+  [PORT_PATH]: TCP_TEXT.portLabel,
   [CERT_DAYS_PATH]: HTTPS_TEXT.daysLabel,
   'settings.check_interval_seconds': 'Check interval',
   'settings.timeout_seconds': 'Timeout',
@@ -67,6 +73,7 @@ const BARE_LABELS: Record<BarePath, string> = {
   [RULE_MODE_PATH]: RULES_TEXT.modeLabel,
   [CERT_ENABLED_PATH]: HTTPS_TEXT.expiryLabel,
   [IGNORE_CERT_PATH]: HTTPS_TEXT.ignoreLabel,
+  [TYPE_PATH]: TYPE_TEXT.label,
 }
 
 function isStatic(path: string): path is StaticTarget {
