@@ -94,12 +94,12 @@ Each mutation broke the source, I ran `vitest` over `src/features/service-form` 
 | M18 | list error becomes a link | 3 |
 | M19 | mode error becomes a link | 3 |
 | M20 | refuse the 21st rule on the client | 1 |
-| M21 | URL edit keeps the days error | 1+ |
+| M21 | URL edit keeps the days error | 1 |
 | M22 | URL edit keeps the `requires_https_url` errors | 2 |
 | M23 | validate the days while the switch is off | 1 |
 | M24 | Remove focuses the wrong row | 1 |
 
-Not run: "drop `true`/`false` booleans from the send path" beyond M2 and "make the list error a link" in the component (M18 changes the mapping that decides it). The switches' error ids were checked by reading.
+The switches' error ids and the in-flight lock were checked by reading, not mutated.
 
 ## 6. Findings
 
@@ -111,7 +111,7 @@ None.
 
 - **N1. `make check` fails on the full parallel run in an unrelated file** (category: test quality). `TargetDialog.test.tsx` times out at 5 s under load; it passes alone. Matters when: CI or a verifier runs `make check` on a loaded machine and the pull request shows a red test it did not cause (the task `target-dialog-test-flake` exists for it).
 - **N2. Two form cases carry a 15 s timeout** (category: test quality). The task asked for cases near 1 s; the builder raised the limit instead of shortening them (`AddServiceForm.test.tsx` lines ~1960 and ~1971). Matters when: the file's total time grows enough that the slow cases become the flake, as in N1.
-- **N3. The days input is disabled by the DOM attribute, so react-hook-form leaves it out of `getValues()` snapshots** (category: latent bug). Today nothing reads it that way: submit uses the form state and the test "keeps the days text while the switch is off" proves it. Matters when: a later task (edit form, test panel) reads the days with `getValues` or `getFieldState` while the switch is off.
+- **N3. The days input is disabled by the DOM attribute, so a native-field read of it (not the form state) would see nothing; not verified against the library** (category: latent bug). Today nothing reads it that way: submit uses the form state and the test "keeps the days text while the switch is off" proves it. Matters when: a later task (edit form, test panel) reads the days with `getValues` or `getFieldState` while the switch is off.
 
 Limits of this verification: the look at 360 px and a real server's limit messages (rule count, minimum days) cannot be proven in jsdom; I did not run the built app in a browser. The 0, 1, 10 and 11 rule counts have no client check, so they are the server's to refuse (read).
 
