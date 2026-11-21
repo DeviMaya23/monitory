@@ -84,8 +84,8 @@ var errTooManyRedirects = errors.New("too many redirects")
 // HTTPProber makes one HTTP(S) check attempt at a time. It is safe for concurrent use.
 type HTTPProber struct {
 	maxRedirects int
-	// maxBodyBytes caps how much of a response body is read when a check has JSON
-	// rules (FR-73).
+	// maxBodyBytes caps how much of a response body is read: when a check has JSON
+	// rules (FR-73) and for a test (FR-104).
 	maxBodyBytes int
 	// roots are the trusted roots; nil means the system's roots. Tests set it.
 	roots *x509.CertPool
@@ -107,13 +107,30 @@ func NewHTTPProber(maxRedirects, maxBodyBytes int, clk clock.Clock) *HTTPProber 
 
 // CheckHTTP makes one request and judges the final response. The only error it returns
 // is the caller's context error, when that context ended before a response was in
-// hand; every other failure is a result.
+// hand; every other failure is a result. It reads a body only when the check has JSON
+// rules (FR-73).
 func (p *HTTPProber) CheckHTTP(ctx context.Context, check domain.HTTPCheck) (domain.CheckResult, error) {
+	out, err := p.attempt(ctx, check, false)
+	return out.CheckResult, err
+}
+
+// TestHTTP makes the same single request as CheckHTTP and gives the same verdict, and
+// also returns the final response's status and its body, read up to the configured
+// limit whether or not the check has JSON rules (FR-104). The only error it returns is
+// the caller's context error, with an empty outcome.
+func (p *HTTPProber) TestHTTP(ctx context.Context, check domain.HTTPCheck) (domain.HTTPTestOutcome, error) {
+	return p.attempt(ctx, check, true)
+}
+
+// attempt is the one implementation of the request, the judgment and the
+// classification behind CheckHTTP and TestHTTP. With forTest the body is always read
+// and returned, with the status; without it the outcome holds the verdict only.
+func (p *HTTPProber) attempt(ctx context.Context, check domain.HTTPCheck, forTest bool) (domain.HTTPTestOutcome, error) {
 	if err := ctx.Err(); err != nil {
-		return domain.CheckResult{}, err
+		return domain.HTTPTestOutcome{}, err
 	}
 	if check.Timeout <= 0 {
-		return failure(domain.FailureTimedOut), nil
+		return domain.HTTPTestOutcome{CheckResult: failure(domain.FailureTimedOut)}, nil
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, check.Timeout)
 	defer cancel()
@@ -128,7 +145,7 @@ func (p *HTTPProber) CheckHTTP(ctx context.Context, check domain.HTTPCheck) (dom
 	reqCtx := context.WithValue(probeCtx, savedHeadersKey{}, check.Headers)
 	req, err := http.NewRequestWithContext(reqCtx, check.Method, withQueryParams(check.URL, check.QueryParams), body)
 	if err != nil {
-		return p.classify(ctx, probeCtx, err)
+		return p.classifyOutcome(ctx, probeCtx, err)
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -137,18 +154,52 @@ func (p *HTTPProber) CheckHTTP(ctx context.Context, check domain.HTTPCheck) (dom
 
 	resp, err := p.httpClient(check.IgnoreCertificateErrors).Do(req)
 	if err != nil {
-		return p.classify(ctx, probeCtx, err)
+		return p.classifyOutcome(ctx, probeCtx, err)
 	}
 	defer func() {
 		// A close error does not change a result already in hand.
 		_ = resp.Body.Close()
 	}()
+	status := resp.StatusCode
+	out := domain.HTTPTestOutcome{}
+	if forTest {
+		out.HTTPStatus = &status
+	}
+
 	// A certificate too close to expiry is the connection's problem and comes before
 	// the body and the status.
-	if check.CertificateCheck && p.certificateTooClose(resp, check.CertMinDaysLeft) {
-		return failure(domain.FailureCertificateProblem), nil
+	certProblem := check.CertificateCheck && p.certificateTooClose(resp, check.CertMinDaysLeft)
+	hasRules := len(check.JSONRules) > 0
+
+	// The body is read under the same deadline as the request, at most one byte past
+	// the limit: seeing that byte is enough to know the body is too large.
+	var data []byte
+	var readErr error
+	if forTest || (hasRules && !certProblem) {
+		data, readErr = io.ReadAll(io.LimitReader(resp.Body, int64(p.maxBodyBytes)+1))
+		if readErr != nil {
+			if err := ctx.Err(); err != nil {
+				return domain.HTTPTestOutcome{}, err
+			}
+		}
 	}
-	status := resp.StatusCode
+	tooLarge := len(data) > p.maxBodyBytes
+	if forTest {
+		out.Body = string(data[:min(len(data), p.maxBodyBytes)])
+		out.BodyTruncated = tooLarge
+	}
+	out.CheckResult = p.judge(check, probeCtx, status, certProblem, data, tooLarge, readErr)
+	return out, nil
+}
+
+// judge gives the verdict on a response in hand: certificate expiry first; with no
+// JSON rules the status; with rules the body, where a rule match wins over a non-2xx
+// status and a non-2xx status wins over an unjudgeable body. data and readErr are the
+// body as read, when it was read.
+func (p *HTTPProber) judge(check domain.HTTPCheck, probeCtx context.Context, status int, certProblem bool, data []byte, tooLarge bool, readErr error) domain.CheckResult {
+	if certProblem {
+		return failure(domain.FailureCertificateProblem)
+	}
 	ok2xx := status >= 200 && status <= 299
 	statusFailure := domain.CheckResult{Failure: &domain.CheckFailure{
 		Code:       domain.FailureNon2xxStatus,
@@ -157,28 +208,20 @@ func (p *HTTPProber) CheckHTTP(ctx context.Context, check domain.HTTPCheck) (dom
 
 	if len(check.JSONRules) == 0 {
 		if ok2xx {
-			return domain.CheckResult{Healthy: true}, nil
+			return domain.CheckResult{Healthy: true}
 		}
-		return statusFailure, nil
+		return statusFailure
 	}
-
-	// The body is read under the same deadline as the request, at most one byte past
-	// the limit: seeing that byte is enough to know the body is too large.
-	data, readErr := io.ReadAll(io.LimitReader(resp.Body, int64(p.maxBodyBytes)+1))
 	if readErr != nil {
-		if err := ctx.Err(); err != nil {
-			return domain.CheckResult{}, err
-		}
 		switch {
 		case errors.Is(probeCtx.Err(), context.DeadlineExceeded):
-			return failure(domain.FailureTimedOut), nil
+			return failure(domain.FailureTimedOut)
 		case !ok2xx:
-			return statusFailure, nil
+			return statusFailure
 		default:
-			return failure(domain.FailureCouldNotConnect), nil
+			return failure(domain.FailureCouldNotConnect)
 		}
 	}
-	tooLarge := len(data) > p.maxBodyBytes
 	verdict := evaluateJSONRules(data, tooLarge, check.JSONRules, check.JSONRuleMode)
 	switch {
 	case verdict.Failed:
@@ -186,14 +229,20 @@ func (p *HTTPProber) CheckHTTP(ctx context.Context, check domain.HTTPCheck) (dom
 		return domain.CheckResult{Failure: &domain.CheckFailure{
 			Code:          domain.FailureJSONRuleMatched,
 			JSONRuleField: &field,
-		}}, nil
+		}}
 	case !ok2xx:
-		return statusFailure, nil
+		return statusFailure
 	case verdict.Unjudgeable:
-		return failure(domain.FailureInvalidOrMissingJSON), nil
+		return failure(domain.FailureInvalidOrMissingJSON)
 	default:
-		return domain.CheckResult{Healthy: true}, nil
+		return domain.CheckResult{Healthy: true}
 	}
+}
+
+// classifyOutcome is classify for a failure to get a response: no status, no body.
+func (p *HTTPProber) classifyOutcome(callerCtx, probeCtx context.Context, cause error) (domain.HTTPTestOutcome, error) {
+	res, err := p.classify(callerCtx, probeCtx, cause)
+	return domain.HTTPTestOutcome{CheckResult: res}, err
 }
 
 // httpClient returns the verifying client, or, when ignoreCertErrs is set, the one
