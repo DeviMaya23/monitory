@@ -1,0 +1,33 @@
+import { ApiError } from '../../../lib/api/ApiError'
+
+/** The answer to a row action (delete, pause, resume), by status and code (never by message text). */
+export type Outcome = 'unauthenticated' | 'gone' | 'csrf' | 'failed'
+
+export function toOutcome(error: unknown): Outcome {
+  if (error instanceof ApiError) {
+    if (error.status === 401 && error.code === 'unauthenticated') return 'unauthenticated'
+    if (error.status === 404 && error.code === 'not_found') return 'gone'
+    if (error.status === 403 && error.code === 'csrf_failed') return 'csrf'
+  }
+  return 'failed'
+}
+
+/** What the admin reads when the service is already gone. */
+export const GONE_MESSAGE = 'That service was already deleted.'
+
+/** What the admin reads when the server refused the request's CSRF token. */
+export const CSRF_MESSAGE = 'The request wasn’t accepted. Reload and try again.'
+
+/** The toast for the "gone" outcome. */
+export function goneToast() {
+  return { kind: 'error' as const, message: GONE_MESSAGE }
+}
+
+/** The toast for the CSRF outcome, with a Reload action that reloads the page. */
+export function csrfToast() {
+  return {
+    kind: 'error' as const,
+    message: CSRF_MESSAGE,
+    action: { label: 'Reload', onClick: () => window.location.reload() },
+  }
+}

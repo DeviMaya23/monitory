@@ -1,24 +1,12 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '../../../components/ui/useToast'
-import { ApiError } from '../../../lib/api/ApiError'
 import { deleteService, type Service } from '../../../lib/api/services'
+import { csrfToast, goneToast, toOutcome } from '../lib/rowActionToasts'
 import { removeFromList } from '../lib/servicesCache'
 
 /** How the dialog last closed: the service is gone from the list (`removed`), or the list is as it was (`kept`). */
 export type ClosedAs = 'removed' | 'kept'
-
-/** The answer to a delete, by status and code (never by message text). */
-type Outcome = 'unauthenticated' | 'already-deleted' | 'csrf' | 'failed'
-
-function toOutcome(error: unknown): Outcome {
-  if (error instanceof ApiError) {
-    if (error.status === 401 && error.code === 'unauthenticated') return 'unauthenticated'
-    if (error.status === 404 && error.code === 'not_found') return 'already-deleted'
-    if (error.status === 403 && error.code === 'csrf_failed') return 'csrf'
-  }
-  return 'failed'
-}
 
 /** What `useDeleteService` returns, for the components that show the flow. */
 export type DeleteServiceFlow = ReturnType<typeof useDeleteService>
@@ -44,19 +32,15 @@ export function useDeleteService() {
     },
     onError: async (error, service) => {
       const outcome = toOutcome(error)
-      if (outcome === 'already-deleted') {
+      if (outcome === 'gone') {
         await removeFromList(queryClient, service.id)
-        toast.show({ kind: 'error', message: 'That service was already deleted.' })
+        toast.show(goneToast())
         setClosedAs('removed')
         return
       }
       setClosedAs('kept')
       if (outcome === 'csrf') {
-        toast.show({
-          kind: 'error',
-          message: 'The request wasn’t accepted. Reload and try again.',
-          action: { label: 'Reload', onClick: () => window.location.reload() },
-        })
+        toast.show(csrfToast())
       } else if (outcome === 'failed') {
         toast.show({ kind: 'error', message: 'Couldn’t delete the service. Try again.' })
       }

@@ -1,21 +1,9 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '../../../components/ui/useToast'
-import { ApiError } from '../../../lib/api/ApiError'
 import { pauseService, resumeService, type Service } from '../../../lib/api/services'
+import { csrfToast, goneToast, toOutcome } from '../lib/rowActionToasts'
 import { removeFromList, replaceInList } from '../lib/servicesCache'
-
-/** The answer to a pause or resume, by status and code (never by message text). */
-type Outcome = 'unauthenticated' | 'gone' | 'csrf' | 'failed'
-
-function toOutcome(error: unknown): Outcome {
-  if (error instanceof ApiError) {
-    if (error.status === 401 && error.code === 'unauthenticated') return 'unauthenticated'
-    if (error.status === 404 && error.code === 'not_found') return 'gone'
-    if (error.status === 403 && error.code === 'csrf_failed') return 'csrf'
-  }
-  return 'failed'
-}
 
 /** What `usePauseService` returns, for the components that show the rows. */
 export type PauseServiceFlow = ReturnType<typeof usePauseService>
@@ -46,13 +34,9 @@ export function usePauseService() {
       const outcome = toOutcome(error)
       if (outcome === 'gone') {
         await removeFromList(queryClient, service.id)
-        toast.show({ kind: 'error', message: 'That service was already deleted.' })
+        toast.show(goneToast())
       } else if (outcome === 'csrf') {
-        toast.show({
-          kind: 'error',
-          message: 'The request wasn’t accepted. Reload and try again.',
-          action: { label: 'Reload', onClick: () => window.location.reload() },
-        })
+        toast.show(csrfToast())
       } else if (outcome === 'failed') {
         toast.show({
           kind: 'error',
