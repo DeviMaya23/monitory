@@ -81,14 +81,14 @@ describe('useServerErrors', () => {
   })
 
   it('lists a path with no field in the summary with no target, and editing does not remove it', () => {
-    const { result } = setup([fieldError('check.type', 'Not a value.'), fieldError('name', 'Needed.')])
+    const { result } = setup([fieldError('check.unknown', 'Not a value.'), fieldError('name', 'Needed.')])
     expect(result.current.entries[0]).toMatchObject({
-      label: 'check.type',
+      label: 'check.unknown',
       message: 'Not a value.',
       target: null,
     })
     act(() => result.current.clearField('name'))
-    expect(result.current.entries.map((entry) => entry.label)).toEqual(['check.type'])
+    expect(result.current.entries.map((entry) => entry.label)).toEqual(['check.unknown'])
     expect(result.current.count).toBe(1)
   })
 
@@ -137,6 +137,70 @@ describe('useServerErrors', () => {
     expect(result.current.errorFor('name')).toBe('Name is too long here.')
     rerender({ errors: null })
     expect(result.current.count).toBe(0)
+  })
+
+  describe('the TCP fields and the type change', () => {
+    const TCP = [
+      fieldError('check.host', 'Enter a host.', 'required'),
+      fieldError('check.port', 'Must be between 1 and 65535.', 'out_of_range'),
+    ]
+
+    it('maps the host and the port to their labels and inputs, and check.type to Type with no input', () => {
+      const { result } = setup([...TCP, fieldError('check.type', 'Bad type.', 'invalid_value')])
+      expect(result.current.entries.map(({ label, target }) => ({ label, target }))).toEqual([
+        { label: 'Host', target: 'check.host' },
+        { label: 'Port', target: 'check.port' },
+        { label: 'Type', target: null },
+      ])
+      expect(result.current.errorFor('check.host')).toBe('Enter a host.')
+      expect(result.current.errorFor('check.port')).toBe('Must be between 1 and 65535.')
+    })
+
+    it('clearing the host removes only its entry', () => {
+      const { result } = setup(TCP)
+      act(() => result.current.clearHost())
+      expect(result.current.errorFor('check.host')).toBeNull()
+      expect(result.current.errorFor('check.port')).toBe('Must be between 1 and 65535.')
+      expect(result.current.count).toBe(1)
+    })
+
+    it('clearing the port removes only its entry', () => {
+      const { result } = setup(TCP)
+      act(() => result.current.clearPort())
+      expect(result.current.errorFor('check.port')).toBeNull()
+      expect(result.current.errorFor('check.host')).toBe('Enter a host.')
+      expect(result.current.count).toBe(1)
+    })
+
+    it('clearing every check path removes them all, an unknown one included, and keeps name, timing and the messages', () => {
+      const { result, rerender } = setup([
+        fieldError('check.method', 'M.'),
+        fieldError('check.url', 'U.'),
+        fieldError('check.query_params[0].name', 'Q.'),
+        fieldError('check.headers', 'H.'),
+        fieldError('check.body.content', 'B.'),
+        fieldError('check.json_rules[0].field', 'R.'),
+        fieldError('check.json_rule_mode', 'RM.'),
+        fieldError('check.certificate_check.min_days_left', 'C.'),
+        fieldError('check.host', 'Host.'),
+        fieldError('check.port', 'Port.'),
+        fieldError('check.type', 'T.'),
+        fieldError('check.unknown', 'X.'),
+        fieldError('name', 'Name.'),
+        fieldError('settings.timeout_seconds', 'Timeout.'),
+        fieldError('unhealthy_message', 'Unhealthy.'),
+        fieldError('recovery_message', 'Recovery.'),
+      ])
+      act(() => result.current.clearCheck())
+      expect(result.current.entries.map((entry) => entry.label)).toEqual([
+        'Name',
+        'Timeout',
+        'Unhealthy message',
+        'Recovery message',
+      ])
+      rerender({ errors: [fieldError('check.host', 'Again.')] })
+      expect(result.current.errorFor('check.host')).toBe('Again.')
+    })
   })
 
   describe('the Request group’s rows and body', () => {

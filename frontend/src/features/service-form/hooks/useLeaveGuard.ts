@@ -3,6 +3,7 @@ import type { HttpMethod } from '../../../lib/api/services'
 import { DEFAULT_CERT_DAYS } from '../lib/certificateOptions'
 import { DEFAULT_RULE_MODE } from '../lib/jsonRules'
 import { DEFAULT_BODY_TYPE } from '../lib/requestRows'
+import { DEFAULT_SERVICE_TYPE } from '../lib/serviceType'
 import { TIMING_DEFAULTS, TIMING_NAMES, type TimingTexts } from '../lib/timingGroup'
 
 /** The method a new service starts with. */
@@ -11,6 +12,9 @@ export const DEFAULT_METHOD: HttpMethod = 'GET'
 type Options = {
   /** The values as the inputs hold them. */
   name: string
+  type: string
+  host: string
+  port: string
   method: string
   url: string
   /** How many query parameter and header rows there are (an empty row counts). */
@@ -43,6 +47,9 @@ type Options = {
  */
 export function useLeaveGuard({
   name,
+  type,
+  host,
+  port,
   method,
   url,
   queryRowCount,
@@ -65,6 +72,9 @@ export function useLeaveGuard({
   const [dialogOpen, setDialogOpen] = useState(false)
   const changed =
     name !== '' ||
+    type !== DEFAULT_SERVICE_TYPE ||
+    host !== '' ||
+    port !== '' ||
     url !== '' ||
     method !== DEFAULT_METHOD ||
     queryRowCount > 0 ||
