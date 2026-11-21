@@ -2,6 +2,8 @@ package mailer
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -34,6 +36,16 @@ func TestClassify(t *testing.T) {
 		{"login 535", &textproto.Error{Code: 535}, tlsNone, false, "login refused"},
 		{"login 538", &textproto.Error{Code: 538}, tlsNone, false, "login refused"},
 		{"another code", &textproto.Error{Code: 554}, tlsNone, false, "other"},
+		{"code just below the login codes", &textproto.Error{Code: 529}, tlsNone, false, "other"},
+		{"code between 530 and 534", &textproto.Error{Code: 531}, tlsNone, false, "other"},
+		{"code 533", &textproto.Error{Code: 533}, tlsNone, false, "other"},
+		{"code between 535 and 538", &textproto.Error{Code: 536}, tlsNone, false, "other"},
+		{"code 537", &textproto.Error{Code: 537}, tlsNone, false, "other"},
+		{"code just above the login codes", &textproto.Error{Code: 539}, tlsNone, false, "other"},
+		{"a bare unknown authority", x509.UnknownAuthorityError{}, tlsImplicit, false, "TLS failed"},
+		{"a bare hostname error", x509.HostnameError{Host: "h"}, tlsImplicit, false, "TLS failed"},
+		{"a bare record header error", tls.RecordHeaderError{}, tlsImplicit, false, "TLS failed"},
+		{"a network timeout is not a lost connection", &net.OpError{Op: "read", Err: timeoutErr{}}, tlsNone, false, "other"},
 		{"no auth, none", mail.ErrNoSupportedAuthDiscovered, tlsNone, false, "login needs TLS"},
 		{"no auth, tls", mail.ErrNoSupportedAuthDiscovered, tlsImplicit, false, "other"},
 		{"no auth, starttls", mail.ErrNoSupportedAuthDiscovered, tlsStartTLS, false, "other"},
@@ -57,3 +69,9 @@ func TestClassify(t *testing.T) {
 		})
 	}
 }
+
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return false }

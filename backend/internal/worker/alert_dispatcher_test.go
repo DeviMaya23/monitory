@@ -1218,6 +1218,27 @@ func TestSequence_LogsTheFailureCause(t *testing.T) {
 	assert.NotContains(t, buf.String(), secretAddress)
 }
 
+func TestSequence_CauseOnTheLastAttemptOnly(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["a@x"] = func(_ context.Context, n int) error {
+		if n < 2 {
+			return fmt.Errorf("failure %d", n)
+		}
+		return &causedError{cause: "timed out", wrapped: "a@x"}
+	}
+	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 1, Interval: 7 * time.Second})
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	retried := waitMsg(t, buf, "t1", "alert delivery attempt failed")
+	waitPending(t, clk, 1)
+	clk.Advance(7 * time.Second)
+	last := waitMsg(t, buf, "t1", "alert delivery failed")
+
+	assert.NotContains(t, retried, "cause")
+	assert.Equal(t, "timed out", last["cause"])
+	assert.NotContains(t, buf.String(), "a@x")
+}
+
 func TestSequence_OtherLinesHaveNoCause(t *testing.T) {
 	mailer := newFakeMailer()
 	mailer.behaveN["ok@x"] = failFirst(0)
@@ -1386,6 +1407,12 @@ func TestSupersede_AttemptInProgress(t *testing.T) {
 		clk.Advance(time.Hour)
 		assert.Len(t, mailer.callList(), 1)
 		assert.Equal(t, []string{"alert delivery superseded"}, msgsOf(buf.lines(t)))
+	})
+	t.Run("a superseded failure with a cause logs no cause", func(t *testing.T) {
+		_, buf, _, _, release := blocked(t, retry3)
+		release(&causedError{cause: "recipient refused", wrapped: "a@x"})
+		line := waitMsg(t, buf, "a", "alert delivery superseded")
+		assert.NotContains(t, line, "cause")
 	})
 	t.Run("failure on the last attempt is the final failure", func(t *testing.T) {
 		_, buf, _, _, release := blocked(t, worker.RetryPolicy{Retries: 0, Interval: 7 * time.Second})

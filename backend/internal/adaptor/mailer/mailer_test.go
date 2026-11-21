@@ -290,6 +290,15 @@ func TestSendEmail_Failures(t *testing.T) {
 		{name: "the server rejects the recipient", opts: testutil.SMTPOptions{RejectRecipient: true}, want: "recipient refused"},
 		{name: "the server rejects DATA", opts: testutil.SMTPOptions{RejectData: true}, want: "message refused"},
 		{name: "a recipient that is not an address", recipient: "not an address", want: "invalid address"},
+		{name: "a recipient with a quote in the local part", recipient: `a"b@example.com`, want: "invalid address"},
+		{name: "a quoted local part the server refuses", opts: testutil.SMTPOptions{RejectRecipient: true}, recipient: `"a b"@example.com`, want: "recipient refused"},
+		{name: "a host that does not resolve", want: "could not connect",
+			mutate: func(_ *testing.T, _ *testutil.SMTPServer, c *mailer.Config) { c.Host = "no-such-host.invalid" }},
+		{name: "tls, a wrong password for a username that is the address", opts: testutil.SMTPOptions{TLS: true, Username: to, Password: "secret"}, want: "login refused",
+			mutate: func(_ *testing.T, s *testutil.SMTPServer, c *mailer.Config) {
+				withTLS(s)(c)
+				c.Username, c.Password = to, "wrong"
+			}},
 		{name: "a sender that is not an address", want: "invalid address",
 			mutate: func(_ *testing.T, _ *testutil.SMTPServer, c *mailer.Config) { c.From = "not an address" }},
 	}
@@ -342,6 +351,33 @@ func TestSendEmail_TimedOutIsStable(t *testing.T) {
 				require.Equal(t, "timed out", domain.FailureCause(err))
 			}
 		})
+	}
+}
+
+// Concurrent failures through one mailer each carry their own cause.
+func TestSendEmail_ConcurrentFailuresKeepTheirOwnCause(t *testing.T) {
+	rcpt := newMailer(t, testutil.NewSMTPServer(t, testutil.SMTPOptions{RejectRecipient: true}), nil)
+	sender := newMailer(t, testutil.NewSMTPServer(t, testutil.SMTPOptions{RejectSender: true}), nil)
+	var wg sync.WaitGroup
+	causes := make([]string, 40)
+	for i := range causes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m := rcpt
+			if i%2 == 1 {
+				m = sender
+			}
+			causes[i] = domain.FailureCause(m.SendEmail(t.Context(), "ops@example.com", alertFor(domain.AlertUnhealthy)))
+		}()
+	}
+	wg.Wait()
+	for i, c := range causes {
+		want := "recipient refused"
+		if i%2 == 1 {
+			want = "sender refused"
+		}
+		assert.Equal(t, want, c, "send %d", i)
 	}
 }
 
@@ -608,6 +644,7 @@ func TestSendEmail_ImplicitTLSStalledHandshake(t *testing.T) {
 		case err := <-errs:
 			require.ErrorIs(t, err, context.Canceled)
 			assert.NotErrorIs(t, err, mailer.ErrNotAccepted)
+			assert.Empty(t, domain.FailureCause(err))
 		case <-time.After(2 * time.Second):
 			t.Fatal("the handshake did not end when the context was cancelled")
 		}
