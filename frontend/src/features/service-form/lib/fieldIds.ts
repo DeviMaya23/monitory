@@ -1,5 +1,6 @@
 import { CERT_DAYS_ID, CERT_DAYS_PATH } from './certificateOptions'
 import type { FieldTarget, StaticTarget } from './fieldLabels'
+import { HOST_ID, HOST_PATH, PORT_ID, PORT_PATH } from './serviceType'
 import { parseRulePath, ruleInputId } from './jsonRules'
 import { BODY_CONTENT_ID, BODY_CONTENT_PATH, parseRowPath, rowInputId } from './requestRows'
 
@@ -8,6 +9,8 @@ export const FIELD_IDS: Record<StaticTarget, string> = {
   name: 'service-name',
   'check.method': 'service-method',
   'check.url': 'service-url',
+  [HOST_PATH]: HOST_ID,
+  [PORT_PATH]: PORT_ID,
   [CERT_DAYS_PATH]: CERT_DAYS_ID,
   'settings.check_interval_seconds': 'service-check-interval',
   'settings.timeout_seconds': 'service-timeout',

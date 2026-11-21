@@ -1,6 +1,6 @@
 import { useEffect, useRef, type BaseSyntheticEvent } from 'react'
 import { ArrowLeft, LoaderCircle } from 'lucide-react'
-import { Controller, useForm, useWatch } from 'react-hook-form'
+import { Controller, useForm, useWatch, type FieldErrors } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router'
 import { Select } from '../../../components/ui/Select'
 import { useToast } from '../../../components/ui/useToast'
@@ -12,6 +12,7 @@ import { errorId, FIELD_IDS, focusField } from '../lib/fieldIds'
 import { CERT_DAYS_PATH, DEFAULT_CERT_DAYS, startsWithHttps } from '../lib/certificateOptions'
 import { DEFAULT_RULE_MODE } from '../lib/jsonRules'
 import { DEFAULT_BODY_TYPE } from '../lib/requestRows'
+import { DEFAULT_SERVICE_TYPE, HOST_PATH, PORT_PATH } from '../lib/serviceType'
 import { TIMING_DEFAULTS, TIMING_FIELDS, TIMING_NAMES, type TimingName } from '../lib/timingGroup'
 import { AlertsGroup } from './AlertsGroup'
 import { DiscardDialog } from './DiscardDialog'
@@ -21,7 +22,9 @@ import { FormBanners } from './FormBanners'
 import { HealthRulesGroup } from './HealthRulesGroup'
 import { HttpsGroup } from './HttpsGroup'
 import { RequestRowsGroup } from './RequestRowsGroup'
+import { TcpGroup } from './TcpGroup'
 import { TimingGroup } from './TimingGroup'
+import { TypeField } from './TypeField'
 import '../service-form.css'
 
 // The methods the contract allows (FR-36), in the order the select lists them.
@@ -34,6 +37,19 @@ const URL_HINT_ID = 'service-url-hint'
 const URL_HINT = 'Starts with http:// or https://. Query parameters can go here or below.'
 
 const filled = (value: string) => value.trim() !== ''
+
+/** The inputs that failed a client check, as the form library names them in `errors`, in the order of the page. */
+function invalidInputs(errors: FieldErrors<ServiceFormValues>): HTMLElement[] {
+  const found: HTMLElement[] = []
+  const walk = (node: unknown) => {
+    if (typeof node !== 'object' || node === null) return
+    const { ref } = node as { ref?: unknown }
+    if (ref instanceof HTMLElement) found.push(ref)
+    for (const child of Object.values(node)) if (child !== ref) walk(child)
+  }
+  walk(errors)
+  return found.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+}
 
 /** The Add service screen: name, method and URL of an HTTP(S) check, saved through `createService` (FR-6). */
 export function AddServiceForm() {
@@ -49,6 +65,9 @@ export function AddServiceForm() {
   } = useForm<ServiceFormValues>({
     defaultValues: {
       name: '',
+      type: DEFAULT_SERVICE_TYPE,
+      host: '',
+      port: '',
       method: DEFAULT_METHOD,
       url: '',
       query_params: [],
@@ -67,6 +86,8 @@ export function AddServiceForm() {
     },
     // A client error goes when its field is edited, not when it becomes valid.
     reValidateMode: 'onSubmit',
+    // Groups that mount later register later: focus goes by the order of the page instead (see invalidInputs).
+    shouldFocusError: false,
   })
   const { saving, saved, failure, submit, clearFailure } = useCreateService((service) => {
     toast.show({ kind: 'success', message: `Service “${service.name}” added.` })
@@ -75,6 +96,9 @@ export function AddServiceForm() {
   const serverErrors = useServerErrors(failure?.kind === 'field-errors' ? failure.errors : null)
   const [
     name,
+    type,
+    host,
+    port,
     method,
     url,
     queryParams,
@@ -94,6 +118,9 @@ export function AddServiceForm() {
     control,
     name: [
       'name',
+      'type',
+      'host',
+      'port',
       'method',
       'url',
       'query_params',
@@ -114,6 +141,9 @@ export function AddServiceForm() {
   const timing = Object.fromEntries(TIMING_NAMES.map((key, i) => [key, timingTexts[i]])) as Record<TimingName, string>
   const guard = useLeaveGuard({
     name,
+    type,
+    host,
+    port,
     method,
     url,
     queryRowCount: queryParams.length,
@@ -148,7 +178,7 @@ export function AddServiceForm() {
     else saveRef.current?.focus()
   }, [failure])
 
-  const save = handleSubmit(submit)
+  const save = handleSubmit(submit, (errors) => invalidInputs(errors)[0]?.focus())
   /** A new attempt: what the last one left goes first, then the client checks, then the request. */
   const onSubmit = (event?: BaseSyntheticEvent) => {
     event?.preventDefault()
@@ -166,7 +196,7 @@ export function AddServiceForm() {
     },
   })
   const urlField = register('url', {
-    validate: (value) => filled(value) || 'Enter a URL.',
+    validate: (value, values) => values.type === 'tcp' || filled(value) || 'Enter a URL.',
     onChange: (event) => {
       clearErrors(['url', 'cert_days'])
       serverErrors.clearUrl()
@@ -178,6 +208,12 @@ export function AddServiceForm() {
     },
   })
 
+  /** A type change: the client errors of the fields going away and every `check.` error (answered for the other type) go. */
+  const onTypeChange = () => {
+    clearErrors(['url', 'cert_days', 'port'])
+    serverErrors.clearCheck()
+  }
+
   const nameError =
     clientErrors.name?.message ?? (failure?.kind === 'name-taken' ? NAME_TAKEN : serverErrors.errorFor('name'))
   const methodError = serverErrors.errorFor('check.method')
@@ -185,6 +221,8 @@ export function AddServiceForm() {
   const timingErrors = Object.fromEntries(
     TIMING_NAMES.map((key) => [key, clientErrors[key]?.message ?? serverErrors.errorFor(TIMING_FIELDS[key].path)]),
   ) as Record<TimingName, string | null>
+  const hostError = serverErrors.errorFor(HOST_PATH)
+  const portError = clientErrors.port?.message ?? serverErrors.errorFor(PORT_PATH)
   const daysError = clientErrors.cert_days?.message ?? serverErrors.errorFor(CERT_DAYS_PATH)
   const status = saving ? SAVING : guard.changed ? 'Unsaved changes' : ''
 
@@ -228,72 +266,96 @@ export function AddServiceForm() {
                   />
                   {nameError && <FieldErrorText id={errorId(FIELD_IDS.name)} message={nameError} />}
                 </div>
+                <TypeField control={control} saving={saving} onChange={onTypeChange} />
               </div>
             </fieldset>
 
-            <fieldset className="group">
-              <legend className="group__legend">Request</legend>
-              <div className="stack">
-                <div className="url-row">
-                  <div className="field">
-                    <Controller
-                      name="method"
-                      control={control}
-                      render={({ field }) => (
-                        <Select
-                          id={FIELD_IDS['check.method']}
-                          label="Method"
-                          value={field.value}
-                          onValueChange={(next) => {
-                            field.onChange(next)
-                            serverErrors.clearField('check.method')
-                          }}
-                          options={METHOD_OPTIONS}
-                          disabled={saving}
-                          invalid={methodError !== null}
-                          aria-describedby={methodError ? errorId(FIELD_IDS['check.method']) : undefined}
+            {type === 'tcp' ? (
+              <TcpGroup
+                register={register}
+                saving={saving}
+                hostError={hostError}
+                portError={portError}
+                onEditHost={serverErrors.clearHost}
+                onEditPort={() => {
+                  clearErrors('port')
+                  serverErrors.clearPort()
+                }}
+              />
+            ) : (
+              <>
+                <fieldset className="group">
+                  <legend className="group__legend">Request</legend>
+                  <div className="stack">
+                    <div className="url-row">
+                      <div className="field">
+                        <Controller
+                          name="method"
+                          control={control}
+                          render={({ field }) => (
+                            <Select
+                              id={FIELD_IDS['check.method']}
+                              label="Method"
+                              value={field.value}
+                              onValueChange={(next) => {
+                                field.onChange(next)
+                                serverErrors.clearField('check.method')
+                              }}
+                              options={METHOD_OPTIONS}
+                              disabled={saving}
+                              invalid={methodError !== null}
+                              aria-describedby={methodError ? errorId(FIELD_IDS['check.method']) : undefined}
+                            />
+                          )}
                         />
-                      )}
+                        {methodError && (
+                          <FieldErrorText id={errorId(FIELD_IDS['check.method'])} message={methodError} />
+                        )}
+                      </div>
+                      <div className="field">
+                        <label className="label" htmlFor={FIELD_IDS['check.url']}>
+                          URL
+                        </label>
+                        <input
+                          className="input input--mono"
+                          id={FIELD_IDS['check.url']}
+                          type="url"
+                          placeholder="https://"
+                          readOnly={saving}
+                          aria-invalid={urlError ? 'true' : undefined}
+                          aria-describedby={urlError ? errorId(FIELD_IDS['check.url']) : URL_HINT_ID}
+                          {...urlField}
+                        />
+                        {urlError ? (
+                          <FieldErrorText id={errorId(FIELD_IDS['check.url'])} message={urlError} />
+                        ) : (
+                          <p className="hint" id={URL_HINT_ID}>
+                            {URL_HINT}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <RequestRowsGroup
+                      control={control}
+                      register={register}
+                      saving={saving}
+                      serverErrors={serverErrors}
                     />
-                    {methodError && <FieldErrorText id={errorId(FIELD_IDS['check.method'])} message={methodError} />}
                   </div>
-                  <div className="field">
-                    <label className="label" htmlFor={FIELD_IDS['check.url']}>
-                      URL
-                    </label>
-                    <input
-                      className="input input--mono"
-                      id={FIELD_IDS['check.url']}
-                      type="url"
-                      placeholder="https://"
-                      readOnly={saving}
-                      aria-invalid={urlError ? 'true' : undefined}
-                      aria-describedby={urlError ? errorId(FIELD_IDS['check.url']) : URL_HINT_ID}
-                      {...urlField}
-                    />
-                    {urlError ? (
-                      <FieldErrorText id={errorId(FIELD_IDS['check.url'])} message={urlError} />
-                    ) : (
-                      <p className="hint" id={URL_HINT_ID}>
-                        {URL_HINT}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <RequestRowsGroup control={control} register={register} saving={saving} serverErrors={serverErrors} />
-              </div>
-            </fieldset>
+                </fieldset>
 
-            <HealthRulesGroup control={control} register={register} saving={saving} serverErrors={serverErrors} />
+                <HealthRulesGroup control={control} register={register} saving={saving} serverErrors={serverErrors} />
 
-            <HttpsGroup
-              control={control}
-              register={register}
-              saving={saving}
-              daysError={daysError}
-              clearDaysError={() => clearErrors('cert_days')}
-              serverErrors={serverErrors}
-            />
+                <HttpsGroup
+                  control={control}
+                  register={register}
+                  saving={saving}
+                  daysError={daysError}
+                  clearDaysError={() => clearErrors('cert_days')}
+                  serverErrors={serverErrors}
+                />
+              </>
+            )}
 
             <TimingGroup
               control={control}

@@ -3,6 +3,7 @@ import type { FieldError } from '../../../lib/api/services'
 import { CERT_DAYS_PATH, CERT_ENABLED_PATH, IGNORE_CERT_PATH } from '../lib/certificateOptions'
 import { parseRulePath, RULES_PATH } from '../lib/jsonRules'
 import { fieldLabel, TIMING_GROUP_PATH, type BarePath, type FieldTarget } from '../lib/fieldLabels'
+import { CHECK_PREFIX, HOST_PATH, PORT_PATH } from '../lib/serviceType'
 import { BODY_CONTENT_PATH, BODY_TYPE_PATH, listPath, parseRowPath, type RowList } from '../lib/requestRows'
 
 export type SummaryEntry = {
@@ -23,6 +24,8 @@ const NONE: ReadonlySet<Cleared> = new Set()
 
 const ROWS_OF = (list: RowList) => `rows:${list}`
 const RULE_ROWS = 'rows:json_rules'
+/** Stands for every path that starts with `check.`, an unknown one included. */
+const CHECK_PATHS = 'prefix:check.'
 
 /**
  * The state of a `422`: the errors of the last response (`errors`, a new array for every
@@ -41,6 +44,7 @@ export function useServerErrors(errors: readonly FieldError[] | null) {
 
   const isCleared = (path: string) => {
     if (cleared.has(path)) return true
+    if (cleared.has(CHECK_PATHS) && path.startsWith(CHECK_PREFIX)) return true
     const row = parseRowPath(path)
     if (row !== null && cleared.has(ROWS_OF(row.list))) return true
     return parseRulePath(path) !== null && cleared.has(RULE_ROWS)
@@ -101,6 +105,12 @@ export function useServerErrors(errors: readonly FieldError[] | null) {
     clearExpiryOff: () => clear(CERT_ENABLED_PATH, CERT_DAYS_PATH),
     /** The URL was edited: its error goes, and so do the HTTPS ones, whose cause may be gone. */
     clearUrl: () => clear('check.url', CERT_ENABLED_PATH, IGNORE_CERT_PATH, CERT_DAYS_PATH),
+    /** The host was edited: its error goes. */
+    clearHost: () => clear(HOST_PATH),
+    /** The port was edited: its error goes. */
+    clearPort: () => clear(PORT_PATH),
+    /** The type changed: every `check.` error was answered for the other type, so all go. */
+    clearCheck: () => clear(CHECK_PATHS),
     /** The body type changed: the type's error and the text's go. */
     clearBodyType: () => clear(BODY_TYPE_PATH, BODY_CONTENT_PATH),
   }

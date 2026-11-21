@@ -13,6 +13,9 @@ vi.mock('../../../lib/api/services', async (importOriginal) => ({
 
 const VALUES: ServiceFormValues = {
   name: 'Search API',
+  type: 'http',
+  host: '',
+  port: '',
   method: 'POST',
   url: 'https://search.example.com/health',
   query_params: [],
@@ -93,6 +96,48 @@ describe('the request rows and body (FR-35, FR-37)', () => {
       certificate_check: { enabled: false },
       ignore_certificate_errors: false,
     })
+  })
+
+  it('sends exactly type, host and port for a TCP service, whatever the HTTP groups hold, and the timing as typed (FR-33, FR-49, FR-52)', async () => {
+    vi.mocked(createService).mockResolvedValue(makeService())
+    const { result } = setup()
+    await act(() =>
+      result.current.submit({
+        ...VALUES,
+        type: 'tcp',
+        host: 'db.internal',
+        port: ' 5432 ',
+        query_params: [{ name: 'a', value: 'b' }],
+        headers: [{ name: 'X', value: 'y' }],
+        body_type: 'json',
+        body_content: '{}',
+        json_rules: [{ field: 'ok', kind: 'true', text: '' }],
+        cert_enabled: true,
+        ignore_cert_errors: true,
+        check_interval: '45',
+        timeout: '5',
+        retries: '0',
+        retry_interval: '1',
+      }),
+    )
+    const input = vi.mocked(createService).mock.calls[0][0]
+    expect(input.check).toStrictEqual({ type: 'tcp', host: 'db.internal', port: 5432 })
+    expect(input.settings).toEqual({
+      check_interval_seconds: 45,
+      timeout_seconds: 5,
+      retry_count: 0,
+      retry_interval_seconds: 1,
+    })
+  })
+
+  it('sends no host or port for an HTTP service that has them typed', async () => {
+    vi.mocked(createService).mockResolvedValue(makeService())
+    const { result } = setup()
+    await act(() => result.current.submit({ ...VALUES, host: 'db.internal', port: '5432' }))
+    const check = vi.mocked(createService).mock.calls[0][0].check
+    expect(check.type).toBe('http')
+    expect(check).not.toHaveProperty('host')
+    expect(check).not.toHaveProperty('port')
   })
 
   it('sends the rules, the mode and the certificate options as typed (FR-44, FR-47, FR-34, FR-50, FR-64)', async () => {

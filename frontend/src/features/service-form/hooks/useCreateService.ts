@@ -11,10 +11,17 @@ import {
 import { certificateParts } from '../lib/certificateOptions'
 import { ruleParts, type RuleMode, type RuleValue } from '../lib/jsonRules'
 import { requestParts, type BodyType } from '../lib/requestRows'
+import { tcpCheck, type ServiceType } from '../lib/serviceType'
+import { readWholeNumber } from '../lib/timingGroup'
 
 /** What the form sends: the values on this screen. The two messages are sent as typed. */
 export type ServiceFormValues = {
   name: string
+  /** The kind of service; only its own fields are sent, the others stay in the form. */
+  type: ServiceType
+  /** The TCP host and port, as typed. */
+  host: string
+  port: string
   method: HttpMethod
   url: string
   /** The query parameter and header rows, as typed. */
@@ -87,6 +94,9 @@ export function useCreateService(onCreated: (service: Service) => void) {
 
   const submit = async ({
     name,
+    type,
+    host,
+    port,
     method,
     url,
     query_params,
@@ -113,14 +123,18 @@ export function useCreateService(onCreated: (service: Service) => void) {
     try {
       const service = await createService({
         name,
-        check: {
-          type: 'http',
-          method,
-          url,
-          ...requestParts({ query_params, headers, body_type, body_content }),
-          ...ruleParts({ json_rules, json_rule_mode }),
-          ...certificateParts({ cert_enabled, cert_days, ignore_cert_errors }),
-        },
+        check:
+          type === 'tcp'
+            ? // The form has checked the port; the fallback only satisfies the types.
+              tcpCheck(host, readWholeNumber(port) ?? 0)
+            : {
+                type: 'http',
+                method,
+                url,
+                ...requestParts({ query_params, headers, body_type, body_content }),
+                ...ruleParts({ json_rules, json_rule_mode }),
+                ...certificateParts({ cert_enabled, cert_days, ignore_cert_errors }),
+              },
         alerts_enabled,
         unhealthy_message,
         recovery_message,
