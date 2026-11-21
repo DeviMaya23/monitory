@@ -100,6 +100,28 @@ func TestSMTPServer_RejectsTheRecipient(t *testing.T) {
 	assert.Empty(t, s.Messages())
 }
 
+func TestSMTPServer_RejectsTheSender(t *testing.T) {
+	s := testutil.NewSMTPServer(t, testutil.SMTPOptions{RejectSender: true})
+	c := dial(t, s)
+	c.read()
+	require.True(t, strings.HasPrefix(c.send("EHLO client"), "250"))
+
+	assert.True(t, strings.HasPrefix(c.send("MAIL FROM:<from@x>"), "550"))
+	assert.Empty(t, s.Messages())
+}
+
+func TestSMTPServer_RejectsData(t *testing.T) {
+	s := testutil.NewSMTPServer(t, testutil.SMTPOptions{RejectData: true})
+	c := dial(t, s)
+	c.read()
+	require.True(t, strings.HasPrefix(c.send("EHLO client"), "250"))
+	require.True(t, strings.HasPrefix(c.send("MAIL FROM:<from@x>"), "250"))
+	require.True(t, strings.HasPrefix(c.send("RCPT TO:<to@x>"), "250"))
+
+	assert.True(t, strings.HasPrefix(c.send("DATA"), "554"))
+	assert.Empty(t, s.Messages())
+}
+
 func TestSMTPServer_ClosesAtConnect(t *testing.T) {
 	s := testutil.NewSMTPServer(t, testutil.SMTPOptions{CloseAtConnect: true})
 	c := dial(t, s)
