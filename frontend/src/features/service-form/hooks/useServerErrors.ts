@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import type { FieldError } from '../../../lib/api/services'
+import { CERT_DAYS_PATH, CERT_ENABLED_PATH, IGNORE_CERT_PATH } from '../lib/certificateOptions'
+import { parseRulePath, RULES_PATH } from '../lib/jsonRules'
 import { fieldLabel, TIMING_GROUP_PATH, type BarePath, type FieldTarget } from '../lib/fieldLabels'
 import { BODY_CONTENT_PATH, BODY_TYPE_PATH, listPath, parseRowPath, type RowList } from '../lib/requestRows'
 
@@ -20,6 +22,7 @@ type Cleared = string
 const NONE: ReadonlySet<Cleared> = new Set()
 
 const ROWS_OF = (list: RowList) => `rows:${list}`
+const RULE_ROWS = 'rows:json_rules'
 
 /**
  * The state of a `422`: the errors of the last response (`errors`, a new array for every
@@ -39,7 +42,8 @@ export function useServerErrors(errors: readonly FieldError[] | null) {
   const isCleared = (path: string) => {
     if (cleared.has(path)) return true
     const row = parseRowPath(path)
-    return row !== null && cleared.has(ROWS_OF(row.list))
+    if (row !== null && cleared.has(ROWS_OF(row.list))) return true
+    return parseRulePath(path) !== null && cleared.has(RULE_ROWS)
   }
 
   const entries: SummaryEntry[] = (errors ?? [])
@@ -87,6 +91,16 @@ export function useServerErrors(errors: readonly FieldError[] | null) {
     clearList: (list: RowList) => clear(listPath(list)),
     /** A row was removed: the list's own error and every row error of it go. */
     clearRows: (list: RowList) => clear(listPath(list), ROWS_OF(list)),
+    /** A rule was added: the rules' own error goes. */
+    clearRulesList: () => clear(RULES_PATH),
+    /** A rule was removed: the rules' own error and every rule row error go (the indexes shifted). */
+    clearRuleRows: () => clear(RULES_PATH, RULE_ROWS),
+    /** The mode or a switch changed: its error goes (a path with no input). */
+    clearBare: (path: BarePath) => clear(path),
+    /** The expiry switch went off: its error and the days' go. */
+    clearExpiryOff: () => clear(CERT_ENABLED_PATH, CERT_DAYS_PATH),
+    /** The URL was edited: its error goes, and so do the HTTPS ones, whose cause may be gone. */
+    clearUrl: () => clear('check.url', CERT_ENABLED_PATH, IGNORE_CERT_PATH, CERT_DAYS_PATH),
     /** The body type changed: the type's error and the text's go. */
     clearBodyType: () => clear(BODY_TYPE_PATH, BODY_CONTENT_PATH),
   }

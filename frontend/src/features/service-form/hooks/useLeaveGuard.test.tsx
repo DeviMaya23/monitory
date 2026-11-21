@@ -15,6 +15,11 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
   const [headerRows, setHeaderRows] = useState(0)
   const [bodyType, setBodyType] = useState('none')
   const [bodyContent, setBodyContent] = useState('')
+  const [ruleCount, setRuleCount] = useState(0)
+  const [ruleMode, setRuleMode] = useState('any')
+  const [certEnabled, setCertEnabled] = useState(false)
+  const [certDays, setCertDays] = useState('14')
+  const [ignoreCertErrors, setIgnoreCertErrors] = useState(false)
   const [alertsEnabled, setAlertsEnabled] = useState(true)
   const [unhealthyMessage, setUnhealthyMessage] = useState('')
   const [recoveryMessage, setRecoveryMessage] = useState('')
@@ -27,6 +32,11 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
     headerRowCount: headerRows,
     bodyType,
     bodyContent,
+    ruleCount,
+    ruleMode,
+    certEnabled,
+    certDays,
+    ignoreCertErrors,
     alertsEnabled,
     unhealthyMessage,
     recoveryMessage,
@@ -44,6 +54,13 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
       <button onClick={() => setQueryRows((n) => Math.max(0, n - 1))}>remove query</button>
       <button onClick={() => setHeaderRows((n) => n + 1)}>add header</button>
       <button onClick={() => setHeaderRows((n) => Math.max(0, n - 1))}>remove header</button>
+      <button onClick={() => setRuleCount((n) => n + 1)}>add rule</button>
+      <button onClick={() => setRuleCount((n) => Math.max(0, n - 1))}>remove rule</button>
+      <button onClick={() => setRuleMode('all')}>mode all</button>
+      <button onClick={() => setRuleMode('any')}>mode any</button>
+      <button onClick={() => setCertEnabled((on) => !on)}>toggle expiry</button>
+      <button onClick={() => setIgnoreCertErrors((on) => !on)}>toggle ignore</button>
+      <input aria-label="days" value={certDays} onChange={(event) => setCertDays(event.target.value)} />
       <button onClick={() => setBodyType('json')}>type json</button>
       <button onClick={() => setBodyType('none')}>type none</button>
       <input
@@ -115,6 +132,27 @@ describe('changed', () => {
     type(label, value)
     expect(changed()).toBe('true')
     type(label, start)
+    expect(changed()).toBe('false')
+  })
+
+  it.each([
+    ['one rule, even an empty one', 'add rule', 'remove rule'],
+    ['the mode All rules match', 'mode all', 'mode any'],
+    ['the expiry switch on', 'toggle expiry', 'toggle expiry'],
+    ['the ignore switch on', 'toggle ignore', 'toggle ignore'],
+  ])('is true with %s, and false again when put back', (_label, on, off) => {
+    render(<Harness />)
+    click(on)
+    expect(changed()).toBe('true')
+    click(off)
+    expect(changed()).toBe('false')
+  })
+
+  it.each(['14 ', '7'])('is true when the days text is %j, and false again when put back to 14', (days) => {
+    render(<Harness />)
+    type('days', days)
+    expect(changed()).toBe('true')
+    type('days', '14')
     expect(changed()).toBe('false')
   })
 
