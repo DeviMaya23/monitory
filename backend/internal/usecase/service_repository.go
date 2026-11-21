@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"time"
 
 	"monitory/internal/domain"
 )
@@ -22,6 +23,12 @@ type ServiceRepository interface {
 	// state. It returns domain.ErrNotFound when there is no such service and
 	// domain.ErrServiceNameTaken when another service has the name, ignoring case (FR-59).
 	Update(ctx context.Context, service domain.Service) (domain.ServiceView, error)
+	// SetPaused sets the paused flag of the service in one transaction and returns the
+	// service with its state, as Get does. changed is false, and nothing is written
+	// (updated_at included), when the flag already had the value; otherwise the flag and
+	// updated_at (at) are written and changed is true. It returns domain.ErrNotFound when
+	// there is no such service (FR-75, FR-78).
+	SetPaused(ctx context.Context, id string, paused bool, at time.Time) (domain.ServiceView, bool, error)
 	// Delete removes the service with its state and targets. It returns
 	// domain.ErrNotFound when there is no such service (FR-70).
 	Delete(ctx context.Context, id string) error

@@ -49,6 +49,17 @@ type fakeServices struct {
 	// is not yet checked.
 	states  map[string]domain.ServiceState
 	updates []domain.Service // the rows Update was called with
+
+	pauseCalls []pauseCall // the calls of SetPaused
+	// unchanged, when true, makes SetPaused report changed false whatever the flag is.
+	unchanged bool
+}
+
+// pauseCall is one call of SetPaused.
+type pauseCall struct {
+	id     string
+	paused bool
+	at     time.Time
 }
 
 // seedState sets the state the repository keeps for a service.
@@ -112,6 +123,32 @@ func (f *fakeServices) Update(_ context.Context, service domain.Service) (domain
 		}
 	}
 	return domain.ServiceView{}, domain.ErrNotFound
+}
+
+// SetPaused sets the stored flag as the real repository does: the stored state is
+// returned as it is, and changed is false when the flag already had the value. It
+// yields between its write and its return, so that a caller without a mutex shows up.
+func (f *fakeServices) SetPaused(_ context.Context, id string, paused bool, at time.Time) (domain.ServiceView, bool, error) {
+	f.pauseCalls = append(f.pauseCalls, pauseCall{id, paused, at})
+	if f.err != nil {
+		return domain.ServiceView{}, false, f.err
+	}
+	for i, stored := range f.services {
+		if stored.ID != id {
+			continue
+		}
+		changed := stored.Paused != paused && !f.unchanged
+		if changed {
+			f.services[i].Paused, f.services[i].UpdatedAt = paused, at
+		}
+		if f.events != nil {
+			*f.events = append(*f.events, "set-paused")
+		}
+		view := f.view(f.services[i])
+		yield()
+		return view, changed, nil
+	}
+	return domain.ServiceView{}, false, domain.ErrNotFound
 }
 
 func (f *fakeServices) List(context.Context) ([]domain.ServiceView, error) {

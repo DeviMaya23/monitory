@@ -216,3 +216,32 @@ func TestServiceStateUpdate_ConcurrentUpdatesDoNotLoseWrites(t *testing.T) {
 
 	assert.Equal(t, ptr(n), readState(t, db, "s1").FailureHTTPStatus)
 }
+
+func TestServiceStateUpdate_PausedServiceIsRefusedAndNothingIsWritten(t *testing.T) {
+	db, repo := newStateFixture(t, "s1")
+	at := time.Date(2026, 6, 2, 3, 4, 5, 0, time.UTC)
+	called := false
+	apply := func(domain.ServiceState) domain.ServiceState {
+		called = true
+		return unhealthyState("s1", at)
+	}
+
+	// Baseline: the same call on an unpaused service writes.
+	require.NoError(t, repo.Update(t.Context(), "s1", apply))
+	require.True(t, called)
+	require.Equal(t, domain.StatusUnhealthy, readState(t, db, "s1").Status)
+
+	require.NoError(t, db.Model(&domain.Service{}).Where("id = ?", "s1").Update("paused", true).Error)
+	before := readState(t, db, "s1")
+	called = false
+	err := repo.Update(t.Context(), "s1", replaceWith(domain.ServiceState{ServiceID: "s1", Status: domain.StatusHealthy}))
+	require.ErrorIs(t, err, domain.ErrServicePaused)
+	err = repo.Update(t.Context(), "s1", func(s domain.ServiceState) domain.ServiceState {
+		called = true
+		return s
+	})
+
+	require.ErrorIs(t, err, domain.ErrServicePaused)
+	assert.False(t, called)
+	assert.Equal(t, before, readState(t, db, "s1"))
+}

@@ -90,3 +90,32 @@ func (s *Server) DeleteService(ctx context.Context, request api.DeleteServiceReq
 	s.log.Info("service deleted", "service_id", request.ServiceId)
 	return api.DeleteService204Response{}, nil
 }
+
+// PauseService pauses a service; the answer is the service as saved (FR-75, FR-76).
+func (s *Server) PauseService(ctx context.Context, request api.PauseServiceRequestObject) (api.PauseServiceResponseObject, error) {
+	view, err := s.services.PauseService(ctx, request.ServiceId)
+	if err != nil {
+		return nil, err
+	}
+	service, err := toAPIService(view)
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("service paused", "service_id", view.Service.ID, "service_name", view.Service.Name)
+	return api.PauseService200JSONResponse(service), nil
+}
+
+// ResumeService resumes a paused service; the answer is the service as saved (FR-75,
+// FR-79).
+func (s *Server) ResumeService(ctx context.Context, request api.ResumeServiceRequestObject) (api.ResumeServiceResponseObject, error) {
+	view, err := s.services.ResumeService(ctx, request.ServiceId)
+	if err != nil {
+		return nil, err
+	}
+	service, err := toAPIService(view)
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("service resumed", "service_id", view.Service.ID, "service_name", view.Service.Name)
+	return api.ResumeService200JSONResponse(service), nil
+}
