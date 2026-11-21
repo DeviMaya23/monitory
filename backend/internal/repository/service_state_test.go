@@ -245,3 +245,39 @@ func TestServiceStateUpdate_PausedServiceIsRefusedAndNothingIsWritten(t *testing
 	assert.False(t, called)
 	assert.Equal(t, before, readState(t, db, "s1"))
 }
+
+func TestServiceStateUpdate_ServiceRowGoneButStateRowRemains(t *testing.T) {
+	db, repo := newStateFixture(t, "s1")
+	at := time.Date(2026, 6, 2, 3, 4, 5, 0, time.UTC)
+	// Baseline: while the service has a row, the same call writes.
+	require.NoError(t, repo.Update(t.Context(), "s1", replaceWith(unhealthyState("s1", at))))
+	require.Equal(t, domain.StatusUnhealthy, readState(t, db, "s1").Status)
+
+	// The foreign key cascade would remove the state row with its service, so the
+	// delete runs with foreign keys off, on one pinned connection. They are switched on
+	// again before the connection goes back to the pool, whatever happens after.
+	var foreignKeys int
+	require.NoError(t, db.Connection(func(conn *gorm.DB) error {
+		if err := conn.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
+			return err
+		}
+		defer func() {
+			require.NoError(t, conn.Exec("PRAGMA foreign_keys = ON").Error)
+			require.NoError(t, conn.Raw("PRAGMA foreign_keys").Scan(&foreignKeys).Error)
+		}()
+		return conn.Exec("DELETE FROM services WHERE id = ?", "s1").Error
+	}))
+	require.Equal(t, 1, foreignKeys, "foreign keys are back on")
+	require.Zero(t, count(t, db, &domain.Service{}))
+	before := readState(t, db, "s1")
+	called := false
+
+	err := repo.Update(t.Context(), "s1", func(s domain.ServiceState) domain.ServiceState {
+		called = true
+		return domain.ServiceState{ServiceID: "s1", Status: domain.StatusHealthy}
+	})
+
+	require.ErrorIs(t, err, domain.ErrNotFound)
+	assert.False(t, called)
+	assert.Equal(t, before, readState(t, db, "s1"), "the orphaned state row is untouched")
+}
