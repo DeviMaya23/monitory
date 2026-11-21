@@ -32,6 +32,10 @@ func (p *TCPProber) CheckTCP(ctx context.Context, check domain.TCPCheck) (domain
 	if check.Timeout <= 0 {
 		return failure(domain.FailureTimedOut), nil
 	}
+	if check.Host == "" {
+		// The standard dialer reads ":port" as the local machine: never a healthy check.
+		return failure(domain.FailureCouldNotConnect), nil
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, check.Timeout)
 	defer cancel()
 

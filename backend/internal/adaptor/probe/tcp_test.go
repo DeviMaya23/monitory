@@ -130,11 +130,71 @@ func TestCheckTCP_DialErrors(t *testing.T) {
 			assert.Equal(t, 1, *calls)
 		})
 	}
-	t.Run("host with a space, real dialer", func(t *testing.T) {
-		res, err := NewTCPProber().CheckTCP(t.Context(), domain.TCPCheck{Host: "bad host", Port: 81, Timeout: 2 * time.Second})
+	t.Run("host with a space, lookup error", func(t *testing.T) {
+		var address string
+		p, calls := dialStub(func(_ context.Context, a string) (net.Conn, error) {
+			address = a
+			return nil, &net.DNSError{Err: "no such host", Name: "bad host", IsNotFound: true}
+		})
+
+		res, err := p.CheckTCP(t.Context(), domain.TCPCheck{Host: "bad host", Port: 81, Timeout: 2 * time.Second})
 
 		require.NoError(t, err)
 		requireFailure(t, res, domain.FailureCouldNotConnect)
+		assert.Equal(t, 1, *calls)
+		assert.Equal(t, "bad host:81", address, "the host reaches the dialer unchanged")
+	})
+}
+
+func TestCheckTCP_EmptyHost(t *testing.T) {
+	l := listen(t)
+	_, port := hostPort(t, l.Addr())
+	// The stub dials the address for real, so without the guard ":port" would reach the
+	// listener on the local machine and the check would be healthy.
+	newProber := func() (*TCPProber, *int) {
+		return dialStub(func(ctx context.Context, address string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "tcp", address)
+		})
+	}
+
+	t.Run("not healthy and not dialled", func(t *testing.T) {
+		p, calls := newProber()
+
+		res, err := p.CheckTCP(t.Context(), domain.TCPCheck{Host: "", Port: port, Timeout: 2 * time.Second})
+
+		require.NoError(t, err)
+		requireFailure(t, res, domain.FailureCouldNotConnect)
+		assert.Zero(t, *calls)
+	})
+	t.Run("baseline: a host on the same port is healthy", func(t *testing.T) {
+		p, calls := newProber()
+
+		res, err := p.CheckTCP(t.Context(), domain.TCPCheck{Host: "127.0.0.1", Port: port, Timeout: 2 * time.Second})
+
+		require.NoError(t, err)
+		assert.Equal(t, domain.CheckResult{Healthy: true}, res)
+		assert.Equal(t, 1, *calls)
+	})
+	t.Run("a zero timeout comes first", func(t *testing.T) {
+		p, calls := newProber()
+
+		res, err := p.CheckTCP(t.Context(), domain.TCPCheck{Host: "", Port: port, Timeout: 0})
+
+		require.NoError(t, err)
+		requireFailure(t, res, domain.FailureTimedOut)
+		assert.Zero(t, *calls)
+	})
+	t.Run("an ended context comes first", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		p, calls := newProber()
+
+		res, err := p.CheckTCP(ctx, domain.TCPCheck{Host: "", Port: port, Timeout: 2 * time.Second})
+
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Equal(t, domain.CheckResult{}, res)
+		assert.Zero(t, *calls)
 	})
 }
 
