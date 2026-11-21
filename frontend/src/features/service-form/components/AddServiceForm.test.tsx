@@ -2085,7 +2085,7 @@ describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, 
       await user.click(saveButton())
     }
 
-    it.each(['', 'abc', '1.5', '-3'])(
+    it.each(['', 'abc', '1.5', '-3', '9007199254740992', '12345678901234567890', '1e3', '+5'])(
       'refuses %j with the message under the days, focus on it, and nothing sent',
       async (text) => {
         const { user } = setup()
@@ -2124,6 +2124,18 @@ describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, 
       expect(screen.getByText('Enter a whole number.')).toBeInTheDocument()
       setUrl('https://y')
       expect(screen.queryByText('Enter a whole number.')).not.toBeInTheDocument()
+    })
+
+    it.each([
+      ['1', 1],
+      [' 7 ', 7],
+      ['9007199254740991', Number.MAX_SAFE_INTEGER],
+    ])('sends %j as the whole number %d', async (text, sent) => {
+      vi.mocked(createService).mockResolvedValue(makeService())
+      const { user } = setup()
+      await withDays(user, text)
+      await marker()
+      expect(sentInput().check).toMatchObject({ certificate_check: { enabled: true, min_days_left: sent } })
     })
 
     it('sends 0 (the server refuses it)', async () => {
