@@ -121,7 +121,7 @@ func (r *CheckRunner) attemptFunc(service domain.Service) (func(context.Context)
 			return r.prober.CheckHTTP(ctx, check)
 		}, nil
 	case domain.CheckTypeTCP:
-		if service.TCPHost == nil || service.TCPPort == nil {
+		if service.TCPHost == nil || *service.TCPHost == "" || service.TCPPort == nil {
 			return nil, errMissingTCPSettings
 		}
 		check := domain.TCPCheck{

@@ -694,8 +694,9 @@ func TestRun_TCPCancel(t *testing.T) {
 
 func TestRun_TCPMissingSettings(t *testing.T) {
 	tests := map[string]func(*domain.Service){
-		"nil host": func(s *domain.Service) { s.TCPHost = nil },
-		"nil port": func(s *domain.Service) { s.TCPPort = nil },
+		"nil host":   func(s *domain.Service) { s.TCPHost = nil },
+		"empty host": func(s *domain.Service) { s.TCPHost = ptr("") },
+		"nil port":   func(s *domain.Service) { s.TCPPort = nil },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -703,11 +704,13 @@ func TestRun_TCPMissingSettings(t *testing.T) {
 			svc := tcpService(1, 5)
 			mutate(&svc)
 
-			require.Error(t, r.runner.Run(t.Context(), svc))
+			err := r.runner.Run(t.Context(), svc)
 
+			require.EqualError(t, err, "check runner: tcp service has no host or port")
 			assert.Zero(t, r.tcp.callCount())
 			assert.Zero(t, r.prober.callCount())
 			assert.Empty(t, r.recorder.list())
+			assert.Zero(t, r.clock.timerCount())
 		})
 	}
 	// Baseline: the complete service is probed and recorded.
@@ -829,14 +832,19 @@ func TestRun_LogNoLine(t *testing.T) {
 		assert.Len(t, r.recorder.list(), 1)
 		assert.Empty(t, r.logBuf.text())
 	})
-	t.Run("settings missing", func(t *testing.T) {
-		r := newRigFor(domain.CheckTypeTCP, healthy())
-		svc := tcpService(0, 7)
-		svc.TCPPort = nil
+	for name, mutate := range map[string]func(*domain.Service){
+		"settings missing, no port":    func(s *domain.Service) { s.TCPPort = nil },
+		"settings missing, empty host": func(s *domain.Service) { s.TCPHost = ptr("") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRigFor(domain.CheckTypeTCP, healthy())
+			svc := tcpService(0, 7)
+			mutate(&svc)
 
-		require.Error(t, r.runner.Run(t.Context(), svc))
-		assert.Empty(t, r.logBuf.text())
-	})
+			require.Error(t, r.runner.Run(t.Context(), svc))
+			assert.Empty(t, r.logBuf.text())
+		})
+	}
 	// Baseline: the same sequence, complete and uncancelled, writes its line.
 	r := newRigFor(domain.CheckTypeTCP, healthy())
 	require.NoError(t, r.runner.Run(t.Context(), tcpService(0, 7)))

@@ -224,12 +224,28 @@ func newSchedSetup(t *testing.T) schedSetup {
 	seq := newFakeSequence(clk)
 	logBuf := &syncBuffer{}
 	sched := NewScheduler(seq.run, clk, slog.New(slog.NewJSONHandler(logBuf, nil)))
-	t.Cleanup(sched.Close)
+	// Close waits for every goroutine. A scheduler that lost a goroutine's cancel can
+	// never finish it, so a test fails here instead of hanging until the test timeout.
+	t.Cleanup(func() {
+		if !returnsInTime(sched.Close) {
+			t.Error("Close did not return: a sequence goroutine was never cancelled")
+		}
+	})
 	return schedSetup{clk, seq, sched, logBuf}
 }
 
 func svc(id string, intervalSeconds int) domain.Service {
 	return domain.Service{ID: id, Name: "name-" + id, CheckIntervalSeconds: intervalSeconds}
+}
+
+// returnsInTime reports whether fn returns within guard.
+func returnsInTime(fn func()) bool {
+	select {
+	case <-inGoroutine(fn):
+		return true
+	case <-time.After(guard):
+		return false
+	}
 }
 
 // returnsWithin fails the test if fn does not return in time.
@@ -310,7 +326,7 @@ func TestScheduler_ServicesRunAtOwnRates(t *testing.T) {
 
 func TestScheduler_OverrunStartsNextAtOnce(t *testing.T) {
 	s := newSchedSetup(t)
-	release := make(chan struct{})
+	release, doRelease := newRelease(t)
 	s.seq.behave = func(_ context.Context, _ domain.Service, c call) error {
 		if c.n == 1 {
 			<-release
@@ -322,7 +338,7 @@ func TestScheduler_OverrunStartsNextAtOnce(t *testing.T) {
 
 	s.clk.Advance(40 * time.Second)
 	assert.Equal(t, 1, s.seq.count("a"), "no second sequence while the first runs")
-	close(release)
+	doRelease()
 
 	second := s.seq.wait(t)
 	assert.Equal(t, schedStart.Add(40*time.Second), second.at)
@@ -574,7 +590,7 @@ func TestStart_ConcurrentSameID(t *testing.T) {
 func TestClose_WhileStartWaits(t *testing.T) {
 	s := newSchedSetup(t)
 	oldCancelled := make(chan struct{})
-	release := make(chan struct{})
+	release, doRelease := newRelease(t)
 	s.seq.behave = func(ctx context.Context, _ domain.Service, _ call) error {
 		<-ctx.Done()
 		close(oldCancelled)
@@ -599,7 +615,7 @@ func TestClose_WhileStartWaits(t *testing.T) {
 		require.True(t, time.Now().Before(deadline), "Close did not begin")
 		runtime.Gosched()
 	}
-	close(release)
+	doRelease()
 
 	for _, ch := range []chan struct{}{closeReturned, startReturned} {
 		select {
@@ -676,7 +692,7 @@ func TestScheduler_ContextWinsOverFiredTimer(t *testing.T) {
 
 func TestClose_CancelsRunningAndWaitingAndWaitsForBoth(t *testing.T) {
 	s := newSchedSetup(t)
-	release := make(chan struct{})
+	release, doRelease := newRelease(t)
 	s.seq.behave = func(ctx context.Context, service domain.Service, _ call) error {
 		if service.ID == "a" {
 			<-ctx.Done()
@@ -698,7 +714,7 @@ func TestClose_CancelsRunningAndWaitingAndWaitsForBoth(t *testing.T) {
 		t.Fatal("Close returned while a sequence was still running")
 	default:
 	}
-	close(release)
+	doRelease()
 	select {
 	case <-closed:
 	case <-time.After(guard):
@@ -797,16 +813,34 @@ func TestScheduler_StartStopCloseFromManyGoroutines(t *testing.T) {
 	assert.Equal(t, started, ended)
 }
 
-// holdFirst makes the first sequence of a service wait for its context to be cancelled,
-// signal that on cancelled, and then return only when release is closed. Later
-// sequences return at once.
+// newRelease returns a channel that holds a sequence open and the function that frees
+// it. The function may be called any number of times. It is also registered with
+// t.Cleanup, so a test that fails before it frees the sequence does not leave Close
+// waiting for ever. Call it after newSchedSetup: cleanups run last in, first out, so
+// the release runs before sched.Close.
+func newRelease(t *testing.T) (chan struct{}, func()) {
+	t.Helper()
+	release := make(chan struct{})
+	var once sync.Once
+	free := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(free)
+	return release, free
+}
+
+// holdFirst makes the first sequence of a service wait until its context is cancelled
+// or release is closed, signal that on cancelled (once), and then return only when
+// release is closed. Later sequences return at once.
 func holdFirst(cancelled, release chan struct{}) func(context.Context, domain.Service, call) error {
+	var once sync.Once
 	return func(ctx context.Context, _ domain.Service, c call) error {
 		if c.n > 1 {
 			return nil
 		}
-		<-ctx.Done()
-		close(cancelled)
+		select {
+		case <-ctx.Done():
+		case <-release:
+		}
+		once.Do(func() { close(cancelled) })
 		<-release
 		return ctx.Err()
 	}
@@ -936,7 +970,8 @@ func TestRestart_TimeNotAfterNowRunsAtOnce(t *testing.T) {
 
 func TestRestart_DoesNotWaitAndDoesNotOverlapTheOldSequence(t *testing.T) {
 	s := newSchedSetup(t)
-	cancelled, release := make(chan struct{}), make(chan struct{})
+	cancelled := make(chan struct{})
+	release, doRelease := newRelease(t)
 	s.seq.behave = holdFirst(cancelled, release)
 	s.sched.Start(svc("a", 30))
 	s.seq.wait(t)
@@ -948,7 +983,7 @@ func TestRestart_DoesNotWaitAndDoesNotOverlapTheOldSequence(t *testing.T) {
 	spin()
 	assert.Equal(t, 1, s.seq.count("a"), "the new goroutine runs nothing while the old sequence is held")
 
-	close(release)
+	doRelease()
 	second := s.seq.wait(t)
 	assert.Equal(t, 2, second.n)
 	s.clk.waitTimer(t)
@@ -964,7 +999,8 @@ func TestRestart_DoesNotWaitAndDoesNotOverlapTheOldSequence(t *testing.T) {
 
 func TestRestart_ChainRunsOnlyTheLast(t *testing.T) {
 	s := newSchedSetup(t)
-	cancelled, release := make(chan struct{}), make(chan struct{})
+	cancelled := make(chan struct{})
+	release, doRelease := newRelease(t)
 	s.seq.behave = holdFirst(cancelled, release)
 	s.sched.Start(svc("a", 30))
 	s.seq.wait(t)
@@ -976,7 +1012,7 @@ func TestRestart_ChainRunsOnlyTheLast(t *testing.T) {
 	spin()
 	assert.Equal(t, 1, s.seq.count("a"))
 
-	close(release)
+	doRelease()
 	last := s.seq.wait(t)
 	assert.Equal(t, 2, last.n)
 	assert.Equal(t, schedStart.Add(30*time.Second), last.at, "the late first sequence runs at once")
@@ -990,11 +1026,12 @@ func TestRestart_ChainRunsOnlyTheLast(t *testing.T) {
 
 func TestStart_AfterRestartWaitsForTheChain(t *testing.T) {
 	s := newSchedSetup(t)
-	cancelled, release := make(chan struct{}), make(chan struct{})
+	cancelled := make(chan struct{})
+	release, doRelease := newRelease(t)
 	s.seq.behave = holdFirst(cancelled, release)
 	s.sched.Start(svc("a", 30))
 	s.seq.wait(t)
-	s.sched.Restart(svc("a", 30), schedStart)
+	returnsWithin(t, func() { s.sched.Restart(svc("a", 30), schedStart) })
 
 	started := inGoroutine(func() { s.sched.Start(svc("a", 60)) })
 	waitClosed(t, cancelled, "the old sequence was not cancelled")
@@ -1002,7 +1039,7 @@ func TestStart_AfterRestartWaitsForTheChain(t *testing.T) {
 	notClosed(t, started, "Start returned while the old sequence was held")
 	assert.Equal(t, 1, s.seq.count("a"))
 
-	close(release)
+	doRelease()
 	waitClosed(t, started, "Start did not return")
 	second := s.seq.wait(t)
 	assert.Equal(t, 2, second.n)
@@ -1014,7 +1051,8 @@ func TestStart_AfterRestartWaitsForTheChain(t *testing.T) {
 
 func TestRestart_WhileStartWaits(t *testing.T) {
 	s := newSchedSetup(t)
-	cancelled, release := make(chan struct{}), make(chan struct{})
+	cancelled := make(chan struct{})
+	release, doRelease := newRelease(t)
 	hold := holdFirst(cancelled, release)
 	s.seq.behave = func(ctx context.Context, service domain.Service, c call) error {
 		if c.n > 1 {
@@ -1030,7 +1068,7 @@ func TestRestart_WhileStartWaits(t *testing.T) {
 	spin() // Start is waiting for the old goroutine
 	returnsWithin(t, func() { s.sched.Restart(svc("a", 30), schedStart) })
 
-	close(release)
+	doRelease()
 	waitClosed(t, started, "Start did not return")
 	s.seq.wait(t) // a survivor runs
 	returnsWithin(t, s.sched.Close)
@@ -1074,7 +1112,8 @@ func TestRestart_StopDuringFirstWait(t *testing.T) {
 
 func TestStop_ThenStartWaitsForTheStoppedGoroutine(t *testing.T) {
 	s := newSchedSetup(t)
-	cancelled, release := make(chan struct{}), make(chan struct{})
+	cancelled := make(chan struct{})
+	release, doRelease := newRelease(t)
 	s.seq.behave = holdFirst(cancelled, release)
 	s.sched.Start(svc("a", 30))
 	s.seq.wait(t)
@@ -1087,7 +1126,7 @@ func TestStop_ThenStartWaitsForTheStoppedGoroutine(t *testing.T) {
 	assert.Equal(t, 1, s.seq.maxRunning("a"))
 	notClosed(t, started, "Start returned while the stopped goroutine was running")
 
-	close(release)
+	doRelease()
 	waitClosed(t, started, "Start did not return")
 	assert.Equal(t, 2, s.seq.wait(t).n)
 	s.sched.Close()
@@ -1096,7 +1135,8 @@ func TestStop_ThenStartWaitsForTheStoppedGoroutine(t *testing.T) {
 
 func TestStop_ThenRestartWaitsForTheStoppedGoroutine(t *testing.T) {
 	s := newSchedSetup(t)
-	cancelled, release := make(chan struct{}), make(chan struct{})
+	cancelled := make(chan struct{})
+	release, doRelease := newRelease(t)
 	s.seq.behave = holdFirst(cancelled, release)
 	s.sched.Start(svc("a", 30))
 	s.seq.wait(t)
@@ -1108,7 +1148,7 @@ func TestStop_ThenRestartWaitsForTheStoppedGoroutine(t *testing.T) {
 	assert.Equal(t, 1, s.seq.count("a"), "the new sequence waits for the old one")
 	assert.Equal(t, 1, s.seq.maxRunning("a"))
 
-	close(release)
+	doRelease()
 	assert.Equal(t, 2, s.seq.wait(t).n)
 	s.sched.Close()
 	assert.Equal(t, 1, s.seq.maxRunning("a"))
@@ -1133,7 +1173,8 @@ func TestStop_LeavesNoBookkeepingAfterTheGoroutineEnds(t *testing.T) {
 
 func TestClose_WaitsForAStoppedGoroutine(t *testing.T) {
 	s := newSchedSetup(t)
-	cancelled, release := make(chan struct{}), make(chan struct{})
+	cancelled := make(chan struct{})
+	release, doRelease := newRelease(t)
 	s.seq.behave = holdFirst(cancelled, release)
 	s.sched.Start(svc("a", 30))
 	s.seq.wait(t)
@@ -1143,7 +1184,7 @@ func TestClose_WaitsForAStoppedGoroutine(t *testing.T) {
 	closed := inGoroutine(s.sched.Close)
 	spin()
 	notClosed(t, closed, "Close returned while a stopped goroutine was running")
-	close(release)
+	doRelease()
 	waitClosed(t, closed, "Close did not return")
 	started, ended := s.seq.totals()
 	assert.Equal(t, started, ended)
@@ -1151,16 +1192,17 @@ func TestClose_WaitsForAStoppedGoroutine(t *testing.T) {
 
 func TestClose_WhileRestartWaits(t *testing.T) {
 	s := newSchedSetup(t)
-	cancelled, release := make(chan struct{}), make(chan struct{})
+	cancelled := make(chan struct{})
+	release, doRelease := newRelease(t)
 	s.seq.behave = holdFirst(cancelled, release)
 	s.sched.Start(svc("a", 30))
 	s.seq.wait(t)
-	s.sched.Restart(svc("a", 30), schedStart)
+	returnsWithin(t, func() { s.sched.Restart(svc("a", 30), schedStart) })
 	waitClosed(t, cancelled, "the old sequence was not cancelled")
 
 	closed := inGoroutine(s.sched.Close)
 	waitUntilClosed(t, s.sched)
-	close(release)
+	doRelease()
 	waitClosed(t, closed, "Close did not return")
 
 	started, ended := s.seq.totals()
@@ -1173,7 +1215,8 @@ func TestClose_WhileRestartWaits(t *testing.T) {
 
 func TestClose_WhileStartWaitsForAStoppedGoroutine(t *testing.T) {
 	s := newSchedSetup(t)
-	cancelled, release := make(chan struct{}), make(chan struct{})
+	cancelled := make(chan struct{})
+	release, doRelease := newRelease(t)
 	s.seq.behave = holdFirst(cancelled, release)
 	s.sched.Start(svc("a", 30))
 	s.seq.wait(t)
@@ -1183,7 +1226,7 @@ func TestClose_WhileStartWaitsForAStoppedGoroutine(t *testing.T) {
 
 	closed := inGoroutine(s.sched.Close)
 	waitUntilClosed(t, s.sched)
-	close(release)
+	doRelease()
 	waitClosed(t, closed, "Close did not return")
 	waitClosed(t, started, "the waiting Start did not return")
 
