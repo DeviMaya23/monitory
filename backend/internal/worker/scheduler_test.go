@@ -224,12 +224,28 @@ func newSchedSetup(t *testing.T) schedSetup {
 	seq := newFakeSequence(clk)
 	logBuf := &syncBuffer{}
 	sched := NewScheduler(seq.run, clk, slog.New(slog.NewJSONHandler(logBuf, nil)))
-	t.Cleanup(sched.Close)
+	// Close waits for every goroutine. A scheduler that lost a goroutine's cancel can
+	// never finish it, so a test fails here instead of hanging until the test timeout.
+	t.Cleanup(func() {
+		if !returnsInTime(sched.Close) {
+			t.Error("Close did not return: a sequence goroutine was never cancelled")
+		}
+	})
 	return schedSetup{clk, seq, sched, logBuf}
 }
 
 func svc(id string, intervalSeconds int) domain.Service {
 	return domain.Service{ID: id, Name: "name-" + id, CheckIntervalSeconds: intervalSeconds}
+}
+
+// returnsInTime reports whether fn returns within guard.
+func returnsInTime(fn func()) bool {
+	select {
+	case <-inGoroutine(fn):
+		return true
+	case <-time.After(guard):
+		return false
+	}
 }
 
 // returnsWithin fails the test if fn does not return in time.
@@ -1015,7 +1031,7 @@ func TestStart_AfterRestartWaitsForTheChain(t *testing.T) {
 	s.seq.behave = holdFirst(cancelled, release)
 	s.sched.Start(svc("a", 30))
 	s.seq.wait(t)
-	s.sched.Restart(svc("a", 30), schedStart)
+	returnsWithin(t, func() { s.sched.Restart(svc("a", 30), schedStart) })
 
 	started := inGoroutine(func() { s.sched.Start(svc("a", 60)) })
 	waitClosed(t, cancelled, "the old sequence was not cancelled")
@@ -1181,7 +1197,7 @@ func TestClose_WhileRestartWaits(t *testing.T) {
 	s.seq.behave = holdFirst(cancelled, release)
 	s.sched.Start(svc("a", 30))
 	s.seq.wait(t)
-	s.sched.Restart(svc("a", 30), schedStart)
+	returnsWithin(t, func() { s.sched.Restart(svc("a", 30), schedStart) })
 	waitClosed(t, cancelled, "the old sequence was not cancelled")
 
 	closed := inGoroutine(s.sched.Close)
