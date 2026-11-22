@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { Outlet } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../../../components/ui/Toast'
-import { getService, servicesQueryKey, updateService, type Service } from '../../../lib/api/services'
+import { getService, serviceQueryKey, servicesQueryKey, updateService, type Service } from '../../../lib/api/services'
 import EditServicePage from '../../../pages/EditServicePage'
 import {
   fieldError,
@@ -140,6 +140,22 @@ describe('the loaded form (FR-7, FR-39)', () => {
   })
 })
 
+describe('the form start is read once (FR-7)', () => {
+  it('keeps the form, the sub line and "unchanged" when a later answer for the service arrives', async () => {
+    const { client, service } = await setup()
+    vi.mocked(getService).mockResolvedValue({ ...service, name: 'Changed elsewhere', alerts_enabled: true })
+    await act(() => client.refetchQueries({ queryKey: serviceQueryKey(service.id) }))
+    expect(getService).toHaveBeenCalledTimes(2)
+    expect(client.getQueryData<Service>(serviceQueryKey(service.id))?.name).toBe('Changed elsewhere')
+    // The query library tells its observers on a timer: let the page render the new answer.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    expect(nameInput()).toHaveValue('Edge cache')
+    expect(document.querySelector('.page-sub')).toHaveTextContent('Edge cache')
+    expect(switchOf('Send alerts')).not.toBeChecked()
+    expect(footerStatus()).toBeEmptyDOMElement()
+  })
+})
+
 describe('saving (FR-7, FR-20, FR-65, FR-66)', () => {
   it.each([true, false])('with nothing changed sends the saved values and shown_on_public_view %s as loaded', async (shown) => {
     const service = makeRichService({ shown_on_public_view: shown })
@@ -249,6 +265,16 @@ describe('failures on the edit form (FR-12, FR-59, FR-74, NFR-7, NFR-8)', () => 
     expect(describedBy(screen.getByLabelText('URL'))).toBe('Custom <b>bad</b> URL.')
     expect(document.querySelector('.form-banners b')).toBeNull()
     expect(describedBy(screen.getByLabelText('Timeout'))).toBe('Timeout too long.')
+  })
+
+  it('shows a 422 on a field of the other type in the summary, and drops it when the type is switched', async () => {
+    vi.mocked(updateService).mockRejectedValue(validationProblem(fieldError('check.port', 'Port <i>nope</i>.')))
+    const { user } = await setup()
+    await user.click(saveButton())
+    const link = await screen.findByRole('link', { name: /Port <i>nope<\/i>\./ })
+    expect(link).toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: 'TCP port' }))
+    expect(screen.queryByRole('link', { name: /Port <i>nope<\/i>\./ })).not.toBeInTheDocument()
   })
 
   it('shows 409 service_name_taken under Name and focuses it', async () => {

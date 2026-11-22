@@ -89,6 +89,27 @@ describe('toServiceInput', () => {
     })
   })
 
+  it('round-trips the limits as typed: 20 headers and 20 query rows, 10 rules, a 64 KB body, spaces and markup kept', () => {
+    const rows = (prefix: string) =>
+      Array.from({ length: 20 }, (_, i) => ({ name: `${prefix}-${i}`, value: ` v ${i} <b>x</b> & "q" ` }))
+    const service = makeService({
+      name: '  Spaced <i>name</i>  ',
+      check: {
+        type: 'http',
+        method: 'POST',
+        url: 'https://big.example.com',
+        query_params: rows('q'),
+        headers: rows('H'),
+        body: { type: 'json', content: `{"k":"${'x'.repeat(64 * 1024 - 8)}"}` },
+        json_rules: Array.from({ length: 10 }, (_, i) => ({ field: `a.b${i}`, failing_value: i % 3 === 0 ? ` s${i} ` : i % 3 === 1 }) ),
+        json_rule_mode: 'all',
+      },
+    })
+    const input = toServiceInput(toFormValues(service))
+    expect(input.name).toBe(service.name)
+    expect(input.check).toMatchObject({ ...service.check, certificate_check: { enabled: false }, ignore_certificate_errors: false })
+  })
+
   it('sends { enabled: false } for a saved certificate check that is off, without days', () => {
     const service = makeService({
       check: { type: 'http', method: 'GET', url: 'https://a.example', certificate_check: { enabled: false, min_days_left: 9 } },
