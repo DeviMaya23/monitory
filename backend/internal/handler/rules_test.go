@@ -2,6 +2,7 @@ package handler
 
 import (
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,4 +37,29 @@ func TestOperationRules_AreReadOnceAndUnchanged(t *testing.T) {
 		"POST /api/services/:serviceId/target-tests":     true,
 		"PUT /api/settings/public-view":                  true,
 	}, body1)
+}
+
+// Routers are built in parallel by a server's tests and by parallel callers: every
+// concurrent first call gets the same maps and no error (run under -race).
+func TestOperationRules_ConcurrentCallsShareOneResult(t *testing.T) {
+	const callers = 32
+	type result struct {
+		public, body uintptr
+		err          error
+	}
+	results := make([]result, callers)
+	var wg sync.WaitGroup
+	for i := range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			public, body, err := operationRules()
+			results[i] = result{reflect.ValueOf(public).Pointer(), reflect.ValueOf(body).Pointer(), err}
+		}()
+	}
+	wg.Wait()
+	for _, r := range results {
+		require.NoError(t, r.err)
+		assert.Equal(t, results[0], r)
+	}
 }
