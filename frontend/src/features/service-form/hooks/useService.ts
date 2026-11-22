@@ -41,7 +41,8 @@ export function useService(id: string): ServiceView & { fetching: boolean; refet
   if (sessionEnded) view = { state: 'session-ended' }
   else if (notFound) view = { state: 'not-found' }
   else if (query.data !== undefined) view = { state: 'loaded', service: query.data }
-  else view = query.isError ? { state: 'could-not-load' } : { state: 'loading' }
+  // A retry resets the query to pending: after one answer, no data means the failure is still on screen.
+  else view = query.isFetched ? { state: 'could-not-load' } : { state: 'loading' }
 
   return {
     ...view,

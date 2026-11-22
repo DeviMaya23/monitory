@@ -4,7 +4,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appRoutes } from './App'
 import { setUnauthenticatedHandler } from './lib/api/request'
-import { createService, deleteService, getService, listServices } from './lib/api/services'
+import { createService, deleteService, getService, listServices, updateService } from './lib/api/services'
 import { getPublicDashboard } from './lib/api/publicDashboard'
 import { listTargets } from './lib/api/targets'
 import { getSession, signIn, signOut, type SessionInfo } from './lib/api/session'
@@ -139,6 +139,23 @@ describe('App routes', () => {
     expect(await form()).toBeInTheDocument()
     expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Name')).not.toBeInTheDocument()
+  })
+
+  it('signed in: a 401 on saving a changed edit form ends on the sign-in form with the notice, no dialog and no banner (FR-4)', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    vi.mocked(getService).mockResolvedValue(makeService({ id: 'some-id', name: 'Edge cache' }))
+    vi.mocked(updateService).mockImplementation(async () => {
+      registeredHandler()()
+      throw problem(401, 'unauthenticated')
+    })
+    renderAt('/services/some-id')
+    await userEvent.type(await screen.findByLabelText('Name'), ' two')
+    await userEvent.click(screen.getByRole('button', { name: 'Save service' }))
+    expect(await form()).toBeInTheDocument()
+    expect(screen.getByText('Your session has ended.')).toBeInTheDocument()
+    expect(updateService).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
   })
 
   it('signed in: /services/:id/alerts shows the alert list page inside the layout instead of the placeholder', async () => {
