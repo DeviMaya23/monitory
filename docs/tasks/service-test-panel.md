@@ -118,7 +118,7 @@ A `422` is mapped as the form maps a save's: each error on its field by its path
 - **The result is not cleared when the form changes:** it describes the values at the time of the test and may be stale (the board draws no such state).
 - **Running a test while a save's `422` errors are shown** keeps them; a test's `422` then replaces them (one set of errors). A late `422` naming a path of a type that is no longer chosen (the type was switched during the test) is shown as the form shows any path with no input: in the summary as plain text.
 - **`Run test` stays enabled** after a save that ended `not-found` on the Edit screen (the test needs no saved service).
-- **The panel's `Reload` and 403 text** repeat wording that `FormBanners` has (the backlog tracks the shared Reload text).
+- **The panel's `Reload` and 403 text** repeat wording that `FormBanners` has (`share-form-parts` shares the Reload words afterwards).
 - **A long body is shown in full up to the server's cut,** in a scrollable box; nothing is paginated or searched.
 - **The `Cut off` text names 64 KB** as the board and the contract do; the real limit is deployment configuration.
 - **The body of a binary response** is shown with the replacement characters the server put in.
@@ -173,7 +173,7 @@ Every criterion is a test that fails if the behavior is removed. Mock `testServi
 - A body of `<b>x</b><script>alert(1)</script>` and a failure field of `<i>y</i>` show literally as text and no element is created from them (NFR-7).
 - Running: the button reads `Testing…` with `aria-busy="true"` and is disabled, `Running one attempt…` shows with `role="status"`; the previous result is gone.
 
-**The form, on both screens (`ServiceForm.test.tsx`, `AddServiceForm.test.tsx`, `EditServiceForm.test.tsx`)**
+**The form, on both screens (`AddServiceForm.test.tsx` and `EditServiceForm.test.tsx`; `ServiceForm.test.tsx` does not exist: create it only for cases that do not belong to one screen)**
 
 - The panel is in the page's order after the last group and before the footer, and Tab goes from the last control of the Alerts group to `Run test`, then to `Cancel` (NFR-4); it shows on the Add screen and on the Edit screen.
 - Pressing `Run test` with a filled HTTP form sends exactly the check and the timeout of the form (typed values: method `POST`, a header row, a JSON body, a rule, the certificate switch on with 30 days, timeout `7`, and nothing else), and the result shows; with TCP chosen it sends the TCP check and the timeout (FR-104).
