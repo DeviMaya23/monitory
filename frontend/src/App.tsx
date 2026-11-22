@@ -1,4 +1,4 @@
-import { Outlet, Route, Routes } from 'react-router'
+import { Outlet, type RouteObject } from 'react-router'
 import { ToastProvider } from './components/ui/Toast'
 import { AdminLayout } from './app-shell/AdminLayout'
 import { NotBuilt } from './app-shell/NotBuilt'
@@ -9,29 +9,39 @@ import DashboardPage from './pages/DashboardPage'
 import PublicDashboardPage from './pages/PublicDashboardPage'
 import SignInPage from './pages/SignInPage'
 
-/** The route table (ARCHITECTURE.md). Each page replaces its placeholder when its task builds it. */
-export default function App() {
-  return (
-    <ToastProvider>
-      <Routes>
-        <Route
-          element={
-            <SessionProvider>
-              <Outlet />
-            </SessionProvider>
-          }
-        >
-          <Route path="/sign-in" element={<SignInPage />} />
-          <Route element={<AdminLayout />}>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/services/new" element={<AddServicePage />} />
-            <Route path="/services/:serviceId" element={<NotBuilt page="edit service" />} />
-            <Route path="/services/:serviceId/alerts" element={<AlertListPage />} />
-            <Route path="*" element={<NotBuilt page="requested" />} />
-          </Route>
-        </Route>
-        <Route path="/status" element={<PublicDashboardPage />} />
-      </Routes>
-    </ToastProvider>
-  )
-}
+/**
+ * The route table (ARCHITECTURE.md), as data for a data router. Each page replaces its
+ * placeholder when its task builds it. The root element holds the toasts, so one outlives a route change.
+ */
+export const appRoutes: RouteObject[] = [
+  {
+    element: (
+      <ToastProvider>
+        <Outlet />
+      </ToastProvider>
+    ),
+    children: [
+      {
+        element: (
+          <SessionProvider>
+            <Outlet />
+          </SessionProvider>
+        ),
+        children: [
+          { path: '/sign-in', element: <SignInPage /> },
+          {
+            element: <AdminLayout />,
+            children: [
+              { path: '/', element: <DashboardPage /> },
+              { path: '/services/new', element: <AddServicePage /> },
+              { path: '/services/:serviceId', element: <NotBuilt page="edit service" /> },
+              { path: '/services/:serviceId/alerts', element: <AlertListPage /> },
+              { path: '*', element: <NotBuilt page="requested" /> },
+            ],
+          },
+        ],
+      },
+      { path: '/status', element: <PublicDashboardPage /> },
+    ],
+  },
+]

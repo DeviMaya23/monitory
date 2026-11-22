@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import App from '../../../App'
+import { appRoutes } from '../../../App'
 import { ToastProvider } from '../../../components/ui/Toast'
 import { setUnauthenticatedHandler } from '../../../lib/api/request'
 import { listServices } from '../../../lib/api/services'
@@ -19,6 +19,7 @@ import {
   problem,
   sessionInfo,
 } from '../../../test/fixtures'
+import { renderRoutes } from '../../../test/renderRoutes'
 
 vi.mock('../../../lib/api/session')
 vi.mock('../../../lib/api/services', async (importOriginal) => ({
@@ -489,13 +490,7 @@ describe('removing a target', () => {
       handler?.()
       return Promise.reject(problem(401, 'unauthenticated'))
     })
-    render(
-      <QueryClientProvider client={client()}>
-        <MemoryRouter initialEntries={['/services/s1/alerts']}>
-          <App />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    )
+    renderRoutes(appRoutes, { initialEntries: ['/services/s1/alerts'], client: client() })
     await screen.findByRole('list', { name: 'Notification targets' })
     await userEvent.click(removeButton('Ops mailbox'))
     await userEvent.click(confirmRemove())

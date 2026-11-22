@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { CircleAlert, RefreshCw, WifiOff } from 'lucide-react'
 import { Link } from 'react-router'
 import type { CreateFailure } from '../hooks/useCreateService'
+import { LEAVE_WITHOUT_ASKING } from '../hooks/useLeaveGuard'
 
 type Props = {
   /** The last save's failure; only the kinds that are banners show here. */
@@ -23,7 +24,7 @@ function Banner({ failure, onRetry }: Pick<Props, 'failure' | 'onRetry'>) {
             <span>This install can’t hold more services. Delete one to add this one.</span>
           </div>
           <div className="banner__actions">
-            <Link className="btn" to="/">
+            <Link className="btn" to="/" state={LEAVE_WITHOUT_ASKING}>
               Back to services
             </Link>
           </div>

@@ -1,11 +1,12 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { Outlet } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../../../components/ui/Toast'
 import { createService, type Service } from '../../../lib/api/services'
 import { fieldError, makeService, makeServiceList, problem, validationProblem } from '../../../test/fixtures'
+import { renderRoutes } from '../../../test/renderRoutes'
 import { AddServiceForm } from './AddServiceForm'
 
 // The real query key is kept: the tests look for the literal ['services'] in the cache.
@@ -19,19 +20,23 @@ const URL_VALUE = 'https://search.example.com/health'
 function setup() {
   const client = new QueryClient()
   client.setQueryData(['services'], makeServiceList(makeService()))
-  render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/services/new']}>
-        <ToastProvider>
-          <Routes>
-            <Route path="/" element={<p>dashboard marker</p>} />
-            <Route path="/services/new" element={<AddServiceForm />} />
-          </Routes>
-        </ToastProvider>
-      </MemoryRouter>
-    </QueryClientProvider>,
+  const { router } = renderRoutes(
+    [
+      {
+        element: (
+          <ToastProvider>
+            <Outlet />
+          </ToastProvider>
+        ),
+        children: [
+          { path: '/', element: <p>dashboard marker</p> },
+          { path: '/services/new', element: <AddServiceForm /> },
+        ],
+      },
+    ],
+    { initialEntries: ['/services/new'], client },
   )
-  return { client, user: userEvent.setup() }
+  return { client, router, user: userEvent.setup() }
 }
 
 const nameInput = () => screen.getByLabelText('Name')
@@ -521,7 +526,7 @@ describe('409 service_name_taken (FR-59)', () => {
 
 describe('the banners', () => {
   it('409 service_limit_reached: both lines and a Back to services link that leaves with no dialog (FR-60)', async () => {
-    const { user } = setup()
+    const { user, router } = setup()
     await failWith(user, problem(409, 'service_limit_reached'))
     const banner = screen.getByRole('alert')
     expect(bannerSlot()).toContainElement(banner)
@@ -537,6 +542,14 @@ describe('the banners', () => {
     await user.click(link)
     expect(await marker()).toBeInTheDocument()
     expect(discardDialog()).not.toBeInTheDocument()
+
+    // The entry the link made keeps its state: Forward onto it from a changed form still asks.
+    await act(async () => router.navigate(-1))
+    expect(await screen.findByRole('heading', { name: 'Add service' })).toBeInTheDocument()
+    await user.type(nameInput(), 'Search API')
+    await act(async () => router.navigate(1))
+    expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/services/new')
   })
 
   it('413: the title and the second line, and the values stay', async () => {
@@ -756,6 +769,17 @@ describe('leaving', () => {
       await waitFor(() => expect(opener()).toHaveFocus())
     },
   )
+
+  it('a double click on the back link with a changed form opens one question, and Discard changes goes to /', async () => {
+    const { user } = setup()
+    await user.type(nameInput(), 'Search API')
+    await user.dblClick(backLink())
+    const dialogs = await screen.findAllByRole('dialog', { name: 'Discard unsaved changes?' })
+    expect(dialogs).toHaveLength(1)
+    await user.click(within(dialogs[0]).getByRole('button', { name: 'Discard changes' }))
+    expect(await marker()).toBeInTheDocument()
+    expect(discardDialog()).not.toBeInTheDocument()
+  })
 
   it('Esc closes the dialog and keeps the values', async () => {
     const { user } = setup()

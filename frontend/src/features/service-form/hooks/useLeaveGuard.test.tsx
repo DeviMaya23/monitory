@@ -1,13 +1,18 @@
 import { useState } from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
+import { Outlet, useNavigate, type Location } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
+import { LeaveGateProvider } from '../../../components/LeaveGateProvider'
+import { useLeaveGate } from '../../../hooks/useLeaveGate'
+import { renderRoutes } from '../../../test/renderRoutes'
 import { TIMING_DEFAULTS, TIMING_NAMES, type TimingTexts } from '../lib/timingGroup'
-import { useLeaveGuard } from './useLeaveGuard'
+import { LEAVE_WITHOUT_ASKING, useLeaveGuard } from './useLeaveGuard'
 
-type Props = { saving?: boolean; saved?: boolean; onLeave?: () => void }
-
-/** The hook over three real inputs, since "changed" reads what the inputs hold and the unload prompt is a window listener. */
-function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
+/** The hook over real inputs, since "changed" reads what the inputs hold and the unload prompt is a window listener. */
+function Harness({ proceed }: { proceed: () => void }) {
+  const navigate = useNavigate()
+  const { confirmLeave } = useLeaveGate()
+  const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
   const [type, setType] = useState('http')
   const [host, setHost] = useState('')
@@ -48,8 +53,6 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
     recoveryMessage,
     timing,
     saving,
-    saved,
-    onLeave,
   })
   return (
     <>
@@ -95,16 +98,52 @@ function Harness({ saving = false, saved = false, onLeave = vi.fn() }: Props) {
       <button onClick={() => setAlertsEnabled(true)}>alerts on</button>
       <button onClick={() => setMethod('HEAD')}>method HEAD</button>
       <button onClick={() => setMethod('GET')}>method GET</button>
-      <button onClick={guard.cancel}>cancel</button>
-      <a href="/" {...guard.backLinkProps}>
-        back
-      </a>
+      <button onClick={() => setSaving(true)}>saving on</button>
+      <button onClick={() => setSaving(false)}>saving off</button>
+      <button onClick={guard.markSaved}>mark saved</button>
+      <button
+        onClick={() => {
+          guard.markSaved()
+          void navigate('/other')
+        }}
+      >
+        save and go
+      </button>
+      <button onClick={() => confirmLeave(proceed)}>sign out</button>
       <button onClick={guard.keepEditing}>keep</button>
       <button onClick={guard.discard}>discard</button>
       <p data-testid="changed">{String(guard.changed)}</p>
       <p data-testid="dialog">{String(guard.dialogOpen)}</p>
     </>
   )
+}
+
+type RenderOptions = { provider?: boolean } & Parameters<typeof renderRoutes>[1]
+
+/** The harness at `/` and a second page at `/other`, in a memory data router; `proceed` stands for Sign out. */
+function renderGuard({ provider = true, initialEntries, initialIndex }: RenderOptions = {}) {
+  const proceed = vi.fn()
+  const root = provider ? (
+    <LeaveGateProvider>
+      <Outlet />
+    </LeaveGateProvider>
+  ) : (
+    <Outlet />
+  )
+  const { router } = renderRoutes(
+    [
+      {
+        element: root,
+        children: [
+          { path: '/', element: <Harness proceed={proceed} /> },
+          { path: '/other', element: <p>other page</p> },
+          { path: '/third', element: <p>third page</p> },
+        ],
+      },
+    ],
+    { initialEntries, initialIndex },
+  )
+  return { router, proceed }
 }
 
 const changed = () => screen.getByTestId('changed').textContent
@@ -119,14 +158,9 @@ function unloadPrompts(): boolean {
   return event.defaultPrevented
 }
 
-/** Clicks the back link; true when the link was left to navigate by itself. */
-function backLinkNavigates(): boolean {
-  return fireEvent.click(screen.getByText('back'))
-}
-
 describe('changed', () => {
   it('is false with an empty name and URL and the method GET', () => {
-    render(<Harness />)
+    renderGuard()
     expect(changed()).toBe('false')
   })
 
@@ -137,7 +171,7 @@ describe('changed', () => {
     ['retry_interval', '11'],
     ['timeout', '10 '],
   ])('is true when %s holds %j (even a trailing space), and false again when put back', (label, value) => {
-    render(<Harness />)
+    renderGuard()
     const start = (screen.getByLabelText(label) as HTMLInputElement).value
     type(label, value)
     expect(changed()).toBe('true')
@@ -151,7 +185,7 @@ describe('changed', () => {
     ['the expiry switch on', 'toggle expiry', 'toggle expiry'],
     ['the ignore switch on', 'toggle ignore', 'toggle ignore'],
   ])('is true with %s, and false again when put back', (_label, on, off) => {
-    render(<Harness />)
+    renderGuard()
     click(on)
     expect(changed()).toBe('true')
     click(off)
@@ -159,7 +193,7 @@ describe('changed', () => {
   })
 
   it.each(['14 ', '7'])('is true when the days text is %j, and false again when put back to 14', (days) => {
-    render(<Harness />)
+    renderGuard()
     type('days', days)
     expect(changed()).toBe('true')
     type('days', '14')
@@ -171,7 +205,7 @@ describe('changed', () => {
     ['a host', () => type('host', 'db'), () => type('host', '')],
     ['a port', () => type('port', '5432'), () => type('port', '')],
   ])('is true with %s (also while HTTP(S) is chosen for the text), and false again when put back', (_label, on, off) => {
-    render(<Harness />)
+    renderGuard()
     on()
     expect(changed()).toBe('true')
     off()
@@ -179,7 +213,7 @@ describe('changed', () => {
   })
 
   it('is true by a name, and false again when it is emptied', () => {
-    render(<Harness />)
+    renderGuard()
     type('name', 'a')
     expect(changed()).toBe('true')
     type('name', '')
@@ -187,13 +221,13 @@ describe('changed', () => {
   })
 
   it('is true by a name of only spaces (compared as typed)', () => {
-    render(<Harness />)
+    renderGuard()
     type('name', '  ')
     expect(changed()).toBe('true')
   })
 
   it('is true by a URL, compared as the input holds it', () => {
-    render(<Harness />)
+    renderGuard()
     type('url', 'https://x')
     expect(changed()).toBe('true')
     // A url input strips the spaces around its value: only spaces is held as empty.
@@ -203,7 +237,7 @@ describe('changed', () => {
   })
 
   it('is true by another method, and false again with GET', () => {
-    render(<Harness />)
+    renderGuard()
     click('method HEAD')
     expect(changed()).toBe('true')
     click('method GET')
@@ -213,7 +247,7 @@ describe('changed', () => {
 
 describe('changed by the request rows and body (FR-35, FR-37)', () => {
   it('is true with one query parameter row, even an empty one, and false again when it is removed', () => {
-    render(<Harness />)
+    renderGuard()
     click('add query')
     expect(changed()).toBe('true')
     click('remove query')
@@ -221,7 +255,7 @@ describe('changed by the request rows and body (FR-35, FR-37)', () => {
   })
 
   it('is true with one header row, and false again when it is removed', () => {
-    render(<Harness />)
+    renderGuard()
     click('add header')
     expect(changed()).toBe('true')
     click('remove header')
@@ -229,7 +263,7 @@ describe('changed by the request rows and body (FR-35, FR-37)', () => {
   })
 
   it('is true with a body type other than None, and false again with None', () => {
-    render(<Harness />)
+    renderGuard()
     click('type json')
     expect(changed()).toBe('true')
     click('type none')
@@ -237,7 +271,7 @@ describe('changed by the request rows and body (FR-35, FR-37)', () => {
   })
 
   it('is true with body text while the type is None, and false again when it is cleared', () => {
-    render(<Harness />)
+    renderGuard()
     type('body', 'x')
     expect(changed()).toBe('true')
     type('body', '')
@@ -247,7 +281,7 @@ describe('changed by the request rows and body (FR-35, FR-37)', () => {
 
 describe('changed by the alert settings (FR-20, FR-65)', () => {
   it('is true with alerts off, and false again with alerts on', () => {
-    render(<Harness />)
+    renderGuard()
     click('alerts off')
     expect(changed()).toBe('true')
     click('alerts on')
@@ -255,7 +289,7 @@ describe('changed by the alert settings (FR-20, FR-65)', () => {
   })
 
   it.each(['unhealthy', 'recovery'])('is true by a %s message of one space or of text, false once emptied', (label) => {
-    render(<Harness />)
+    renderGuard()
     type(label, ' ')
     expect(changed()).toBe('true')
     type(label, 'down')
@@ -265,95 +299,206 @@ describe('changed by the alert settings (FR-20, FR-65)', () => {
   })
 })
 
-describe('Cancel and the back link', () => {
-  it('on a pristine form go on at once and open no dialog', () => {
-    const onLeave = vi.fn()
-    render(<Harness onLeave={onLeave} />)
-    click('cancel')
-    expect(onLeave).toHaveBeenCalledTimes(1)
-    expect(dialog()).toBe('false')
-    expect(backLinkNavigates()).toBe(true)
-    expect(dialog()).toBe('false')
+
+const here = (router: { state: { location: Location } }) => router.state.location.pathname
+const go = (action: () => Promise<void>) => act(action)
+
+describe('asking before a navigation', () => {
+  it('lets a pristine form go', async () => {
+    const { router } = renderGuard()
+    await go(() => router.navigate('/other'))
+    expect(here(router)).toBe('/other')
+    expect(screen.getByText('other page')).toBeInTheDocument()
   })
 
-  it('on a changed form open the dialog and do not go on', () => {
-    const onLeave = vi.fn()
-    render(<Harness onLeave={onLeave} />)
+  it('stops a changed form, opens the dialog, and Keep editing closes it and asks again next time', async () => {
+    const { router } = renderGuard()
     type('name', 'a')
-    click('cancel')
+    await go(() => router.navigate('/other'))
+    expect(here(router)).toBe('/')
     expect(dialog()).toBe('true')
-    click('keep')
-    expect(dialog()).toBe('false')
-    expect(backLinkNavigates()).toBe(false)
-    expect(dialog()).toBe('true')
-    expect(onLeave).not.toHaveBeenCalled()
-  })
 
-  it('Keep editing closes the dialog and stays', () => {
-    const onLeave = vi.fn()
-    render(<Harness onLeave={onLeave} />)
-    type('name', 'a')
-    click('cancel')
     click('keep')
     expect(dialog()).toBe('false')
-    expect(onLeave).not.toHaveBeenCalled()
     expect(screen.getByLabelText('name')).toHaveValue('a')
+
+    await go(() => router.navigate('/other'))
+    expect(here(router)).toBe('/')
+    expect(dialog()).toBe('true')
   })
 
-  it('Discard changes closes the dialog and goes on', () => {
-    const onLeave = vi.fn()
-    render(<Harness onLeave={onLeave} />)
+  it('Discard changes arrives at the target', async () => {
+    const { router } = renderGuard()
     type('name', 'a')
-    click('cancel')
+    await go(() => router.navigate('/other'))
     click('discard')
-    expect(onLeave).toHaveBeenCalledTimes(1)
+    await screen.findByText('other page')
+    expect(here(router)).toBe('/other')
+  })
+
+  it('lets a push through whose state is leaveWithoutAsking, and asks for the same target without it', async () => {
+    const { router } = renderGuard()
+    type('name', 'a')
+    await go(() => router.navigate('/other'))
+    expect(dialog()).toBe('true')
+    click('keep')
+    await go(() => router.navigate('/other', { state: LEAVE_WITHOUT_ASKING }))
+    expect(here(router)).toBe('/other')
+  })
+
+  it.each([
+    ['false', { leaveWithoutAsking: false }],
+    ['the string "true"', { leaveWithoutAsking: 'true' }],
+    ['a bare string', 'leaveWithoutAsking'],
+    ['an unrelated object', { other: true }],
+  ])('asks for a push whose state is not exactly leaveWithoutAsking: true (%s)', async (_name, state) => {
+    const { router } = renderGuard()
+    type('name', 'a')
+    await go(() => router.navigate('/other', { state }))
+    expect(here(router)).toBe('/')
+    expect(dialog()).toBe('true')
+  })
+
+  it('asks for a POP to an entry that carries the state', async () => {
+    const { router } = renderGuard({
+      initialEntries: [{ pathname: '/other', state: LEAVE_WITHOUT_ASKING }, '/'],
+      initialIndex: 1,
+    })
+    type('name', 'a')
+    await go(() => router.navigate(-1))
+    expect(here(router)).toBe('/')
+    expect(dialog()).toBe('true')
+  })
+
+  it('does not ask while a request is in flight', async () => {
+    const { router } = renderGuard()
+    type('name', 'a')
+    click('saving on')
+    await go(() => router.navigate('/other'))
+    expect(here(router)).toBe('/other')
+  })
+
+  it('asks again after a request that failed', async () => {
+    const { router } = renderGuard()
+    type('name', 'a')
+    click('saving on')
+    click('saving off')
+    await go(() => router.navigate('/other'))
+    expect(here(router)).toBe('/')
+    expect(dialog()).toBe('true')
+  })
+
+  it('does not ask after markSaved', async () => {
+    const { router } = renderGuard()
+    type('name', 'a')
+    click('mark saved')
+    await go(() => router.navigate('/other'))
+    expect(here(router)).toBe('/other')
+  })
+
+  it('reads markSaved at once: marking and navigating in one handler arrives with no dialog', async () => {
+    const { router } = renderGuard()
+    type('name', 'a')
+    await act(async () => {
+      click('save and go')
+    })
+    expect(here(router)).toBe('/other')
+    expect(screen.getByText('other page')).toBeInTheDocument()
+  })
+
+  it.each(['/?a=1', '/#section'])('does not ask for a change of only the search or hash (%s)', async (target) => {
+    const { router } = renderGuard()
+    type('name', 'a')
+    await go(() => router.navigate(target))
+    expect(dialog()).toBe('false')
+    expect(router.state.location.search + router.state.location.hash).not.toBe('')
+  })
+
+  it('replaces the pending navigation with a second one while the dialog is open', async () => {
+    const { router } = renderGuard()
+    type('name', 'a')
+    await go(() => router.navigate('/other'))
+    await go(() => router.navigate('/third'))
+    expect(dialog()).toBe('true')
+    click('discard')
+    await screen.findByText('third page')
+    expect(here(router)).toBe('/third')
+  })
+})
+
+describe('asking before Sign out', () => {
+  it('opens the dialog for a changed form without calling proceed; Keep editing never calls it', () => {
+    const { proceed } = renderGuard()
+    type('name', 'a')
+    click('sign out')
+    expect(dialog()).toBe('true')
+    expect(proceed).not.toHaveBeenCalled()
+    click('keep')
+    expect(dialog()).toBe('false')
+    expect(proceed).not.toHaveBeenCalled()
+  })
+
+  it('calls proceed once after Discard changes', () => {
+    const { proceed } = renderGuard()
+    type('name', 'a')
+    click('sign out')
+    click('discard')
+    expect(proceed).toHaveBeenCalledTimes(1)
     expect(dialog()).toBe('false')
   })
 
-  it('while saving the back link navigates at once with no dialog, even when changed', () => {
-    const { rerender } = render(<Harness />)
+  it('calls proceed at once, with no dialog, for a pristine form', () => {
+    const { proceed } = renderGuard()
+    click('sign out')
+    expect(proceed).toHaveBeenCalledTimes(1)
+    expect(dialog()).toBe('false')
+  })
+
+  it('calls proceed at once, with no dialog, while saving', () => {
+    const { proceed } = renderGuard()
     type('name', 'a')
-    rerender(<Harness saving />)
-    expect(backLinkNavigates()).toBe(true)
+    click('saving on')
+    click('sign out')
+    expect(proceed).toHaveBeenCalledTimes(1)
+    expect(dialog()).toBe('false')
+  })
+
+  it('a navigation while the question is open replaces it: Discard navigates and never calls proceed', async () => {
+    const { router, proceed } = renderGuard()
+    type('name', 'a')
+    click('sign out')
+    await go(() => router.navigate('/other'))
+    expect(dialog()).toBe('true')
+    click('discard')
+    await screen.findByText('other page')
+    expect(proceed).not.toHaveBeenCalled()
+  })
+
+  it('a sign-out ask while the navigation question is open does nothing more', async () => {
+    const { router, proceed } = renderGuard()
+    type('name', 'a')
+    await go(() => router.navigate('/other'))
+    click('sign out')
+    click('keep')
+    expect(dialog()).toBe('false')
+    expect(proceed).not.toHaveBeenCalled()
+  })
+
+  it('outside a provider the sign-out runs proceed at once', () => {
+    const { proceed } = renderGuard({ provider: false })
+    type('name', 'a')
+    click('sign out')
+    expect(proceed).toHaveBeenCalledTimes(1)
     expect(dialog()).toBe('false')
   })
 })
 
-describe('the unload prompt', () => {
-  it('is not armed on a pristine form', () => {
-    render(<Harness />)
-    expect(unloadPrompts()).toBe(false)
-  })
-
-  it('is armed while the form is changed, and not once it is pristine again', () => {
-    render(<Harness />)
+describe('the unload prompt follows the guard', () => {
+  it('is not armed after markSaved', () => {
+    renderGuard()
     type('name', 'a')
     expect(unloadPrompts()).toBe(true)
-    type('name', '')
-    expect(unloadPrompts()).toBe(false)
-  })
-
-  it('is not armed while saving, and is again after a failure', () => {
-    const { rerender } = render(<Harness />)
-    type('name', 'a')
-    rerender(<Harness saving />)
-    expect(unloadPrompts()).toBe(false)
-    rerender(<Harness />)
-    expect(unloadPrompts()).toBe(true)
-  })
-
-  it('is not armed after a success', () => {
-    const { rerender } = render(<Harness />)
-    type('name', 'a')
-    rerender(<Harness saved />)
-    expect(unloadPrompts()).toBe(false)
-  })
-
-  it('is removed on unmount', () => {
-    const { unmount } = render(<Harness />)
-    type('name', 'a')
-    expect(unloadPrompts()).toBe(true)
-    unmount()
+    click('mark saved')
     expect(unloadPrompts()).toBe(false)
   })
 })
