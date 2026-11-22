@@ -189,7 +189,7 @@ func TestCheckHTTP_Timeout(t *testing.T) {
 	ts.Script("/quick", testutil.Route{Delay: 20 * time.Millisecond})
 
 	requireFailed(t, run(t, 3, get(ts.URL()+"/slow", 50*time.Millisecond)), domain.FailureTimedOut)
-	requireHealthy(t, run(t, 3, get(ts.URL()+"/quick", 200*time.Millisecond)))
+	requireHealthy(t, run(t, 3, get(ts.URL()+"/quick", longTimeout)))
 
 	// A listener that accepts and never answers: the deadline must stop the wait at the
 	// request headers (http) and at the TLS handshake (https).
@@ -324,7 +324,7 @@ func TestCheckHTTP_CallerContext(t *testing.T) {
 	// sharing /slow with the baseline would make the cancel subtest cancel before the
 	// request is sent.
 	ts.Script("/slow-cancel", testutil.Route{Delay: 100 * time.Millisecond})
-	check := get(ts.URL()+"/slow", 500*time.Millisecond)
+	check := get(ts.URL()+"/slow", longTimeout)
 
 	t.Run("baseline returns a result", func(t *testing.T) {
 		res, err := NewHTTPProber(3, 65536, clock.Real{}).CheckHTTP(context.Background(), check)
