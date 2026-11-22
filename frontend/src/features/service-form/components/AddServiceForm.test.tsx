@@ -770,6 +770,17 @@ describe('leaving', () => {
     },
   )
 
+  it('a double click on the back link with a changed form opens one question, and Discard changes goes to /', async () => {
+    const { user } = setup()
+    await user.type(nameInput(), 'Search API')
+    await user.dblClick(backLink())
+    const dialogs = await screen.findAllByRole('dialog', { name: 'Discard unsaved changes?' })
+    expect(dialogs).toHaveLength(1)
+    await user.click(within(dialogs[0]).getByRole('button', { name: 'Discard changes' }))
+    expect(await marker()).toBeInTheDocument()
+    expect(discardDialog()).not.toBeInTheDocument()
+  })
+
   it('Esc closes the dialog and keeps the values', async () => {
     const { user } = setup()
     await user.type(nameInput(), 'Search API')

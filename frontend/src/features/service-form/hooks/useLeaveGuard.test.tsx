@@ -346,6 +346,19 @@ describe('asking before a navigation', () => {
     expect(here(router)).toBe('/other')
   })
 
+  it.each([
+    ['false', { leaveWithoutAsking: false }],
+    ['the string "true"', { leaveWithoutAsking: 'true' }],
+    ['a bare string', 'leaveWithoutAsking'],
+    ['an unrelated object', { other: true }],
+  ])('asks for a push whose state is not exactly leaveWithoutAsking: true (%s)', async (_name, state) => {
+    const { router } = renderGuard()
+    type('name', 'a')
+    await go(() => router.navigate('/other', { state }))
+    expect(here(router)).toBe('/')
+    expect(dialog()).toBe('true')
+  })
+
   it('asks for a POP to an entry that carries the state', async () => {
     const { router } = renderGuard({
       initialEntries: [{ pathname: '/other', state: LEAVE_WITHOUT_ASKING }, '/'],
