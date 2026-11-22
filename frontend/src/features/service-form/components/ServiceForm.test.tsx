@@ -317,6 +317,17 @@ describe('a refused test, 422 (FR-106, FR-74, NFR-7)', () => {
     expect(runButton()).toBeEnabled()
   })
 
+  it('a 422 that names a path of the other type (check.host on an HTTP form) is listed as text and breaks nothing', async () => {
+    vi.mocked(testServiceCheck).mockRejectedValueOnce(validationProblem(fieldError('check.host', 'Host <i>refused</i>.')))
+    const { user } = await setup('add')
+    await typeUrl(user)
+    await user.click(runButton())
+    expect(await screen.findByText(/Host <i>refused<\/i>\./)).toBeInTheDocument()
+    expect(document.querySelector('.form-banners i')).toBeNull()
+    expect(within(resultArea()).getByRole('alert')).toHaveTextContent('Test not run.')
+    expect(runButton()).toBeEnabled()
+  })
+
   it('editing the URL clears its error and its summary entry only', async () => {
     refuse()
     const { user } = await setup('edit')

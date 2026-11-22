@@ -7,6 +7,9 @@ describe('formatDuration', () => {
     [312, '312 ms'],
     [1204, '1,204 ms'],
     [10000, '10,000 ms'],
+    [999, '999 ms'],
+    [1000, '1,000 ms'],
+    [600000, '600,000 ms'],
   ])('%i is %s', (ms, text) => {
     expect(formatDuration(ms)).toBe(text)
   })
