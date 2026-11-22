@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 	echomw "github.com/labstack/echo/v4/middleware"
@@ -71,11 +72,20 @@ func NewRouter(deps Deps) (*echo.Echo, error) {
 // (every other operation is gated, so a new operation is gated unless the contract
 // marks it public), and the operations whose request body is required.
 func operationRules() (public, bodyRequired map[string]bool, err error) {
+	rules, err := loadOperationRules()
+	return rules.public, rules.bodyRequired, err
+}
+
+type rulesPair struct{ public, bodyRequired map[string]bool }
+
+// loadOperationRules reads the contract once per process. The maps are read-only once
+// built: policyRouter only reads them.
+var loadOperationRules = sync.OnceValues(func() (rulesPair, error) {
 	spec, err := api.GetSwagger()
 	if err != nil {
-		return nil, nil, fmt.Errorf("load the embedded contract: %w", err)
+		return rulesPair{}, fmt.Errorf("load the embedded contract: %w", err)
 	}
-	public, bodyRequired = map[string]bool{}, map[string]bool{}
+	public, bodyRequired := map[string]bool{}, map[string]bool{}
 	for path, item := range spec.Paths.Map() {
 		for method, operation := range item.Operations() {
 			key := routeKey(method, echoPath(path))
@@ -87,8 +97,8 @@ func operationRules() (public, bodyRequired map[string]bool, err error) {
 			}
 		}
 	}
-	return public, bodyRequired, nil
-}
+	return rulesPair{public: public, bodyRequired: bodyRequired}, nil
+})
 
 // echoPath turns a contract path (/services/{serviceId}) into Echo's (/services/:serviceId).
 func echoPath(path string) string {
