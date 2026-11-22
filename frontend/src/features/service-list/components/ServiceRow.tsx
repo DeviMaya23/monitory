@@ -2,7 +2,7 @@ import { Link } from 'react-router'
 import { Bell, BellOff, CircleAlert, Eye, EyeOff, Pause, Pencil, Play, Trash2, TriangleAlert } from 'lucide-react'
 import type { Service } from '../../../lib/api/services'
 import { Tooltip } from '../../../components/ui/Tooltip'
-import { failureReasonText } from '../lib/failureReason'
+import { failureReasonText } from '../../../lib/failureReason'
 import { formatTime } from '../../../lib/formatTime'
 import { StatusBadge } from './StatusBadge'
 

@@ -5,8 +5,8 @@ Integration tests: no Go code is touched, so none apply (see the last item).
 
 ## Move and wrapper
 
-- [ ] `failureReasonText` moves to `lib/failureReason.ts` unchanged, test moved to `lib/failureReason.test.ts`; `ServiceRow.tsx` imports it from `lib/`; old files deleted (test: `lib/failureReason.test.ts`, service-list tests unchanged)
-- [ ] `testServiceCheck` calls `POST /api/service-tests` with the body; types exported (`lib/api/services.ts`, test: `lib/api/services.test.ts`)
+- [x] `failureReasonText` moves to `lib/failureReason.ts` unchanged, test moved to `lib/failureReason.test.ts`; `ServiceRow.tsx` imports it from `lib/`; old files deleted (test: `lib/failureReason.test.ts`, service-list tests unchanged)
+- [x] `testServiceCheck` calls `POST /api/service-tests` with the body; types exported (`lib/api/services.ts`, test: `lib/api/services.test.ts`)
 
 ## Pure logic
 

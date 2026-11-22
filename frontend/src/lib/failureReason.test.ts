@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { FailureReason } from '../../../lib/api/services'
+import type { FailureReason } from './api/services'
 import { failureReasonText } from './failureReason'
 
 describe('failureReasonText (FR-61)', () => {

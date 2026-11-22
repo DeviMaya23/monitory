@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { problem } from '../../test/fixtures'
 import { apiRequest } from './request'
 import { makeService } from '../../test/fixtures'
-import { deleteService, getService, pauseService, resumeService, serviceQueryKey, servicesQueryKey, updateService } from './services'
+import { deleteService, getService, pauseService, resumeService, serviceQueryKey, servicesQueryKey, testServiceCheck, updateService } from './services'
 
 vi.mock('./request')
 
@@ -68,5 +68,16 @@ describe('getService and updateService', () => {
 
   it('serviceQueryKey sits under the list key', () => {
     expect(serviceQueryKey('abc')).toEqual([...servicesQueryKey, 'abc'])
+  })
+})
+
+describe('testServiceCheck', () => {
+  it('sends one POST to the service-tests path with the body and resolves with the result', async () => {
+    const answer = { healthy: true, duration_ms: 312 }
+    vi.mocked(apiRequest).mockResolvedValue(answer)
+    const input = { check: { type: 'tcp' as const, host: 'db.example.com', port: 5432 }, settings: { timeout_seconds: 7 } }
+    await expect(testServiceCheck(input)).resolves.toBe(answer)
+    expect(apiRequest).toHaveBeenCalledTimes(1)
+    expect(apiRequest).toHaveBeenCalledWith('POST', '/api/service-tests', input)
   })
 })
