@@ -161,7 +161,7 @@ describe('List', () => {
     expect(line()).toBe(`${text} · times in your local time`)
   })
 
-  it('has a Pause or Resume and a Delete button per row, no Edit button, no switch, Open link or name link; the only links are Add service and one Alerts link per row', async () => {
+  it('has a Pause or Resume and a Delete button per row, no Edit button, no switch, no Open link; a row’s links are the name link, Alerts and Edit', async () => {
     await loaded(makeServiceList(makeService(), makeUnhealthy({ code: 'timed_out' }, { paused: true })))
     for (const name of [/Alerts/, /Edit/]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
@@ -169,9 +169,13 @@ describe('List', () => {
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Open/ })).not.toBeInTheDocument()
     const list = screen.getByRole('list', { name: 'Services' })
-    expect(within(list).getAllByRole('link').map((l) => l.getAttribute('aria-label'))).toEqual([
+    expect(within(list).getAllByRole('link').map((l) => l.getAttribute('aria-label') ?? l.textContent)).toEqual([
+      'API gateway',
       'Alerts API gateway',
+      'Edit API gateway',
+      'Billing webhook',
       'Alerts Billing webhook',
+      'Edit Billing webhook',
     ])
     const buttons = within(list).getAllByRole('button')
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
@@ -180,7 +184,7 @@ describe('List', () => {
       'Resume Billing webhook',
       'Delete Billing webhook',
     ])
-    expect(screen.getAllByRole('link')).toHaveLength(1 + 2)
+    expect(screen.getAllByRole('link')).toHaveLength(1 + 2 * 3)
   })
 
   it('lists the six column header words and Actions', async () => {
@@ -238,11 +242,75 @@ describe('A row', () => {
     expect(within(row('b')).getByRole('link', { name: delivery })).toHaveAttribute('href', '/services/id-b/alerts')
     expect(row('c')).not.toHaveTextContent('Alert delivery failed')
     expect(within(row('c')).queryByRole('link', { name: delivery })).not.toBeInTheDocument()
-    // Only the Alerts link and the delivery link.
+    // The name link, the delivery link, Alerts and Edit.
     expect(within(row('a')).getAllByRole('link').map((l) => l.getAttribute('aria-label') ?? l.textContent)).toEqual([
+      'a',
       delivery,
       'Alerts a',
+      'Edit a',
     ])
+  })
+
+  it('every row’s name is a link to its Edit path with the id encoded, healthy, unhealthy, paused or TCP (FR-7)', async () => {
+    await loaded(
+      makeServiceList(
+        makeService({ name: 'web' }),
+        makeUnhealthy({ code: 'timed_out' }, { name: 'bad' }),
+        makePaused(),
+        makeTcp(),
+        makeService({ id: 'x/y z', name: 'slash' }),
+      ),
+    )
+    for (const [name, id] of [['web', 'id-web'], ['bad', 'id-bad'], ['Paused one', 'id-Paused%20one'], ['Postgres', 'id-Postgres'], ['slash', 'x%2Fy%20z']]) {
+      const link = within(row(name)).getByRole('link', { name })
+      expect(link).toHaveAttribute('href', `/services/${id}`)
+      expect(link).toHaveClass('svc__name')
+      expect(link).toHaveTextContent(name)
+    }
+  })
+
+  it('every row has an Edit link to the same path with a hidden Edit label, between Alerts and Delete (FR-7)', async () => {
+    await loaded(makeServiceList(makeService({ name: 'web' }), makePaused(), makeTcp(), makeService({ id: 'x/y', name: 'slash' })))
+    for (const [name, id] of [['web', 'id-web'], ['Paused one', 'id-Paused%20one'], ['Postgres', 'id-Postgres'], ['slash', 'x%2Fy']]) {
+      const edit = within(row(name)).getByRole('link', { name: `Edit ${name}` })
+      expect(edit).toHaveAttribute('href', `/services/${id}`)
+      expect(edit.querySelector('.btn__label')).toHaveAttribute('aria-hidden', 'true')
+      expect(edit.querySelector('.btn__label')).toHaveTextContent('Edit')
+      expect(within(row(name)).queryByRole('button', { name: /Edit/ })).not.toBeInTheDocument()
+      const alerts = within(row(name)).getByRole('link', { name: `Alerts ${name}` })
+      const del = within(row(name)).getByRole('button', { name: `Delete ${name}` })
+      expect(alerts.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(edit.compareDocumentPosition(del) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+  })
+
+  it('hovering or focusing a name link shows a tooltip with the full 90-character name; markup shows literally (NFR-7, FR-9)', async () => {
+    const long = 'L'.repeat(90)
+    await loaded(makeServiceList(makeService({ name: long }), makeService({ name: '<b>x</b>' })))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const link = within(screen.getByRole('list', { name: 'Services' })).getByRole('link', { name: long })
+    expect(link).toHaveTextContent(long)
+    await user.hover(link)
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(within(await screen.findByRole('tooltip')).getByText(long)).toBeInTheDocument()
+    await user.unhover(link)
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+
+    link.focus()
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(long)
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+
+    const markup = screen.getByRole('link', { name: '<b>x</b>' })
+    expect(markup).toHaveTextContent('<b>x</b>')
+    markup.focus()
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('<b>x</b>')
+    expect(document.querySelector('b')).toBeNull()
   })
 
   it('every row has an Alerts link to its alert list, before the Delete button, paused, TCP or not (FR-17)', async () => {
@@ -635,16 +703,26 @@ describe('Pause and Resume (FR-75, FR-77, FR-78, FR-79)', () => {
       expect(within(row(name)).getAllByRole('button')[0]).toBe(toggle)
     }
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    button('Resume Sleeper').focus()
+    const link = (name: string) => screen.getByRole('link', { name })
+    expect(within(row('Sleeper')).getAllByRole('link')[0]).toHaveTextContent('Sleeper')
+    link('Sleeper').focus()
     await user.tab()
-    expect(screen.getByRole('link', { name: 'Alerts Sleeper' })).toHaveFocus()
+    expect(button('Resume Sleeper')).toHaveFocus()
+    await user.tab()
+    expect(link('Alerts Sleeper')).toHaveFocus()
+    await user.tab()
+    expect(link('Edit Sleeper')).toHaveFocus()
     await user.tab()
     expect(button('Delete Sleeper')).toHaveFocus()
     await user.tab({ shift: true })
     await user.tab({ shift: true })
+    await user.tab({ shift: true })
     expect(button('Resume Sleeper')).toHaveFocus()
     await user.tab({ shift: true })
+    expect(link('Sleeper')).toHaveFocus()
+    await user.tab({ shift: true })
     expect(button('Delete Billing')).toHaveFocus()
+    await user.tab({ shift: true })
     await user.tab({ shift: true })
     await user.tab({ shift: true })
     expect(button('Pause Billing')).toHaveFocus()
