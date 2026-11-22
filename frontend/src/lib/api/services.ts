@@ -11,6 +11,9 @@ export type HttpMethod = components['schemas']['HttpCheck']['method']
 /** The query key of the cached service list, shared by every feature that reads or drops it. */
 export const servicesQueryKey = ['services'] as const
 
+/** The query key of one service's cached detail; under the list's key, so `exact` matters when dropping the list. */
+export const serviceQueryKey = (id: string) => ['services', id] as const
+
 /** `listServices`: every service, at most 50, ordered by name ignoring case. */
 export function listServices(): Promise<ServiceList> {
   return apiRequest<ServiceList>('GET', '/api/services')
@@ -19,6 +22,16 @@ export function listServices(): Promise<ServiceList> {
 /** `createService`: adds a service. Settings left out of `input` get the server's defaults. */
 export function createService(input: ServiceInput): Promise<Service> {
   return apiRequest<Service>('POST', '/api/services', input)
+}
+
+/** `getService`: one service with every setting, header values in full. */
+export function getService(id: string): Promise<Service> {
+  return apiRequest<Service>('GET', `/api/services/${encodeURIComponent(id)}`)
+}
+
+/** `updateService`: replaces every editable setting of a service; its state is kept. */
+export function updateService(id: string, input: ServiceInput): Promise<Service> {
+  return apiRequest<Service>('PUT', `/api/services/${encodeURIComponent(id)}`, input)
 }
 
 /** `deleteService`: removes a service, its alert list and its state. Resolves when the server answers 204. */

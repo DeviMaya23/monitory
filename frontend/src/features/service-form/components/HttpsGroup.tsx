@@ -1,7 +1,7 @@
 import { Info } from 'lucide-react'
 import { Controller, useWatch, type Control, type UseFormRegister } from 'react-hook-form'
 import { Switch } from '../../../components/ui/Switch'
-import type { ServiceFormValues } from '../hooks/useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
 import type { useServerErrors } from '../hooks/useServerErrors'
 import {
   CERT_DAYS_ID,

@@ -4,7 +4,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appRoutes } from './App'
 import { setUnauthenticatedHandler } from './lib/api/request'
-import { createService, deleteService, listServices } from './lib/api/services'
+import { createService, deleteService, getService, listServices } from './lib/api/services'
 import { getPublicDashboard } from './lib/api/publicDashboard'
 import { listTargets } from './lib/api/targets'
 import { getSession, signIn, signOut, type SessionInfo } from './lib/api/session'
@@ -26,6 +26,8 @@ vi.mock('./lib/api/services', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./lib/api/services')>()),
   listServices: vi.fn(),
   createService: vi.fn(),
+  getService: vi.fn(),
+  updateService: vi.fn(),
   deleteService: vi.fn(),
 }))
 vi.mock('./lib/api/targets', async (importOriginal) => ({
@@ -76,7 +78,7 @@ const adminRoutes: [string, string][] = [
 ]
 
 // The routes that still show a placeholder when signed in: all but the pages that are built.
-const builtRoutes = ['/', '/services/new', '/services/0190-abc/alerts']
+const builtRoutes = ['/', '/services/new', '/services/0190-abc', '/services/0190-abc/alerts']
 const placeholderRoutes = adminRoutes.filter(([path]) => !builtRoutes.includes(path))
 
 const dashboard = () => screen.findByRole('heading', { name: 'Services' })
@@ -113,6 +115,30 @@ describe('App routes', () => {
     expect(signOutButton()).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Monitory' })).toHaveAttribute('href', '/')
     expect(listServices).not.toHaveBeenCalled()
+  })
+
+  it('signed in: /services/:id shows the edit service page inside the layout instead of the placeholder', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    vi.mocked(getService).mockResolvedValue(makeService({ id: 'some-id', name: 'Edge cache' }))
+    renderAt('/services/some-id')
+    expect(await screen.findByRole('heading', { name: 'Edit service' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('Name')).toHaveValue('Edge cache')
+    expect(getService).toHaveBeenCalledWith('some-id')
+    expect(screen.queryByText(PLACEHOLDER)).not.toBeInTheDocument()
+    expect(signOutButton()).toBeInTheDocument()
+  })
+
+  it('signed in: a 401 on getService ends on the sign-in form with the notice and no banner (FR-4)', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    vi.mocked(getService).mockImplementation(() => {
+      registeredHandler()()
+      return Promise.reject(problem(401, 'unauthenticated'))
+    })
+    renderAt('/services/some-id')
+    expect(await screen.findByText('Your session has ended.')).toBeInTheDocument()
+    expect(await form()).toBeInTheDocument()
+    expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument()
   })
 
   it('signed in: /services/:id/alerts shows the alert list page inside the layout instead of the placeholder', async () => {

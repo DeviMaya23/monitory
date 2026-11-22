@@ -1,0 +1,118 @@
+import { describe, expect, it } from 'vitest'
+import type { Service } from '../../../lib/api/services'
+import { makeRichService, makeService, makeTcp } from '../../../test/fixtures'
+import { ADD_DEFAULT_VALUES } from './formValues'
+import { toFormValues, toServiceInput } from './serviceInput'
+
+describe('toFormValues (FR-7, FR-39)', () => {
+  it('gives each text of a full HTTP service as the form holds it', () => {
+    expect(toFormValues(makeRichService())).toEqual({
+      name: 'Edge cache',
+      type: 'http',
+      host: '',
+      port: '',
+      method: 'POST',
+      url: 'https://edge.example.com/health',
+      query_params: [{ name: 'region', value: 'eu' }],
+      headers: [
+        { name: 'Authorization', value: 'Bearer abc123-secret' },
+        { name: 'X-Trace', value: 'on' },
+      ],
+      body_type: 'json',
+      body_content: '{"ping":1}',
+      json_rules: [
+        { field: 'checks.db.status', kind: 'text', text: 'down' },
+        { field: 'maintenance', kind: 'false', text: '' },
+      ],
+      json_rule_mode: 'all',
+      cert_enabled: true,
+      cert_days: '30',
+      ignore_cert_errors: true,
+      alerts_enabled: false,
+      unhealthy_message: 'Edge is down',
+      recovery_message: 'Edge is back',
+      check_interval: '120',
+      timeout: '7',
+      retries: '3',
+      retry_interval: '4',
+    })
+  })
+
+  it('gives a true rule as kind true with an empty text', () => {
+    const service = makeService({
+      check: { type: 'http', method: 'GET', url: 'https://a.example', json_rules: [{ field: 'ok', failing_value: true }] },
+    })
+    expect(toFormValues(service).json_rules).toEqual([{ field: 'ok', kind: 'true', text: '' }])
+  })
+
+  it('gives a TCP service its host and port as text and the add defaults for the HTTP values', () => {
+    expect(toFormValues(makeTcp({ name: 'Cache', check: { type: 'tcp', host: 'cache.internal', port: 6379 } }))).toEqual({
+      ...ADD_DEFAULT_VALUES,
+      name: 'Cache',
+      type: 'tcp',
+      host: 'cache.internal',
+      port: '6379',
+    })
+  })
+
+  it('gives the add timing defaults for a service with no settings, and the add values for the rest', () => {
+    const values = toFormValues(makeService({ name: 'Plain' }))
+    expect(values).toEqual({ ...ADD_DEFAULT_VALUES, name: 'Plain', url: 'https://example.com/health' })
+  })
+
+  it('treats a body with a type and no content as an empty text, and a none body as no text', () => {
+    const body = (b: NonNullable<Extract<Service['check'], { type: 'http' }>['body']>) =>
+      toFormValues(makeService({ check: { type: 'http', method: 'GET', url: 'https://a.example', body: b } }))
+    expect(body({ type: 'text' })).toMatchObject({ body_type: 'text', body_content: '' })
+    expect(body({ type: 'none', content: 'left over' })).toMatchObject({ body_type: 'none', body_content: '' })
+  })
+
+  it('keeps the days of a saved certificate check that is off', () => {
+    const service = makeService({
+      check: { type: 'http', method: 'GET', url: 'https://a.example', certificate_check: { enabled: false, min_days_left: 9 } },
+    })
+    expect(toFormValues(service)).toMatchObject({ cert_enabled: false, cert_days: '9' })
+  })
+})
+
+describe('toServiceInput', () => {
+  it('round-trips an HTTP service with rules, a body and certificate options on', () => {
+    const service = makeRichService()
+    const input = toServiceInput(toFormValues(service))
+    expect(input).toEqual({
+      name: service.name,
+      check: service.check,
+      settings: service.settings,
+      alerts_enabled: service.alerts_enabled,
+      unhealthy_message: service.unhealthy_message,
+      recovery_message: service.recovery_message,
+    })
+  })
+
+  it('sends { enabled: false } for a saved certificate check that is off, without days', () => {
+    const service = makeService({
+      check: { type: 'http', method: 'GET', url: 'https://a.example', certificate_check: { enabled: false, min_days_left: 9 } },
+    })
+    const { check } = toServiceInput(toFormValues(service))
+    expect(check).toMatchObject({ certificate_check: { enabled: false } })
+    expect((check as { certificate_check: object }).certificate_check).toEqual({ enabled: false })
+  })
+
+  it('round-trips a TCP service with no key of the HTTP check', () => {
+    const service = makeTcp({ settings: { check_interval_seconds: 30, timeout_seconds: 5, retry_count: 1, retry_interval_seconds: 2 } })
+    const input = toServiceInput(toFormValues(service))
+    expect(input.check).toEqual({ type: 'tcp', host: 'db.internal', port: 5432 })
+    expect(input.settings).toEqual(service.settings)
+  })
+
+  it('gives the add defaults for everything a sparse HTTP or TCP service lacks', () => {
+    const http = toServiceInput(toFormValues(makeService()))
+    expect(http.check).toMatchObject({ type: 'http', method: 'GET', url: 'https://example.com/health', query_params: [], headers: [], json_rules: [], json_rule_mode: 'any', certificate_check: { enabled: false }, ignore_certificate_errors: false })
+    expect(http.check).not.toHaveProperty('body')
+    expect(http.settings).toEqual({ check_interval_seconds: 60, timeout_seconds: 10, retry_count: 2, retry_interval_seconds: 10 })
+    expect(http.alerts_enabled).toBe(true)
+    const tcp = toServiceInput(toFormValues(makeTcp()))
+    expect(tcp.check).toEqual({ type: 'tcp', host: 'db.internal', port: 5432 })
+    expect(tcp.settings).toEqual(http.settings)
+  })
+})

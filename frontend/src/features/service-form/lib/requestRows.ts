@@ -1,4 +1,4 @@
-import type { ServiceFormValues } from '../hooks/useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
 
 /** The two lists of name and value rows in the Request group. */
 export type RowList = 'query_params' | 'headers'

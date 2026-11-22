@@ -1,4 +1,4 @@
-import type { ServiceFormValues } from '../hooks/useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
 
 /** What a rule's failing value is: typed text, or the boolean `true` or `false`. */
 export type RuleKind = 'text' | 'true' | 'false'

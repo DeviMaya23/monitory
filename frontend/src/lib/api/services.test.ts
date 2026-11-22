@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { problem } from '../../test/fixtures'
 import { apiRequest } from './request'
 import { makeService } from '../../test/fixtures'
-import { deleteService, pauseService, resumeService } from './services'
+import { deleteService, getService, pauseService, resumeService, serviceQueryKey, servicesQueryKey, updateService } from './services'
 
 vi.mock('./request')
 
@@ -46,5 +46,27 @@ describe('pauseService and resumeService', () => {
     await expect(resumeService('x/y')).resolves.toBe(answer)
     expect(apiRequest).toHaveBeenCalledTimes(1)
     expect(apiRequest).toHaveBeenCalledWith('POST', '/api/services/x%2Fy/resume')
+  })
+})
+
+describe('getService and updateService', () => {
+  it('getService sends one GET for the encoded id and resolves with the service', async () => {
+    const answer = makeService()
+    vi.mocked(apiRequest).mockResolvedValue(answer)
+    await expect(getService('a b/c')).resolves.toBe(answer)
+    expect(apiRequest).toHaveBeenCalledTimes(1)
+    expect(apiRequest).toHaveBeenCalledWith('GET', '/api/services/a%20b%2Fc')
+  })
+
+  it('updateService sends one PUT for the encoded id with the body', async () => {
+    const answer = makeService()
+    vi.mocked(apiRequest).mockResolvedValue(answer)
+    const input = { name: 'X', check: { type: 'tcp' as const, host: 'h', port: 1 } }
+    await expect(updateService('a b/c', input)).resolves.toBe(answer)
+    expect(apiRequest).toHaveBeenCalledWith('PUT', '/api/services/a%20b%2Fc', input)
+  })
+
+  it('serviceQueryKey sits under the list key', () => {
+    expect(serviceQueryKey('abc')).toEqual([...servicesQueryKey, 'abc'])
   })
 })

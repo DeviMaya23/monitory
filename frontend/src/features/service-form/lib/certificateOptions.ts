@@ -1,4 +1,4 @@
-import type { ServiceFormValues } from '../hooks/useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
 import { readWholeNumber } from './timingGroup'
 
 /** Where the minimum days start: the design board's value (the contract has no default). */

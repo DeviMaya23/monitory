@@ -1,4 +1,4 @@
-import type { ServiceFormValues } from '../hooks/useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
 
 /** The four timing inputs, by form value name. */
 export type TimingName = 'check_interval' | 'timeout' | 'retries' | 'retry_interval'

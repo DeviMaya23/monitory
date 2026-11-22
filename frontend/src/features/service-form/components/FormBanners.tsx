@@ -1,19 +1,21 @@
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { CircleAlert, RefreshCw, WifiOff } from 'lucide-react'
 import { Link } from 'react-router'
-import type { CreateFailure } from '../hooks/useCreateService'
+import type { SaveFailure } from '../hooks/useSaveService'
 import { LEAVE_WITHOUT_ASKING } from '../hooks/useLeaveGuard'
 
 type Props = {
   /** The last save's failure; only the kinds that are banners show here. */
-  failure: CreateFailure | null
+  failure: SaveFailure | null
   /** "Try again": submit the form again as it is. */
   onRetry: () => void
+  /** The `Back to services` link of the not-found banner, which takes focus when the banner appears. */
+  notFoundLinkRef?: RefObject<HTMLAnchorElement | null>
   /** The error summary, which sits in the same live region. */
   children?: ReactNode
 }
 
-function Banner({ failure, onRetry }: Pick<Props, 'failure' | 'onRetry'>) {
+function Banner({ failure, onRetry, notFoundLinkRef }: Pick<Props, 'failure' | 'onRetry' | 'notFoundLinkRef'>) {
   switch (failure?.kind) {
     case 'limit':
       return (
@@ -25,6 +27,21 @@ function Banner({ failure, onRetry }: Pick<Props, 'failure' | 'onRetry'>) {
           </div>
           <div className="banner__actions">
             <Link className="btn" to="/" state={LEAVE_WITHOUT_ASKING}>
+              Back to services
+            </Link>
+          </div>
+        </div>
+      )
+    case 'not-found':
+      return (
+        <div className="banner banner--error" role="alert">
+          <CircleAlert className="icon" aria-hidden="true" />
+          <div className="banner__body">
+            <span className="banner__title">This service no longer exists.</span>
+            <span>It was deleted, perhaps in another tab. It can’t be saved.</span>
+          </div>
+          <div className="banner__actions">
+            <Link className="btn" to="/" state={LEAVE_WITHOUT_ASKING} ref={notFoundLinkRef}>
               Back to services
             </Link>
           </div>
@@ -78,11 +95,11 @@ function Banner({ failure, onRetry }: Pick<Props, 'failure' | 'onRetry'>) {
 }
 
 /** The form's live region: the error summary, and the banner of a save that failed as a whole (FR-60, NFR-8). */
-export function FormBanners({ failure, onRetry, children }: Props) {
+export function FormBanners({ failure, onRetry, notFoundLinkRef, children }: Props) {
   return (
     <div className="form-banners" aria-live="polite">
       {children}
-      <Banner failure={failure} onRetry={onRetry} />
+      <Banner failure={failure} onRetry={onRetry} notFoundLinkRef={notFoundLinkRef} />
     </div>
   )
 }

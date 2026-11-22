@@ -1,7 +1,7 @@
 import { Controller, useFieldArray, useWatch, type Control, type UseFormRegister } from 'react-hook-form'
 import { NameValueRows } from '../../../components/NameValueRows'
 import { RadioGroup } from '../../../components/ui/RadioGroup'
-import type { ServiceFormValues } from '../hooks/useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
 import type { useServerErrors } from '../hooks/useServerErrors'
 import { errorId } from '../lib/fieldIds'
 import {

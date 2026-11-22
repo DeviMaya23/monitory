@@ -1,6 +1,6 @@
 import { Controller, useWatch, type Control, type UseFormRegister } from 'react-hook-form'
 import { Switch } from '../../../components/ui/Switch'
-import type { ServiceFormValues } from '../hooks/useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
 import { errorId, FIELD_IDS } from '../lib/fieldIds'
 import type { FieldTarget } from '../lib/fieldLabels'
 import { ALERTS_TEXT, countCharacters, MESSAGE_MAX } from '../lib/alertsGroup'
