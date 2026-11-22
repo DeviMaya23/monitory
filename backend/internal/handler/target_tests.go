@@ -20,8 +20,13 @@ func (s *Server) TestTarget(ctx context.Context, request api.TestTargetRequestOb
 	if err != nil {
 		return nil, err
 	}
-	// Only ids, the type and the outcome: no address, URL, header or reason.
-	s.log.Info("target test sent", "service_id", request.ServiceId, "type", input.Type, "delivered", result.Delivered)
+	// Only ids, the type, the outcome and a fixed cause word: no address, URL, header
+	// or reason.
+	attrs := []any{"service_id", request.ServiceId, "type", input.Type, "delivered", result.Delivered}
+	if !result.Delivered && result.FailureCause != "" {
+		attrs = append(attrs, "cause", result.FailureCause)
+	}
+	s.log.Info("target test sent", attrs...)
 
 	response := api.TestTarget200JSONResponse{Delivered: result.Delivered}
 	if !result.Delivered {

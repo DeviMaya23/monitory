@@ -1036,6 +1036,7 @@ func TestSequence_FailFailSucceed(t *testing.T) {
 		assert.EqualValues(t, i+1, l["attempt"])
 		assert.Equal(t, fmt.Sprintf("failure %d", i+1), l["reason"])
 		assert.Equal(t, "WARN", l["level"])
+		assert.NotContains(t, l, "cause", "an error with no cause logs no cause key")
 	}
 }
 
@@ -1105,6 +1106,7 @@ func TestSequence_ZeroRetriesFailsAtOnce(t *testing.T) {
 	assert.Equal(t, 0, clk.Pending())
 	assert.EqualValues(t, 1, line["attempts"])
 	assert.Equal(t, "failure 1", line["reason"])
+	assert.NotContains(t, line, "cause")
 	assert.Len(t, mailer.callList(), 1)
 	assert.Equal(t, []string{"alert delivery failed"}, msgsOf(buf.lines(t)))
 }
@@ -1183,6 +1185,75 @@ func TestSequence_LogsHoldIdsOnly(t *testing.T) {
 	for _, secret := range []string{secretAddress, secretURL, secretHeaderName, secretHeaderValue, secretName, secretService, secretMessage} {
 		assert.NotContains(t, buf.String(), secret)
 	}
+	for _, l := range lines {
+		assert.NotContains(t, l, "cause", "neither a plain email error nor a webhook error has a cause")
+	}
+}
+
+// causedError is an error as the mailer returns it: its text is the visible reason, it
+// has a cause for the log, and it wraps an error whose own text holds the address.
+type causedError struct{ cause, wrapped string }
+
+func (e *causedError) Error() string        { return "the SMTP server did not accept the message" }
+func (e *causedError) FailureCause() string { return e.cause }
+func (e *causedError) Unwrap() error        { return errors.New("rcpt " + e.wrapped + ": refused") }
+
+func TestSequence_LogsTheFailureCause(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN[secretAddress] = func(context.Context, int) error {
+		return &causedError{cause: "recipient refused", wrapped: secretAddress}
+	}
+	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 1, Interval: 7 * time.Second})
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", secretAddress)})
+	retried := waitMsg(t, buf, "t1", "alert delivery attempt failed")
+	waitPending(t, clk, 1)
+	clk.Advance(7 * time.Second)
+	last := waitMsg(t, buf, "t1", "alert delivery failed")
+
+	for _, l := range []map[string]any{retried, last} {
+		assert.Equal(t, "recipient refused", l["cause"])
+		assert.Equal(t, "the SMTP server did not accept the message", l["reason"])
+	}
+	assert.NotContains(t, buf.String(), secretAddress)
+}
+
+func TestSequence_CauseOnTheLastAttemptOnly(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["a@x"] = func(_ context.Context, n int) error {
+		if n < 2 {
+			return fmt.Errorf("failure %d", n)
+		}
+		return &causedError{cause: "timed out", wrapped: "a@x"}
+	}
+	d, buf, clk := newRetryDispatcher(t, mailer, newFakeWebhooks(), worker.RetryPolicy{Retries: 1, Interval: 7 * time.Second})
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("t1", "a@x")})
+	retried := waitMsg(t, buf, "t1", "alert delivery attempt failed")
+	waitPending(t, clk, 1)
+	clk.Advance(7 * time.Second)
+	last := waitMsg(t, buf, "t1", "alert delivery failed")
+
+	assert.NotContains(t, retried, "cause")
+	assert.Equal(t, "timed out", last["cause"])
+	assert.NotContains(t, buf.String(), "a@x")
+}
+
+func TestSequence_OtherLinesHaveNoCause(t *testing.T) {
+	mailer := newFakeMailer()
+	mailer.behaveN["ok@x"] = failFirst(0)
+	mailer.behaveN["gone@x"] = func(ctx context.Context, _ int) error { <-ctx.Done(); return &causedError{cause: "timed out"} }
+	d, buf, _ := newRetryDispatcher(t, mailer, newFakeWebhooks(), retry3)
+
+	dispatchWithin(t, d, testAlert("svc"), []domain.Target{emailTarget("ok", "ok@x"), emailTarget("gone", "gone@x")})
+	waitMsg(t, buf, "ok", "alert delivered")
+	eventually(t, "both sends to start", func() bool { return len(mailer.callList()) == 2 })
+	closeWithin(t, d)
+
+	abandoned := waitMsg(t, buf, "gone", "alert delivery abandoned")
+	delivered := waitMsg(t, buf, "ok", "alert delivered")
+	assert.NotContains(t, abandoned, "cause")
+	assert.NotContains(t, delivered, "cause")
 }
 
 func TestClose_WhileWaiting(t *testing.T) {
@@ -1336,6 +1407,12 @@ func TestSupersede_AttemptInProgress(t *testing.T) {
 		clk.Advance(time.Hour)
 		assert.Len(t, mailer.callList(), 1)
 		assert.Equal(t, []string{"alert delivery superseded"}, msgsOf(buf.lines(t)))
+	})
+	t.Run("a superseded failure with a cause logs no cause", func(t *testing.T) {
+		_, buf, _, _, release := blocked(t, retry3)
+		release(&causedError{cause: "recipient refused", wrapped: "a@x"})
+		line := waitMsg(t, buf, "a", "alert delivery superseded")
+		assert.NotContains(t, line, "cause")
 	})
 	t.Run("failure on the last attempt is the final failure", func(t *testing.T) {
 		_, buf, _, _, release := blocked(t, worker.RetryPolicy{Retries: 0, Interval: 7 * time.Second})

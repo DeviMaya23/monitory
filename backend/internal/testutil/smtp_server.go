@@ -25,6 +25,10 @@ import (
 type SMTPOptions struct {
 	// RejectRecipient answers every RCPT TO with a 550.
 	RejectRecipient bool
+	// RejectSender answers every MAIL FROM with a 550.
+	RejectSender bool
+	// RejectData accepts MAIL FROM and RCPT TO, answers DATA with a 554 and reads no body.
+	RejectData bool
 	// CloseAtConnect closes each connection before it sends a greeting.
 	CloseAtConnect bool
 	// GreetingDelay is waited, in real time, before the greeting.
@@ -295,6 +299,10 @@ func (s *SMTPServer) serve(c net.Conn) {
 				reply("530 5.7.0 authentication required")
 				continue
 			}
+			if s.opts.RejectSender {
+				reply("550 5.7.1 sender refused")
+				continue
+			}
 			from = angle(arg)
 			rcpts = nil
 			reply("250 ok")
@@ -308,6 +316,10 @@ func (s *SMTPServer) serve(c net.Conn) {
 		case "DATA":
 			if len(rcpts) == 0 {
 				reply("503 5.5.1 need RCPT first")
+				continue
+			}
+			if s.opts.RejectData {
+				reply("554 5.3.0 data refused")
 				continue
 			}
 			reply("354 end data with <CR><LF>.<CR><LF>")

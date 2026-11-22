@@ -58,6 +58,19 @@ func TestTestTarget_FailedDeliveryIs200WithTheReason(t *testing.T) {
 	assert.JSONEq(t, `{"delivered":false,"failure_reason":"no SMTP account configured"}`, readBody(t, res))
 }
 
+func TestTestTarget_FailedDeliveryWithACauseKeepsTheBodyShape(t *testing.T) {
+	spy := &testerSpy{result: domain.TargetTestResult{
+		FailureReason: "the SMTP server did not accept the message", FailureCause: "recipient refused",
+	}}
+	e := newRouter(t, routerOptions{tester: spy})
+
+	res := postTargetTest(e, "s1", `{"type":"email","address":"a@x.io"}`)
+
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	testutil.AssertConforms(t, "testTarget", res)
+	assert.Equal(t, `{"delivered":false,"failure_reason":"the SMTP server did not accept the message"}`, strings.TrimSpace(readBody(t, res)))
+}
+
 func TestTestTarget_Errors(t *testing.T) {
 	fields := []domain.FieldError{
 		{Field: "address", Code: domain.FieldErrorInvalidFormat, Message: "Enter a valid email address."},
@@ -159,5 +172,37 @@ func TestTestTarget_LogsOutcomeWithoutSecrets(t *testing.T) {
 	assert.Contains(t, out, "delivered=false")
 	for _, secret := range []string{"secret", "X-Token", "hook.", secretReason} {
 		assert.NotContains(t, out, secret)
+	}
+}
+
+func TestTestTarget_LogsTheCauseOnlyOnAFailure(t *testing.T) {
+	tests := []struct {
+		name      string
+		result    domain.TargetTestResult
+		wantCause string // empty: the line has no cause key
+	}{
+		{"a failure with a cause", domain.TargetTestResult{FailureReason: "reason-text-secret", FailureCause: "recipient refused"}, "recipient refused"},
+		{"a failure with no cause", domain.TargetTestResult{FailureReason: "reason-text-secret"}, ""},
+		{"a delivery", domain.TargetTestResult{Delivered: true, FailureCause: "recipient refused"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			e := newRouter(t, routerOptions{tester: &testerSpy{result: tt.result}, logOutput: &logs})
+
+			res := postTargetTest(e, "svc-77", `{"type":"email","address":"addr-secret@x.io"}`)
+			require.Equal(t, http.StatusOK, res.StatusCode)
+
+			out := logs.String()
+			require.Contains(t, out, "target test sent")
+			if tt.wantCause == "" {
+				assert.NotContains(t, out, "cause")
+			} else {
+				assert.Contains(t, out, `cause="recipient refused"`)
+			}
+			for _, secret := range []string{"addr-secret", "reason-text-secret"} {
+				assert.NotContains(t, out, secret)
+			}
+		})
 	}
 }

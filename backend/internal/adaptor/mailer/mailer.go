@@ -48,13 +48,17 @@ var ErrNotAccepted = &reason{text: "the SMTP server did not accept the message"}
 // hold for a reason that carries a cause.
 type sentinel struct {
 	*reason
-	kind *reason
+	kind  *reason
+	cause string
 }
+
+// FailureCause is the fixed word the log shows for this failure (see cause.go).
+func (e *sentinel) FailureCause() string { return e.cause }
 
 func (e *sentinel) Is(target error) bool { return target == e.kind }
 
-func notAccepted(cause error) error {
-	return &sentinel{reason: &reason{text: ErrNotAccepted.text, cause: cause}, kind: ErrNotAccepted}
+func notAccepted(cause string, err error) error {
+	return &sentinel{reason: &reason{text: ErrNotAccepted.text, cause: err}, kind: ErrNotAccepted, cause: cause}
 }
 
 // Config is the SMTP account the mailer sends through.
@@ -101,10 +105,10 @@ func (m *Mailer) SendEmail(ctx context.Context, to string, alert domain.Alert) e
 
 	msg := mail.NewMsg()
 	if err := msg.From(m.cfg.From); err != nil {
-		return notAccepted(err)
+		return notAccepted(causeInvalidAddress, err)
 	}
 	if err := msg.To(to); err != nil {
-		return notAccepted(err)
+		return notAccepted(causeInvalidAddress, err)
 	}
 	msg.Subject(subject(alert))
 	msg.SetBodyString(mail.TypeTextPlain, body(alert))
@@ -126,7 +130,7 @@ func (m *Mailer) SendEmail(ctx context.Context, to string, alert domain.Alert) e
 	}
 	client, err := m.client(dial)
 	if err != nil {
-		return notAccepted(err)
+		return notAccepted(causeOther, err)
 	}
 	stop := context.AfterFunc(sendCtx, held.close)
 	defer stop()
@@ -135,7 +139,7 @@ func (m *Mailer) SendEmail(ctx context.Context, to string, alert domain.Alert) e
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		return notAccepted(err)
+		return notAccepted(classify(err, m.cfg.TLS, sendCtx.Err() != nil), err)
 	}
 	return nil
 }

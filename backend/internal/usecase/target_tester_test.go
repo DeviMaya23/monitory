@@ -144,6 +144,60 @@ func TestTestTarget_FailedDeliveryIsAResult(t *testing.T) {
 	}
 }
 
+// causedErr is an error as the mailer returns it: a visible text and a cause for the log.
+type causedErr struct{ text, cause string }
+
+func (e causedErr) Error() string        { return e.text }
+func (e causedErr) FailureCause() string { return e.cause }
+
+func TestTestTarget_FailureCause(t *testing.T) {
+	const text = "the SMTP server did not accept the message"
+	t.Run("an email failure with a cause carries it", func(t *testing.T) {
+		s := newTesterSetup()
+		s.mail.err = causedErr{text, "recipient refused"}
+
+		got, err := s.svc.TestTarget(t.Context(), "svc-1", validEmailTarget())
+
+		require.NoError(t, err)
+		assert.Equal(t, domain.TargetTestResult{FailureReason: text, FailureCause: "recipient refused"}, got)
+	})
+	t.Run("an email failure with no cause has none", func(t *testing.T) {
+		s := newTesterSetup()
+		s.mail.err = errors.New("no SMTP account configured")
+
+		got, err := s.svc.TestTarget(t.Context(), "svc-1", validEmailTarget())
+
+		require.NoError(t, err)
+		assert.Equal(t, domain.TargetTestResult{FailureReason: "no SMTP account configured"}, got)
+	})
+	t.Run("a webhook failure has none", func(t *testing.T) {
+		s := newTesterSetup()
+		s.webhooks.err = errors.New("the webhook answered with status 503")
+
+		got, err := s.svc.TestTarget(t.Context(), "svc-1", validWebhookTarget())
+
+		require.NoError(t, err)
+		assert.Empty(t, got.FailureCause)
+	})
+	t.Run("a success has none", func(t *testing.T) {
+		got, err := newTesterSetup().svc.TestTarget(t.Context(), "svc-1", validEmailTarget())
+
+		require.NoError(t, err)
+		assert.Equal(t, domain.TargetTestResult{Delivered: true}, got)
+	})
+	t.Run("a context ended during the send has none", func(t *testing.T) {
+		s := newTesterSetup()
+		s.mail.err = causedErr{text, "timed out"}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		got, err := s.svc.TestTarget(ctx, "svc-1", validEmailTarget())
+
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Equal(t, domain.TargetTestResult{}, got)
+	})
+}
+
 func TestTestTarget_AlertNameIsTheServicesSavedName(t *testing.T) {
 	s := newTesterSetup()
 	s.finder.service.Name = `<b>x</b> "q"`
