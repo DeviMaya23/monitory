@@ -58,8 +58,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - `sign-in-screen`: the three focus effects and four refs sit in `SignInForm` rather than a hook, against the hook-per-concern rule in `CONVENTIONS.md` ("Component and hook granularity"). Matters when: a second screen needs the same focus-follows-outcome logic, or the convention is read as strict.
 
-- `create-service-api`: the handler suite takes about 30 s because `newRouter` parses the contract for every case, in the shared `helpers_test.go`. Matters when: later tasks add more handler cases to the same helper and CI time grows with each.
-- `http-probe`: wall-clock assertions can flake under load (`TestTargetServer_DelayAndRedirect` expects an answer in under 100 ms; several probe tests rely on a 20 ms delay against a 200 ms timeout). Matters when: CI runs the suite on a loaded runner with `-race` and one fails with no code change.
 - `add-service-screen`: the services query key exists twice: `servicesQueryKey` (used by `service-form`) and `SERVICES_KEY` in `useServiceList.ts`. Using the shared one needs the mock factory in `useServiceList.test.tsx` to export it, a second `service-list` edit. Matters when: someone changes the value of either key, so the form drops a cache entry the dashboard does not read. Best done by a task that already changes `service-list`.
 - `add-service-screen`: if the admin leaves by the back link while a save is in flight, the dashboard stays stale until the next automatic refresh (FR-95), because `removeQueries` does not refetch a query that is already mounted. Adding `invalidateQueries` would cover it, but changes what the task specified. Matters when: a slow or overloaded server makes a save take longer than the admin waits. Needs: the user, to approve the change.
 - `portal-into-app`: the toast viewport is `position: fixed` inside `.app`, which has `container-type: inline-size` and so contains fixed descendants; it is positioned against `#root`'s box, not the viewport. Not checked in a browser. Matters when: a toast shows on a page taller than the window (the dashboard with many services) and sits at the bottom of the page instead of the window, or the milestone check of the toasts is run.
@@ -67,17 +65,20 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `portal-into-app`: the dialog host has `z-index: 40`, above the toast viewport (30), so a toast fired while a dialog or alert dialog is open sits under the backdrop and cannot be read. Today's order before the task had the toast above. A host value below 30 (for example 25) keeps the old order. Matters when: a toast fires while a dialog is open (a failed removal in the alert list, a save result while a dialog is still closing).
 
 - `alert-dispatch`: authentication over `starttls` is never exercised: go-mail v0.8.1 authenticates only on an encrypted connection, so `SMTP_TLS=none` with `SMTP_USERNAME` set can never send, and the `starttls` success path is untested (the `tls` path, authentication included, is covered by `mailer-implicit-tls`). Matters when: the SMTP provider is chosen and `SMTP_USERNAME` is set; run the Milestone 2 manual check (`docs/manual-checks.md`) with the real `starttls` or `tls` settings.
-- `alert-dispatch`: the Mailpit integration test clears the mailbox of whichever Mailpit answers on `localhost:8025`, including one from another worktree's compose project. Matters when: two worktrees run integration or end-to-end tests at the same time.
 
 - `target-form-dialog`: a `422` summary keeps the entries of the inactive type. After a `url` error, switching to Email leaves `Webhook URL: …` in the summary with a link that moves focus nowhere, while its message is hidden with the field. Matters when: an admin gets a `url` or `headers` error and then switches type. Needs: the user, to decide whether a type switch drops the other type's entries.
 
 - Left out of `toast-text-shared`: the Reload toast (`The request wasn’t accepted. Reload and try again.` with a Reload button) is also spelled in `features/alert-list/hooks/useRemoveTarget.ts` (which also has its own `toOutcome`) and `app-shell/SessionProvider.tsx`, and a related title in the banners in `service-form` and `alert-list`; the task shares it only inside `features/service-list/lib/`. Matters when: someone rewords one of these and not the others, or a fifth place needs it. Needs: the user's approval of a shared place (`components/` or `lib/`; `CONVENTIONS.md`, "Matching existing shapes").
 
+- `leave-prompt-data-router`: in the Back and Forward test, `Discard changes` is only exercised for Back; Forward is asked and kept but never discarded. Matters when: someone changes how a pending `POP` forward is proceeded (for example by moving the `leaveWithoutAsking` rule).
+- `service-form-json-and-cert-rows`: two form cases in `AddServiceForm.test.tsx` carry a 15 s timeout instead of being shortened to about 1 s. Matters when: the file's total time grows enough that the slow cases become the flake.
+- `service-form-type-tcp`: the Type hint (`Changing type swaps the fields below.`) is not linked to the radio group by `aria-describedby`, because the `RadioGroup` wrapper takes no such prop. Matters when: the milestone 5 keyboard and screen-reader check (NFR-4) is run, or the wrapper is next changed.
+- `target-dialog-test-flake`: the "under 1000 ms" criterion depends on machine load (1.1 to 1.6 s under heavy load; the 21-add no-limit case is the slowest). Matters when: CI runs on a runner several times slower than a quiet laptop and that case approaches 5 s again.
+
 ## Decisions waiting on the user
 
 Each needs a decision, or to be dropped, by the next milestone.
 
-- `updatePublicViewSettings` with `{}` counts as off, because `enabled` then reads as false. Reject it as `validation_failed`, or keep. Decide by: the milestone 4 settings task is drafted.
 - SMTP provider for production. Decide by: before the first alert task is deployed.
 - What watches the app from outside (the Fly.io health check alone, or an external monitor on `/health`). Decide by: before first real use.
 
