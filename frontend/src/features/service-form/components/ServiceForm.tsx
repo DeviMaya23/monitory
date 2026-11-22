@@ -6,7 +6,8 @@ import { Select } from '../../../components/ui/Select'
 import type { HttpMethod } from '../../../lib/api/services'
 import { useLeaveGuard } from '../hooks/useLeaveGuard'
 import type { useSaveService } from '../hooks/useSaveService'
-import { useServerErrors } from '../hooks/useServerErrors'
+import { useTestCheck } from '../hooks/useTestCheck'
+import { useFieldErrorSet, useServerErrors } from '../hooks/useServerErrors'
 import { errorId, FIELD_IDS, focusField } from '../lib/fieldIds'
 import { CERT_DAYS_PATH, startsWithHttps } from '../lib/certificateOptions'
 import { isFormChanged } from '../lib/formChanged'
@@ -21,6 +22,7 @@ import { FormBanners } from './FormBanners'
 import { HealthRulesGroup } from './HealthRulesGroup'
 import { HttpsGroup } from './HttpsGroup'
 import { RequestRowsGroup } from './RequestRowsGroup'
+import { TestPanel } from './TestPanel'
 import { TcpGroup } from './TcpGroup'
 import { TimingGroup } from './TimingGroup'
 import { TypeField } from './TypeField'
@@ -47,7 +49,12 @@ function invalidInputs(errors: FieldErrors<ServiceFormValues>): HTMLElement[] {
     for (const child of Object.values(node)) if (child !== ref) walk(child)
   }
   walk(errors)
-  return found.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+  return sortByPage(found)
+}
+
+/** Elements in the order of the page. */
+function sortByPage(elements: HTMLElement[]): HTMLElement[] {
+  return elements.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
 }
 
 type Props = {
@@ -70,6 +77,9 @@ export function ServiceForm({ title, subtitle, initialValues, save: saveState, m
     register,
     control,
     handleSubmit,
+    trigger,
+    getFieldState,
+    getValues,
     clearErrors,
     setValue,
     formState: { errors: clientErrors },
@@ -81,7 +91,9 @@ export function ServiceForm({ title, subtitle, initialValues, save: saveState, m
     shouldFocusError: false,
   })
   const { saving, failure, submit, clearFailure } = saveState
-  const serverErrors = useServerErrors(failure?.kind === 'field-errors' ? failure.errors : null)
+  const fieldSet = useFieldErrorSet(failure?.kind === 'field-errors' ? failure.errors : null)
+  const serverErrors = useServerErrors(fieldSet.errors)
+  const test = useTestCheck(fieldSet.showTest)
   const values = useWatch({ control }) as ServiceFormValues
   const { type } = values
   const guard = useLeaveGuard({ changed: isFormChanged(values, initialValues), saving })
@@ -90,6 +102,9 @@ export function ServiceForm({ title, subtitle, initialValues, save: saveState, m
   })
   const summaryRef = useRef<HTMLDivElement>(null)
   const saveRef = useRef<HTMLButtonElement>(null)
+  const testRef = useRef<HTMLButtonElement>(null)
+  // The test button had focus when the test started, so focus comes back to it with the answer.
+  const testHadFocus = useRef(false)
   const notFoundLinkRef = useRef<HTMLAnchorElement>(null)
   // The service is gone: nothing can be saved, and editing does not clear this.
   const gone = failure?.kind === 'not-found'
@@ -107,6 +122,22 @@ export function ServiceForm({ title, subtitle, initialValues, save: saveState, m
     else saveRef.current?.focus()
   }, [failure])
 
+  // A test's 422 takes focus to the summary, as a save's does.
+  useEffect(() => {
+    if (fieldSet.source === 'test') summaryRef.current?.focus()
+  }, [fieldSet.errors, fieldSet.source])
+
+  // The answer of a test is in (not a refusal: that moves focus to its own place).
+  const testKind = test.state.kind
+  useEffect(() => {
+    if (testKind !== 'result' && testKind !== 'failed') return
+    const active = document.activeElement
+    if (testHadFocus.current && (active === null || active === document.body || active === testRef.current)) {
+      testRef.current?.focus()
+    }
+    testHadFocus.current = false
+  }, [testKind, test.state])
+
   const save = handleSubmit(submit, (errors) => invalidInputs(errors)[0]?.focus())
   /** A new attempt: what the last one left goes first, then the client checks, then the request. */
   const onSubmit = (event?: BaseSyntheticEvent) => {
@@ -114,7 +145,29 @@ export function ServiceForm({ title, subtitle, initialValues, save: saveState, m
     // A disabled button does not stop Enter in a field.
     if (saving || gone) return
     clearFailure()
+    fieldSet.startSave()
     void save(event)
+  }
+
+  /** Runs one test: only the checks a test needs, then the request. Saves nothing. */
+  const onRunTest = async () => {
+    if (test.running || saving) return
+    testHadFocus.current = document.activeElement === testRef.current
+    const current = getValues()
+    const names: Array<'url' | 'cert_days' | 'port' | 'timeout'> =
+      current.type === 'tcp' ? ['port', 'timeout'] : ['url', 'cert_days', 'timeout']
+    fieldSet.startTest()
+    if (!(await trigger(names))) {
+      const refs = names.flatMap((name) => {
+        const ref = getFieldState(name).error?.ref
+        return ref instanceof HTMLElement ? [ref] : []
+      })
+      sortByPage(refs)[0]?.focus()
+      testHadFocus.current = false
+      test.refuse()
+      return
+    }
+    await test.run(getValues())
   }
 
   const nameField = register('name', {
@@ -309,6 +362,7 @@ export function ServiceForm({ title, subtitle, initialValues, save: saveState, m
               clearField={serverErrors.clearField}
             />
           </div>
+          <TestPanel state={test.state} saving={saving} onRun={() => void onRunTest()} buttonRef={testRef} />
         </div>
 
         <div className="form-foot">

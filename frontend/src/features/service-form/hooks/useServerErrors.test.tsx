@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { FieldError } from '../../../lib/api/services'
 import { fieldError } from '../../../test/fixtures'
-import { useServerErrors } from './useServerErrors'
+import { useFieldErrorSet, useServerErrors } from './useServerErrors'
 
 function setup(errors: readonly FieldError[] | null) {
   return renderHook((props: { errors: readonly FieldError[] | null }) => useServerErrors(props.errors), {
@@ -399,5 +399,57 @@ describe('the rules and the certificate options', () => {
     act(() => result.current.clearUrl())
     rerender({ errors: [...ALL] })
     expect(result.current.count).toBe(8)
+  })
+})
+
+describe('useFieldErrorSet (one set of errors, with its source)', () => {
+  const SAVE = [fieldError('name', 'Name is taken in the save.')]
+  const TEST = [fieldError('check.url', 'URL refused by the test.')]
+  const setup = (saveErrors: readonly FieldError[] | null) =>
+    renderHook((props: { saveErrors: readonly FieldError[] | null }) => useFieldErrorSet(props.saveErrors), {
+      initialProps: { saveErrors },
+    })
+
+  it('takes a save’s errors with the source save, and drops them when the failure is dropped', () => {
+    const { result, rerender } = setup(null)
+    rerender({ saveErrors: SAVE })
+    expect(result.current).toMatchObject({ errors: SAVE, source: 'save' })
+    rerender({ saveErrors: null })
+    expect(result.current.errors).toBeNull()
+  })
+
+  it('replaces a save’s errors with a test’s 422', () => {
+    const { result, rerender } = setup(null)
+    rerender({ saveErrors: SAVE })
+    act(() => result.current.showTest(TEST))
+    expect(result.current).toMatchObject({ errors: TEST, source: 'test' })
+  })
+
+  it('drops a test’s errors when another test starts', () => {
+    const { result } = setup(null)
+    act(() => result.current.showTest(TEST))
+    act(() => result.current.startTest())
+    expect(result.current.errors).toBeNull()
+  })
+
+  it('keeps a save’s errors when a test starts', () => {
+    const { result, rerender } = setup(null)
+    rerender({ saveErrors: SAVE })
+    act(() => result.current.startTest())
+    expect(result.current.errors).toBe(SAVE)
+  })
+
+  it('drops a test’s errors when a save starts, though the save’s own failure was null', () => {
+    const { result } = setup(null)
+    act(() => result.current.showTest(TEST))
+    act(() => result.current.startSave())
+    expect(result.current.errors).toBeNull()
+  })
+
+  it('does not drop a test’s errors when the save failure was already null and stays null', () => {
+    const { result, rerender } = setup(null)
+    act(() => result.current.showTest(TEST))
+    rerender({ saveErrors: null })
+    expect(result.current.errors).toBe(TEST)
   })
 })
