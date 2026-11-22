@@ -1,6 +1,6 @@
 import { Controller, type Control } from 'react-hook-form'
 import { RadioGroup } from '../../../components/ui/RadioGroup'
-import type { ServiceFormValues } from '../hooks/useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
 import { TYPE_HINT_ID, TYPE_ID, TYPE_OPTIONS, TYPE_TEXT, type ServiceType } from '../lib/serviceType'
 
 type Props = {

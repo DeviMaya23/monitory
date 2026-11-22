@@ -5,6 +5,7 @@ import { NotBuilt } from './app-shell/NotBuilt'
 import { SessionProvider } from './app-shell/SessionProvider'
 import AlertListPage from './pages/AlertListPage'
 import AddServicePage from './pages/AddServicePage'
+import EditServicePage from './pages/EditServicePage'
 import DashboardPage from './pages/DashboardPage'
 import PublicDashboardPage from './pages/PublicDashboardPage'
 import SignInPage from './pages/SignInPage'
@@ -34,7 +35,7 @@ export const appRoutes: RouteObject[] = [
             children: [
               { path: '/', element: <DashboardPage /> },
               { path: '/services/new', element: <AddServicePage /> },
-              { path: '/services/:serviceId', element: <NotBuilt page="edit service" /> },
+              { path: '/services/:serviceId', element: <EditServicePage /> },
               { path: '/services/:serviceId/alerts', element: <AlertListPage /> },
               { path: '*', element: <NotBuilt page="requested" /> },
             ],

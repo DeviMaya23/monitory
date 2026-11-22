@@ -73,6 +73,38 @@ export function makeTcp(overrides: Partial<Service> = {}): Service {
   return makeService({ name: 'Postgres', check: { type: 'tcp', host: 'db.internal', port: 5432 }, ...overrides })
 }
 
+/** An HTTP service with every setting non-default: headers, a query row, a JSON body, two rules, certificate options, timing, alerts off and messages. */
+export function makeRichService(overrides: Partial<Service> = {}): Service {
+  return makeService({
+    id: '0190-rich',
+    name: 'Edge cache',
+    check: {
+      type: 'http',
+      method: 'POST',
+      url: 'https://edge.example.com/health',
+      query_params: [{ name: 'region', value: 'eu' }],
+      headers: [
+        { name: 'Authorization', value: 'Bearer abc123-secret' },
+        { name: 'X-Trace', value: 'on' },
+      ],
+      body: { type: 'json', content: '{"ping":1}' },
+      json_rules: [
+        { field: 'checks.db.status', failing_value: 'down' },
+        { field: 'maintenance', failing_value: false },
+      ],
+      json_rule_mode: 'all',
+      certificate_check: { enabled: true, min_days_left: 30 },
+      ignore_certificate_errors: true,
+    },
+    settings: { check_interval_seconds: 120, timeout_seconds: 7, retry_count: 3, retry_interval_seconds: 4 },
+    alerts_enabled: false,
+    unhealthy_message: 'Edge is down',
+    recovery_message: 'Edge is back',
+    shown_on_public_view: true,
+    ...overrides,
+  })
+}
+
 /** A paused service whose stored state is unhealthy with a reason. */
 export function makePaused(overrides: Partial<Service> = {}): Service {
   return makeUnhealthy({ code: 'timed_out' }, { name: 'Paused one', paused: true, ...overrides })

@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useForm } from 'react-hook-form'
 import { describe, expect, it, vi } from 'vitest'
-import type { ServiceFormValues } from '../hooks/useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
 import { TypeField } from './TypeField'
 
 function Harness({ saving = false, onChange = vi.fn() }: { saving?: boolean; onChange?: (next: string) => void }) {

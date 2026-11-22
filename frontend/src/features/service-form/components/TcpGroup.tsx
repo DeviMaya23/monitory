@@ -1,5 +1,5 @@
 import type { UseFormRegister } from 'react-hook-form'
-import type { ServiceFormValues } from '../hooks/useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
 import { errorId } from '../lib/fieldIds'
 import { HOST_ID, PORT_HINT_ID, PORT_ID, TCP_TEXT } from '../lib/serviceType'
 import { TIMING_TEXT, readWholeNumber } from '../lib/timingGroup'

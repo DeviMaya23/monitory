@@ -4,7 +4,8 @@ import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createService, type Service } from '../../../lib/api/services'
 import { fieldError, makeService, problem, validationProblem } from '../../../test/fixtures'
-import { useCreateService, type ServiceFormValues } from './useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
+import { useCreateService } from './useCreateService'
 
 vi.mock('../../../lib/api/services', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/api/services')>()),

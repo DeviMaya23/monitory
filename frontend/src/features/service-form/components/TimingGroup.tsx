@@ -1,5 +1,5 @@
 import { useWatch, type Control, type UseFormRegister } from 'react-hook-form'
-import type { ServiceFormValues } from '../hooks/useCreateService'
+import type { ServiceFormValues } from '../lib/formValues'
 import { errorId, FIELD_IDS } from '../lib/fieldIds'
 import type { StaticTarget } from '../lib/fieldLabels'
 import {

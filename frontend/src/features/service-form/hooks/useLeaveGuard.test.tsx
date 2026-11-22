@@ -5,99 +5,18 @@ import { describe, expect, it, vi } from 'vitest'
 import { LeaveGateProvider } from '../../../components/LeaveGateProvider'
 import { useLeaveGate } from '../../../hooks/useLeaveGate'
 import { renderRoutes } from '../../../test/renderRoutes'
-import { TIMING_DEFAULTS, TIMING_NAMES, type TimingTexts } from '../lib/timingGroup'
 import { LEAVE_WITHOUT_ASKING, useLeaveGuard } from './useLeaveGuard'
 
-/** The hook over real inputs, since "changed" reads what the inputs hold and the unload prompt is a window listener. */
+/** The hook over a name input: the form counts as changed while the name is not empty. */
 function Harness({ proceed }: { proceed: () => void }) {
   const navigate = useNavigate()
   const { confirmLeave } = useLeaveGate()
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
-  const [type, setType] = useState('http')
-  const [host, setHost] = useState('')
-  const [port, setPort] = useState('')
-  const [url, setUrl] = useState('')
-  const [method, setMethod] = useState('GET')
-  const [queryRows, setQueryRows] = useState(0)
-  const [headerRows, setHeaderRows] = useState(0)
-  const [bodyType, setBodyType] = useState('none')
-  const [bodyContent, setBodyContent] = useState('')
-  const [ruleCount, setRuleCount] = useState(0)
-  const [ruleMode, setRuleMode] = useState('any')
-  const [certEnabled, setCertEnabled] = useState(false)
-  const [certDays, setCertDays] = useState('14')
-  const [ignoreCertErrors, setIgnoreCertErrors] = useState(false)
-  const [alertsEnabled, setAlertsEnabled] = useState(true)
-  const [unhealthyMessage, setUnhealthyMessage] = useState('')
-  const [recoveryMessage, setRecoveryMessage] = useState('')
-  const [timing, setTiming] = useState<TimingTexts>(TIMING_DEFAULTS)
-  const guard = useLeaveGuard({
-    name,
-    type,
-    host,
-    port,
-    method,
-    url,
-    queryRowCount: queryRows,
-    headerRowCount: headerRows,
-    bodyType,
-    bodyContent,
-    ruleCount,
-    ruleMode,
-    certEnabled,
-    certDays,
-    ignoreCertErrors,
-    alertsEnabled,
-    unhealthyMessage,
-    recoveryMessage,
-    timing,
-    saving,
-  })
+  const guard = useLeaveGuard({ changed: name !== '', saving })
   return (
     <>
       <input aria-label="name" value={name} onChange={(event) => setName(event.target.value)} />
-      <input aria-label="host" value={host} onChange={(event) => setHost(event.target.value)} />
-      <input aria-label="port" value={port} onChange={(event) => setPort(event.target.value)} />
-      <button onClick={() => setType('tcp')}>type tcp</button>
-      <button onClick={() => setType('http')}>type http</button>
-      <input aria-label="url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} />
-      <input aria-label="body" value={bodyContent} onChange={(event) => setBodyContent(event.target.value)} />
-      <button onClick={() => setQueryRows((n) => n + 1)}>add query</button>
-      <button onClick={() => setQueryRows((n) => Math.max(0, n - 1))}>remove query</button>
-      <button onClick={() => setHeaderRows((n) => n + 1)}>add header</button>
-      <button onClick={() => setHeaderRows((n) => Math.max(0, n - 1))}>remove header</button>
-      <button onClick={() => setRuleCount((n) => n + 1)}>add rule</button>
-      <button onClick={() => setRuleCount((n) => Math.max(0, n - 1))}>remove rule</button>
-      <button onClick={() => setRuleMode('all')}>mode all</button>
-      <button onClick={() => setRuleMode('any')}>mode any</button>
-      <button onClick={() => setCertEnabled((on) => !on)}>toggle expiry</button>
-      <button onClick={() => setIgnoreCertErrors((on) => !on)}>toggle ignore</button>
-      <input aria-label="days" value={certDays} onChange={(event) => setCertDays(event.target.value)} />
-      <button onClick={() => setBodyType('json')}>type json</button>
-      <button onClick={() => setBodyType('none')}>type none</button>
-      <input
-        aria-label="unhealthy"
-        value={unhealthyMessage}
-        onChange={(event) => setUnhealthyMessage(event.target.value)}
-      />
-      <input
-        aria-label="recovery"
-        value={recoveryMessage}
-        onChange={(event) => setRecoveryMessage(event.target.value)}
-      />
-      {TIMING_NAMES.map((key) => (
-        <input
-          key={key}
-          aria-label={key}
-          value={timing[key]}
-          onChange={(event) => setTiming({ ...timing, [key]: event.target.value })}
-        />
-      ))}
-      <button onClick={() => setAlertsEnabled(false)}>alerts off</button>
-      <button onClick={() => setAlertsEnabled(true)}>alerts on</button>
-      <button onClick={() => setMethod('HEAD')}>method HEAD</button>
-      <button onClick={() => setMethod('GET')}>method GET</button>
       <button onClick={() => setSaving(true)}>saving on</button>
       <button onClick={() => setSaving(false)}>saving off</button>
       <button onClick={guard.markSaved}>mark saved</button>
@@ -159,146 +78,13 @@ function unloadPrompts(): boolean {
 }
 
 describe('changed', () => {
-  it('is false with an empty name and URL and the method GET', () => {
+  it('returns the value it was given', () => {
     renderGuard()
     expect(changed()).toBe('false')
-  })
-
-  it.each([
-    ['check_interval', '61'],
-    ['timeout', '11'],
-    ['retries', '3'],
-    ['retry_interval', '11'],
-    ['timeout', '10 '],
-  ])('is true when %s holds %j (even a trailing space), and false again when put back', (label, value) => {
-    renderGuard()
-    const start = (screen.getByLabelText(label) as HTMLInputElement).value
-    type(label, value)
-    expect(changed()).toBe('true')
-    type(label, start)
-    expect(changed()).toBe('false')
-  })
-
-  it.each([
-    ['one rule, even an empty one', 'add rule', 'remove rule'],
-    ['the mode All rules match', 'mode all', 'mode any'],
-    ['the expiry switch on', 'toggle expiry', 'toggle expiry'],
-    ['the ignore switch on', 'toggle ignore', 'toggle ignore'],
-  ])('is true with %s, and false again when put back', (_label, on, off) => {
-    renderGuard()
-    click(on)
-    expect(changed()).toBe('true')
-    click(off)
-    expect(changed()).toBe('false')
-  })
-
-  it.each(['14 ', '7'])('is true when the days text is %j, and false again when put back to 14', (days) => {
-    renderGuard()
-    type('days', days)
-    expect(changed()).toBe('true')
-    type('days', '14')
-    expect(changed()).toBe('false')
-  })
-
-  it.each([
-    ['the type TCP port', () => click('type tcp'), () => click('type http')],
-    ['a host', () => type('host', 'db'), () => type('host', '')],
-    ['a port', () => type('port', '5432'), () => type('port', '')],
-  ])('is true with %s (also while HTTP(S) is chosen for the text), and false again when put back', (_label, on, off) => {
-    renderGuard()
-    on()
-    expect(changed()).toBe('true')
-    off()
-    expect(changed()).toBe('false')
-  })
-
-  it('is true by a name, and false again when it is emptied', () => {
-    renderGuard()
     type('name', 'a')
     expect(changed()).toBe('true')
-    type('name', '')
-    expect(changed()).toBe('false')
-  })
-
-  it('is true by a name of only spaces (compared as typed)', () => {
-    renderGuard()
-    type('name', '  ')
-    expect(changed()).toBe('true')
-  })
-
-  it('is true by a URL, compared as the input holds it', () => {
-    renderGuard()
-    type('url', 'https://x')
-    expect(changed()).toBe('true')
-    // A url input strips the spaces around its value: only spaces is held as empty.
-    type('url', '   ')
-    expect(screen.getByLabelText('url')).toHaveValue('')
-    expect(changed()).toBe('false')
-  })
-
-  it('is true by another method, and false again with GET', () => {
-    renderGuard()
-    click('method HEAD')
-    expect(changed()).toBe('true')
-    click('method GET')
-    expect(changed()).toBe('false')
   })
 })
-
-describe('changed by the request rows and body (FR-35, FR-37)', () => {
-  it('is true with one query parameter row, even an empty one, and false again when it is removed', () => {
-    renderGuard()
-    click('add query')
-    expect(changed()).toBe('true')
-    click('remove query')
-    expect(changed()).toBe('false')
-  })
-
-  it('is true with one header row, and false again when it is removed', () => {
-    renderGuard()
-    click('add header')
-    expect(changed()).toBe('true')
-    click('remove header')
-    expect(changed()).toBe('false')
-  })
-
-  it('is true with a body type other than None, and false again with None', () => {
-    renderGuard()
-    click('type json')
-    expect(changed()).toBe('true')
-    click('type none')
-    expect(changed()).toBe('false')
-  })
-
-  it('is true with body text while the type is None, and false again when it is cleared', () => {
-    renderGuard()
-    type('body', 'x')
-    expect(changed()).toBe('true')
-    type('body', '')
-    expect(changed()).toBe('false')
-  })
-})
-
-describe('changed by the alert settings (FR-20, FR-65)', () => {
-  it('is true with alerts off, and false again with alerts on', () => {
-    renderGuard()
-    click('alerts off')
-    expect(changed()).toBe('true')
-    click('alerts on')
-    expect(changed()).toBe('false')
-  })
-
-  it.each(['unhealthy', 'recovery'])('is true by a %s message of one space or of text, false once emptied', (label) => {
-    renderGuard()
-    type(label, ' ')
-    expect(changed()).toBe('true')
-    type(label, 'down')
-    expect(changed()).toBe('true')
-    type(label, '')
-    expect(changed()).toBe('false')
-  })
-})
-
 
 const here = (router: { state: { location: Location } }) => router.state.location.pathname
 const go = (action: () => Promise<void>) => act(action)
