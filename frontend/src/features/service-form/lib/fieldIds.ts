@@ -30,9 +30,14 @@ export function fieldId(target: FieldTarget): string {
   return FIELD_IDS[target as StaticTarget]
 }
 
+/** Moves focus to the element with this id. */
+export function focusById(id: string): void {
+  document.getElementById(id)?.focus()
+}
+
 /** Moves focus to a field's control. */
 export function focusField(target: FieldTarget): void {
-  document.getElementById(fieldId(target))?.focus()
+  focusById(fieldId(target))
 }
 
 /** The id of the error text under the control with id `fieldId`. */

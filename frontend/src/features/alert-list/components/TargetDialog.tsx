@@ -12,9 +12,10 @@ import { useTargetServerErrors } from '../hooks/useTargetServerErrors'
 import { useTestTarget } from '../hooks/useTestTarget'
 import { FIELD_IDS, NAME_MAX_LENGTH, headerInputId, headerPath } from '../lib/targetFields'
 import { EMPTY_VALUES, sameValues, toInput, usesPlainHttp, valuesOf, type TargetFormValues } from '../lib/targetForm'
-import { FieldErrorText } from './FieldErrorText'
-import { TargetDialogBanners, TargetErrorSummary } from './TargetDialogBanners'
-import { TargetDiscardDialog } from './TargetDiscardDialog'
+import { FieldErrorText } from '../../../components/FieldErrorText'
+import { ErrorSummary } from '../../../components/ErrorSummary'
+import { TargetDialogBanners } from './TargetDialogBanners'
+import { DiscardDialog } from '../../../components/DiscardDialog'
 import { TargetTestRow } from './TargetTestRow'
 
 /** How the dialog ended, for the screen to decide where focus goes and what to fetch. */
@@ -240,7 +241,7 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
           refreshRef={refreshRef}
         >
           {serverErrors.count > 0 && (
-            <TargetErrorSummary entries={serverErrors.entries} onGoToField={focusById} ref={summaryRef} />
+            <ErrorSummary entries={serverErrors.entries} onGoToField={focusById} ref={summaryRef} />
           )}
         </TargetDialogBanners>
 
@@ -381,7 +382,12 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
         />
       </form>
 
-      <TargetDiscardDialog open={guard.questionOpen} onKeep={guard.keepEditing} onDiscard={guard.discard} />
+      <DiscardDialog
+        open={guard.questionOpen}
+        body="The changes to this target will be lost."
+        onKeep={guard.keepEditing}
+        onDiscard={guard.discard}
+      />
     </Dialog>
   )
 }

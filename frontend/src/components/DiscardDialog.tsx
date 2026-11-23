@@ -1,15 +1,17 @@
 import { useRef } from 'react'
-import { Dialog } from '../../../components/ui/Dialog'
+import { Dialog } from './ui/Dialog'
 
 type Props = {
   open: boolean
+  /** The sentence under the title: what will be lost. */
+  body: string
   /** "Keep editing", Esc and a click on the backdrop. */
   onKeep: () => void
   onDiscard: () => void
 }
 
-/** Asks before a changed target form is left. Rendered inside the form's dialog, so that it is nested in it. */
-export function TargetDiscardDialog({ open, onKeep, onDiscard }: Props) {
+/** Asks before a changed form is left: `Keep editing` takes focus first. */
+export function DiscardDialog({ open, body, onKeep, onDiscard }: Props) {
   const keepRef = useRef<HTMLButtonElement>(null)
   return (
     <Dialog
@@ -28,7 +30,7 @@ export function TargetDiscardDialog({ open, onKeep, onDiscard }: Props) {
         </>
       }
     >
-      <p>The changes to this target will be lost.</p>
+      <p>{body}</p>
     </Dialog>
   )
 }

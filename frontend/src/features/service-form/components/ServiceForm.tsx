@@ -8,16 +8,16 @@ import { useLeaveGuard } from '../hooks/useLeaveGuard'
 import type { useSaveService } from '../hooks/useSaveService'
 import { useTestCheck } from '../hooks/useTestCheck'
 import { useFieldErrorSet, useServerErrors } from '../hooks/useServerErrors'
-import { errorId, FIELD_IDS, focusField } from '../lib/fieldIds'
+import { errorId, FIELD_IDS, fieldId, focusById, focusField } from '../lib/fieldIds'
 import { CERT_DAYS_PATH, startsWithHttps } from '../lib/certificateOptions'
 import { isFormChanged } from '../lib/formChanged'
 import type { ServiceFormValues } from '../lib/formValues'
 import { HOST_PATH, PORT_PATH } from '../lib/serviceType'
 import { TIMING_FIELDS, TIMING_NAMES, type TimingName } from '../lib/timingGroup'
 import { AlertsGroup } from './AlertsGroup'
-import { DiscardDialog } from './DiscardDialog'
-import { ErrorSummary } from './ErrorSummary'
-import { FieldErrorText } from './FieldErrorText'
+import { DiscardDialog } from '../../../components/DiscardDialog'
+import { ErrorSummary } from '../../../components/ErrorSummary'
+import { FieldErrorText } from '../../../components/FieldErrorText'
 import { FormBanners } from './FormBanners'
 import { HealthRulesGroup } from './HealthRulesGroup'
 import { HttpsGroup } from './HttpsGroup'
@@ -228,7 +228,14 @@ export function ServiceForm({ title, subtitle, initialValues, save: saveState, m
           <div className="form-main">
             <FormBanners failure={failure} onRetry={onSubmit} notFoundLinkRef={notFoundLinkRef}>
               {serverErrors.count > 0 && (
-                <ErrorSummary entries={serverErrors.entries} onGoToField={focusField} ref={summaryRef} />
+                <ErrorSummary
+                  entries={serverErrors.entries.map(({ target, ...entry }) => ({
+                    ...entry,
+                    inputId: target === null ? null : fieldId(target),
+                  }))}
+                  onGoToField={focusById}
+                  ref={summaryRef}
+                />
               )}
             </FormBanners>
 
@@ -388,7 +395,12 @@ export function ServiceForm({ title, subtitle, initialValues, save: saveState, m
         </div>
       </form>
 
-      <DiscardDialog open={guard.dialogOpen} onKeep={guard.keepEditing} onDiscard={guard.discard} />
+      <DiscardDialog
+        open={guard.dialogOpen}
+        body="The changes to this service will be lost."
+        onKeep={guard.keepEditing}
+        onDiscard={guard.discard}
+      />
     </main>
   )
 }

@@ -1,14 +1,21 @@
 import type { Ref } from 'react'
 import { CircleAlert } from 'lucide-react'
-import type { SummaryEntry } from '../hooks/useServerErrors'
-import { fieldId } from '../lib/fieldIds'
-import { summaryTitle, type FieldTarget } from '../lib/fieldLabels'
+import { summaryTitle } from '../lib/summaryTitle'
+
+export type SummaryEntry = {
+  /** Stable within one response. */
+  key: number
+  label: string
+  message: string
+  /** The input the entry links to; null when the path has no input on this screen. */
+  inputId: string | null
+}
 
 type Props = {
   /** At least one entry. */
   entries: readonly SummaryEntry[]
-  /** An entry's link was activated: move focus to its field. */
-  onGoToField: (target: FieldTarget) => void
+  /** An entry's link was activated: move focus to the input with this id. */
+  onGoToField: (inputId: string) => void
   /** The banner itself, so focus can be moved to it. */
   ref: Ref<HTMLDivElement>
 }
@@ -21,18 +28,18 @@ export function ErrorSummary({ entries, onGoToField, ref }: Props) {
       <div className="banner__body">
         <span className="banner__title">{summaryTitle(entries.length)}</span>
         <ul className="form-summary">
-          {entries.map(({ key, label, message, target }) => (
+          {entries.map(({ key, label, message, inputId }) => (
             <li key={key}>
-              {target === null ? (
+              {inputId === null ? (
                 <>
                   {label}: {message}
                 </>
               ) : (
                 <a
-                  href={`#${fieldId(target)}`}
+                  href={`#${inputId}`}
                   onClick={(event) => {
                     event.preventDefault()
-                    onGoToField(target)
+                    onGoToField(inputId)
                   }}
                 >
                   {label}: {message}

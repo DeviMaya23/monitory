@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { FIELD_IDS, fieldId } from './fieldIds'
-import { fieldLabel, summaryTitle } from './fieldLabels'
+import { fieldLabel } from './fieldLabels'
 
 describe('fieldLabel', () => {
   it.each([
@@ -86,16 +86,6 @@ describe('FIELD_IDS', () => {
     expect(FIELD_IDS.recovery_message).toBeTruthy()
     expect(FIELD_IDS['settings.timeout_seconds']).toBeTruthy()
     expect(new Set(Object.values(FIELD_IDS)).size).toBe(Object.keys(FIELD_IDS).length)
-  })
-})
-
-describe('summaryTitle (FR-12)', () => {
-  it('counts four fields', () => {
-    expect(summaryTitle(4)).toBe('4 fields need fixing before this can be saved.')
-  })
-
-  it('is singular for one', () => {
-    expect(summaryTitle(1)).toBe('1 field needs fixing before this can be saved.')
   })
 })
 
