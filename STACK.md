@@ -62,7 +62,7 @@ The drafter resolves the current stable version when a task adds a dependency, r
 | Not linted | Dockerfile, workflow YAML, SQL migrations, `fly.toml` |
 | Contract conformance | Handler responses are validated against `docs/openapi.yaml` in tests with kin-openapi; frontend mocks are typed with the generated types |
 | Integration tests | Build tag `integration`: email delivery against Mailpit (Docker). `make test-integration` |
-| End-to-end tests | Playwright (Chromium, Firefox, WebKit) against the real binary with a temp SQLite file, Mailpit and a stub target server. The Chromium smoke subset runs on every pull request; the full suite runs in CI in all three browsers on merge to `main`, nightly and on demand (`.github/workflows/e2e-full.yml`). Adopted in `e2e/`: `@playwright/test` 1.64.1, `typescript` 6.0.3, `@types/node` 24.19.2; Mailpit v1.33.1 was the version the milestone 2 run used (`docker-compose.yml` follows `latest`) |
+| End-to-end tests | Playwright (Chromium, Firefox, WebKit) against the real binary with a temp SQLite file, Mailpit and a stub target server. The Chromium smoke subset runs on every pull request; the full suite runs in CI in all three browsers on merge to `main`, nightly and on demand (`.github/workflows/e2e-full.yml`) |
 | CI | GitHub Actions: `make check`, `make generate-check`, integration tests, end-to-end smoke subset on pull requests; the full end-to-end suite on `main`, nightly and on demand |
 | Release | GitHub Actions deploys to Fly.io on merge to `main`, after CI passes |
 
