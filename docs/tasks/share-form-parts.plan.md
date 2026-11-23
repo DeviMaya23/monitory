@@ -6,22 +6,38 @@ Copies found, all as the task describes them (no differences): field error text 
 
 ## Checklist
 
-- [ ] **Field error text**: `components/FieldErrorText.tsx` + `FieldErrorText.test.tsx` (literal message, aria-hidden icon, id). Users: service-form groups and `ServiceForm`, `TargetDialog`, `NameValueRows`; the three copies deleted.
-- [ ] **Discard question**: `components/DiscardDialog.tsx` + `DiscardDialog.test.tsx` (body prop; Keep focus, Esc/backdrop/Keep call `onKeep`, Discard calls `onDiscard`). Users: `ServiceForm`, `TargetDialog`; both copies deleted.
-- [ ] **summaryTitle**: `lib/summaryTitle.ts` + `summaryTitle.test.ts` (cases 1, 3, 4 moved from the two old tests, which lose them). Both old functions deleted.
-- [ ] **Error summary**: `components/ErrorSummary.tsx` + `ErrorSummary.test.tsx` (own entry type `{ key, label, message, inputId }`, handler gets the input id). The service form maps `target` to `fieldId(target)` where it renders it and passes a small `focusById` helper (in `features/service-form/lib/fieldIds.ts`, next to `focusField`); the target dialog passes its entries as they are; both old components deleted.
-- [ ] **"Request not accepted" words**: `lib/requestNotAccepted.ts` + `requestNotAccepted.test.ts` (title, text, toast message, `Reload` label, `csrfToast()`). `rowActionToasts.ts` drops `CSRF_MESSAGE`/`csrfToast` (cases move); `useDeleteService`, `usePauseService`, `usePublicView` import the shared one; `useRemoveTarget` and `SessionProvider` call `csrfToast()`; one new case each in `useRemoveTarget.test.tsx` and `SessionProvider.test.tsx`.
-- [ ] **Failure banners**: `components/FailureBanners.tsx` + `FailureBanners.test.tsx` (csrf, unexpected, load-failed). Users: `FormBanners.tsx`, `TargetDialogBanners.tsx`, `EditLoadStates.tsx`, `AlertListBanners.tsx`; test panel notice text and `Reload` label come from the words module via `TEST_TEXT` in `testResult.ts`.
-- [ ] **Row focus**: `hooks/useRowFocus.ts` + `useRowFocus.test.tsx` (moved with all cases). Users: `HealthRulesGroup.tsx` and `NameValueRows.tsx`; the service-form copy and its test, and the effect in `NameValueRows`, deleted.
-- [ ] **No copy left**: text search result (below).
-- [ ] **Existing tests**: service form (Add, Edit), target dialog, alert list, dashboard row actions, `SessionProvider`, `NameValueRows`, test panel pass with only import paths changed.
-- [ ] **`make check`** passes; `package.json` and the lockfile unchanged.
-- [ ] **Integration tests**: not run: no backend or integration-tagged code touched (frontend-only task).
+- [x] **Field error text**: `components/FieldErrorText.tsx` + `FieldErrorText.test.tsx` (literal message, aria-hidden icon, id). Users: service-form groups and `ServiceForm`, `TargetDialog`, `NameValueRows`; the three copies deleted.
+- [x] **Discard question**: `components/DiscardDialog.tsx` + `DiscardDialog.test.tsx` (body prop; Keep focus, Esc/backdrop/Keep call `onKeep`, Discard calls `onDiscard`). Users: `ServiceForm`, `TargetDialog`; both copies deleted.
+- [x] **summaryTitle**: `lib/summaryTitle.ts` + `summaryTitle.test.ts` (cases 1, 3, 4 moved from the two old tests, which lose them). Both old functions deleted.
+- [x] **Error summary**: `components/ErrorSummary.tsx` + `ErrorSummary.test.tsx` (own entry type `{ key, label, message, inputId }`, handler gets the input id). The service form maps `target` to `fieldId(target)` where it renders it and passes a small `focusById` helper (in `features/service-form/lib/fieldIds.ts`, next to `focusField`); the target dialog passes its entries as they are; both old components deleted.
+- [x] **"Request not accepted" words**: `lib/requestNotAccepted.ts` + `requestNotAccepted.test.ts` (title, text, toast message, `Reload` label, `csrfToast()`). `rowActionToasts.ts` drops `CSRF_MESSAGE`/`csrfToast` (cases move); `useDeleteService`, `usePauseService`, `usePublicView` import the shared one; `useRemoveTarget` and `SessionProvider` call `csrfToast()`; one new case each in `useRemoveTarget.test.tsx` and `SessionProvider.test.tsx`.
+- [x] **Failure banners**: `components/FailureBanners.tsx` + `FailureBanners.test.tsx` (csrf, unexpected, load-failed). Users: `FormBanners.tsx`, `TargetDialogBanners.tsx`, `EditLoadStates.tsx`, `AlertListBanners.tsx`; test panel notice text and `Reload` label come from the words module via `TEST_TEXT` in `testResult.ts`.
+- [x] **Row focus**: `hooks/useRowFocus.ts` + `useRowFocus.test.tsx` (moved with all cases). Users: `HealthRulesGroup.tsx` and `NameValueRows.tsx`; the service-form copy and its test, and the effect in `NameValueRows`, deleted.
+- [x] **No copy left**: text search result (below).
+- [x] **Existing tests**: service form (Add, Edit), target dialog, alert list, dashboard row actions, `SessionProvider`, `NameValueRows`, test panel pass with only import paths changed.
+- [x] **`make check`** passes; `package.json` and the lockfile unchanged.
+- [x] **Integration tests**: not run: no backend or integration-tagged code touched (frontend-only task); no integration test applies.
 
 ## Search result
 
-_To fill in._
+Search of `frontend/src` (no tests, no `styles/`), by `grep -rnF`:
+
+- `The request wasn’t accepted.`: `lib/requestNotAccepted.ts` only (title, and the toast message that starts with it).
+- `Reload the page and try again.`: `lib/requestNotAccepted.ts` only.
+- `Reload and try again.`: `lib/requestNotAccepted.ts` only.
+- `Discard unsaved changes?`: `components/DiscardDialog.tsx`, plus one doc comment in `features/alert-list/hooks/useTargetLeaveGuard.ts:16` (not rendered text).
+- `fields need fixing before this can be saved`: `lib/summaryTitle.ts` only.
+- `className="error-text"`: `components/FieldErrorText.tsx` only.
+- `couldn’t be reached or returned an error`: `components/FailureBanners.tsx` (two hits: the unexpected banner's longer sentence and the load-failed banner) and `features/service-form/lib/testResult.ts` (the test panel's own sentence).
 
 ## Judgment calls
 
-_To fill in._
+- **Where the focus helper lives.** The service form's summary handler is `focusById(id)` in `features/service-form/lib/fieldIds.ts`; `focusField` now calls it.
+- **The shared summary entry type** `SummaryEntry` is exported from `components/ErrorSummary.tsx`. The two hooks keep their own entry types; the target dialog's entries (which carry an extra `field`) are passed as they are, and the form maps `target` to `inputId` inline where it renders the summary.
+- **Banner names:** `CsrfBanner`, `UnexpectedBanner`, `LoadFailedBanner` (the task fixed only the file and the count). `LoadFailedBanner` takes `fetching` and `onRetry`.
+- **Words module names:** `REQUEST_NOT_ACCEPTED_TITLE`, `_TEXT`, `_TOAST`, `RELOAD_LABEL`.
+- **Test panel notice.** It keeps its markup and its `TEST_TEXT` keys; `TEST_TEXT.csrf` and `.reload` are now built from the words module (title, a space, text).
+- **`NameValueRows` focus.** It passes `useRowFocus` a `firstInputId` that wraps its `inputId(index, 'name')`, keeping its old target (the name input).
+- **New `useRemoveTarget` and `SessionProvider` cases** compare the toast with the words module's constants (message, `Reload` label) and check the reload count. Mocking the module would also have changed the file's other cases, so I did not.
+- **Formatting.** The repo has no Prettier config, so I formatted new files by hand to the existing style (no semicolons, single quotes, trailing commas, width 120).
+- **Test helper in `rowActionToasts.test.ts`:** the `afterEach` that unstubs globals stays, though no case there stubs one any more.
