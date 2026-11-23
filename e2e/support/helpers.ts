@@ -54,7 +54,7 @@ export async function addService(page: Page, name: string, url: string, options:
   await expect(servicesHeading(page)).toBeVisible()
 }
 
-async function readStatus(page: Page, name: string): Promise<string> {
+export async function readStatus(page: Page, name: string): Promise<string> {
   const row = serviceRow(page, name)
   if ((await row.count()) === 0) return '(no row)'
   const badge = row.locator('xpath=.//*[normalize-space(text())="Healthy" or normalize-space(text())="Unhealthy" or normalize-space(text())="Not checked yet"]')
@@ -197,4 +197,273 @@ export async function listTargets(page: Page, id: string): Promise<TargetBody[]>
   const res = await page.request.get(`/api/services/${id}/targets`)
   expect(res.ok()).toBe(true)
   return (await res.json()) as TargetBody[]
+}
+
+// ---- Milestone 3 ----
+
+export interface Row {
+  name: string
+  value: string
+}
+
+export interface JsonRuleSpec {
+  field: string
+  kind: 'text' | 'true' | 'false'
+  text?: string
+}
+
+export interface Timing {
+  interval: number
+  timeout: number
+  retries: number
+  retryInterval: number
+}
+
+/** The values M2's `addService` fills: a 6-second interval unless a journey says otherwise. */
+export const defaultTiming: Timing = { interval: 6, timeout: 1, retries: 1, retryInterval: 1 }
+
+export interface ServiceSpec {
+  name?: string
+  type?: 'http' | 'tcp'
+  method?: string
+  url?: string
+  host?: string
+  port?: string | number
+  queryParams?: Row[]
+  headers?: Row[]
+  bodyType?: 'None' | 'JSON' | 'Plain text' | 'Form (URL-encoded)'
+  body?: string
+  jsonRules?: JsonRuleSpec[]
+  jsonRuleMode?: 'any' | 'all'
+  certCheck?: { days: string | number }
+  ignoreCert?: boolean
+  /** The four timing inputs. Left out: `defaultTiming`. `null`: the Timing group is not touched (for an Edit form). */
+  timing?: Timing | null
+  alerts?: boolean
+  unhealthyMessage?: string
+  recoveryMessage?: string
+}
+
+async function setSwitch(page: Page, name: string, on: boolean): Promise<void> {
+  const toggle = page.getByRole('switch', { name, exact: true })
+  if (((await toggle.getAttribute('aria-checked')) === 'true') !== on) await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', on ? 'true' : 'false')
+}
+
+/** Fills what `spec` gives on the open Add or Edit form, without pressing Save. */
+export async function fillServiceForm(page: Page, spec: ServiceSpec): Promise<void> {
+  if (spec.name !== undefined) await page.getByLabel('Name', { exact: true }).fill(spec.name)
+  if (spec.type !== undefined) {
+    await page.getByRole('radiogroup', { name: 'Type' }).getByRole('radio', { name: spec.type === 'tcp' ? 'TCP port' : 'HTTP(S)', exact: true }).check()
+  }
+  if (spec.host !== undefined) await page.getByLabel('Host', { exact: true }).fill(spec.host)
+  if (spec.port !== undefined) await page.getByLabel('Port', { exact: true }).fill(String(spec.port))
+  if (spec.method !== undefined) {
+    await page.getByLabel('Method', { exact: true }).click()
+    await page.getByRole('option', { name: spec.method, exact: true }).click()
+  }
+  if (spec.url !== undefined) await page.getByLabel('URL', { exact: true }).fill(spec.url)
+  const rows = async (list: Row[] | undefined, add: string, item: string) => {
+    for (const [i, row] of (list ?? []).entries()) {
+      await page.getByRole('button', { name: add, exact: true }).click()
+      await page.getByLabel(`${item} ${i + 1} name`, { exact: true }).fill(row.name)
+      await page.getByLabel(`${item} ${i + 1} value`, { exact: true }).fill(row.value)
+    }
+  }
+  await rows(spec.queryParams, 'Add parameter', 'Query parameter')
+  await rows(spec.headers, 'Add header', 'Header')
+  if (spec.bodyType !== undefined) {
+    await page.getByRole('radiogroup', { name: 'Body type' }).getByRole('radio', { name: spec.bodyType, exact: true }).check()
+  }
+  if (spec.body !== undefined) await page.getByLabel('Body', { exact: true }).fill(spec.body)
+  for (const [i, rule] of (spec.jsonRules ?? []).entries()) {
+    await page.getByRole('button', { name: 'Add rule', exact: true }).click()
+    await page.getByLabel(`Rule ${i + 1} field path`, { exact: true }).fill(rule.field)
+    if (rule.kind !== 'text') {
+      await page.getByLabel(`Rule ${i + 1} failing value type`, { exact: true }).click()
+      await page.getByRole('option', { name: rule.kind, exact: true }).click()
+    }
+    if (rule.kind === 'text') await page.getByLabel(`Rule ${i + 1} failing text`, { exact: true }).fill(rule.text ?? '')
+  }
+  if (spec.jsonRuleMode !== undefined) {
+    await page
+      .getByRole('radiogroup', { name: 'Mark unhealthy when' })
+      .getByRole('radio', { name: spec.jsonRuleMode === 'any' ? 'Any rule matches' : 'All rules match', exact: true })
+      .check()
+  }
+  if (spec.certCheck !== undefined) {
+    await setSwitch(page, 'Check certificate expiry', true)
+    await page.getByLabel('Minimum days left', { exact: true }).fill(String(spec.certCheck.days))
+  }
+  if (spec.ignoreCert !== undefined) await setSwitch(page, 'Ignore certificate errors', spec.ignoreCert)
+  if (spec.timing !== null) {
+    const t = spec.timing ?? defaultTiming
+    await page.getByLabel('Check interval', { exact: true }).fill(String(t.interval))
+    await page.getByLabel('Timeout', { exact: true }).fill(String(t.timeout))
+    await page.getByLabel('Retries', { exact: true }).fill(String(t.retries))
+    await page.getByLabel('Retry interval', { exact: true }).fill(String(t.retryInterval))
+  }
+  if (spec.alerts !== undefined) await setSwitch(page, 'Send alerts', spec.alerts)
+  if (spec.unhealthyMessage !== undefined) await page.getByLabel('Unhealthy message').fill(spec.unhealthyMessage)
+  if (spec.recoveryMessage !== undefined) await page.getByLabel('Recovery message').fill(spec.recoveryMessage)
+}
+
+/** Opens the Add service form from the dashboard. */
+export async function openAddService(page: Page): Promise<void> {
+  await page.getByRole('link', { name: 'Add service' }).first().click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Add service', exact: true })).toBeVisible()
+}
+
+/** Opens the Edit screen of a service from the dashboard. */
+export async function openEditService(page: Page, name: string): Promise<void> {
+  await page.getByRole('link', { name: `Edit ${name}`, exact: true }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Edit service', exact: true })).toBeVisible()
+  await expect(page.getByLabel('Name', { exact: true })).toHaveValue(name)
+}
+
+/** Presses `Save service` and waits for the dashboard. */
+export async function saveService(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Save service', exact: true }).click()
+  await expect(servicesHeading(page)).toBeVisible()
+}
+
+/** Presses `Cancel` and, when the form asks, `Discard changes`; waits for the dashboard. */
+export async function cancelForm(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  // An unchanged form leaves at once; a changed one asks first.
+  const discard = page.getByRole('button', { name: 'Discard changes', exact: true })
+  await expect(discard.or(servicesHeading(page))).toBeVisible()
+  if (await discard.isVisible()) await discard.click()
+  await expect(servicesHeading(page)).toBeVisible()
+}
+
+export function testPanel(page: Page): Locator {
+  return page.getByRole('complementary', { name: 'Test check' })
+}
+
+/** Presses `Run test` and returns the result area once it shows `Healthy` or `Failed` (of this run, not an earlier one). */
+export async function runTest(page: Page): Promise<Locator> {
+  // The old result stays up until the new run starts: note when the running notice has been on the page.
+  await page.evaluate(() => {
+    const w = window as unknown as { __e2eRunSeen: boolean; __e2eObserver?: MutationObserver }
+    w.__e2eRunSeen = false
+    w.__e2eObserver?.disconnect()
+    const observer = new MutationObserver(() => {
+      if (document.body.textContent?.includes('Running one attempt')) w.__e2eRunSeen = true
+    })
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true })
+    w.__e2eObserver = observer
+  })
+  await page.getByRole('button', { name: 'Run test', exact: true }).click()
+  await page.waitForFunction(() => (window as unknown as { __e2eRunSeen: boolean }).__e2eRunSeen)
+  const area = testPanel(page).getByRole('status')
+  await expect(area.getByText(/^(Healthy|Failed)$/)).toBeVisible()
+  return area
+}
+
+export interface TestResultView {
+  outcome: 'Healthy' | 'Failed'
+  reason: string | null
+  tookMs: number
+  httpStatus: number | null
+  body: string | null
+}
+
+/** Reads the open result area. */
+export async function testResult(page: Page): Promise<TestResultView> {
+  const area = testPanel(page).getByRole('status')
+  const verdict = area.locator(':scope > div').first().locator('span')
+  const outcome = ((await verdict.first().textContent()) ?? '').trim() as 'Healthy' | 'Failed'
+  const reason = outcome === 'Failed' ? ((await verdict.nth(1).textContent()) ?? '').trim() : null
+  const meta = async (label: string) => {
+    const dd = area.locator('dl > div').filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) }).locator('dd')
+    return (await dd.count()) === 0 ? null : ((await dd.first().textContent()) ?? '').trim()
+  }
+  const took = await meta('Took')
+  const http = await meta('HTTP')
+  const bodyBlock = area.getByLabel('Response body')
+  return {
+    outcome,
+    reason,
+    tookMs: Number((took ?? '').replace(/[^\d]/g, '')),
+    httpStatus: http === null ? null : Number(http),
+    body: (await bodyBlock.count()) === 0 ? null : await bodyBlock.textContent(),
+  }
+}
+
+/** The failure text of a dashboard row (the paragraph beside the status badge), or null. */
+async function readReason(page: Page, name: string): Promise<string | null> {
+  const p = serviceRow(page, name).locator('p')
+  return (await p.count()) === 0 ? null : ((await p.first().textContent()) ?? '').trim()
+}
+
+/** Presses Refresh and re-reads (every 500 ms, 30 seconds) until the row shows exactly `text` as its failure reason. */
+export async function waitForReason(page: Page, name: string, text: string | null): Promise<void> {
+  const refresh = page.getByRole('button', { name: 'Refresh', exact: true })
+  await expect
+    .poll(
+      async () => {
+        await refresh.click()
+        await expect(refresh).toBeEnabled()
+        return readReason(page, name)
+      },
+      { intervals: [500], timeout: 30_000, message: `failure reason of ${name}: expected ${text}` },
+    )
+    .toBe(text)
+}
+
+/** Presses Refresh and re-reads until the row has `Resume <name>` (paused) or `Pause <name>` (not paused). */
+export async function waitForPaused(page: Page, name: string, paused: boolean): Promise<void> {
+  const refresh = page.getByRole('button', { name: 'Refresh', exact: true })
+  const button = page.getByRole('button', { name: `${paused ? 'Resume' : 'Pause'} ${name}`, exact: true })
+  await expect
+    .poll(
+      async () => {
+        await refresh.click()
+        await expect(refresh).toBeEnabled()
+        return (await button.count()) > 0
+      },
+      { intervals: [500], timeout: 30_000, message: `row ${name}: expected ${paused ? 'paused' : 'not paused'}` },
+    )
+    .toBe(true)
+}
+
+export interface ServiceStateBody {
+  status: string
+  last_checked_at?: string | null
+  last_status_change_at?: string | null
+  last_failure_reason?: { code: string; http_status?: number; json_rule_field?: string } | null
+}
+
+export interface ServiceStateView {
+  id: string
+  paused: boolean
+  state: ServiceStateBody
+}
+
+/** The service as `GET /api/services` has it. */
+export async function serviceState(page: Page, name: string): Promise<ServiceStateView> {
+  const list = (await (await page.request.get('/api/services')).json()) as {
+    id: string
+    name: string
+    paused: boolean
+    state: ServiceStateBody
+  }[]
+  const found = list.find((s) => s.name === name)
+  expect(found, `service ${name} in the list`).toBeTruthy()
+  return { id: found!.id, paused: found!.paused, state: found!.state }
+}
+
+/** `GET /api/services`: how many services exist. */
+export async function serviceCount(page: Page): Promise<number> {
+  return ((await (await page.request.get('/api/services')).json()) as unknown[]).length
+}
+
+/** A text of `n` copies of `char`. */
+export const repeat = (char: string, n: number): string => char.repeat(n)
+
+/** Removes every JSON rule row from the open form. */
+export async function clearRules(page: Page): Promise<void> {
+  const remove = page.getByRole('button', { name: 'Remove rule 1', exact: true })
+  while ((await remove.count()) > 0) await remove.click()
 }

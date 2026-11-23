@@ -8,6 +8,7 @@
   "devDependencies": {
     "@playwright/test": "1.64.1",
     "@types/node": "24.19.2",
+    "selfsigned": "5.5.0",
     "typescript": "6.0.3"
   },
   "private": true
