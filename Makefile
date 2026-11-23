@@ -13,7 +13,7 @@ CONTRACT := docs/openapi.yaml
 
 .PHONY: help generate generate-check lint lint-backend lint-frontend lint-css lint-shell lint-md \
 	openapi-lint test test-backend test-frontend test-integration test-e2e-smoke test-e2e \
-	build build-backend build-frontend mailpit-up mailpit-down dev-backend dev-frontend docker-build check
+	build build-backend build-frontend mailpit-up mailpit-down be-dev fe-dev docker-build check
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -81,10 +81,10 @@ build-backend: ## go build
 build-frontend: ## Typecheck and Vite build into backend/internal/web/dist
 	cd frontend && npm run build
 
-dev-backend: ## Run the Go server on LISTEN_ADDR from .env (default :8080)
+be-dev: ## Run the Go server on LISTEN_ADDR from .env (default :8080)
 	cd backend && go run ./cmd/server
 
-dev-frontend: ## Run the Vite dev server on FRONTEND_DEV_PORT (default 5173); it proxies /api and /health to LISTEN_ADDR's port
+fe-dev: ## Run the Vite dev server on FRONTEND_DEV_PORT (default 5173); it proxies /api and /health to LISTEN_ADDR's port
 	cd frontend && npm run dev
 
 docker-build: ## Build the production image as monitory:local

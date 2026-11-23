@@ -26,9 +26,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-28, FR-29, FR-32, FR-40, FR-63, FR-113 | `getPublicDashboard` | none | Backend: the usecase (name, status and last check of the chosen services that are healthy or unhealthy, ordered by name ignoring case), the fixed window per client address (60 a minute, from configuration) with `429 rate_limited` and `Retry-After`, and `404 public_view_unavailable` while the view is off. Waits for the delivery lane (`handler/server.go`, `cmd/server/main.go`). Left out of `public-dashboard-screen`, which builds the page |
-| FR-96 | `getHealth` | none | Built in the foundation; this row is its end-to-end journey |
-| Milestone journeys | all of the above | Public dashboard | As an anonymous visitor, including what must not be shown |
 
 ### Milestone 5: release hardening
 
@@ -73,7 +70,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 Each needs a decision, or to be dropped, by the next milestone.
 
-- SMTP provider for production. Decide by: before the first alert task is deployed.
 - What watches the app from outside (the Fly.io health check alone, or an external monitor on `/health`). Decide by: before first real use.
 
 ## Process and tooling
