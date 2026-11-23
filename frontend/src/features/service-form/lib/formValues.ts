@@ -29,6 +29,8 @@ export type ServiceFormValues = {
   cert_days: string
   ignore_cert_errors: boolean
   alerts_enabled: boolean
+  /** The `Show on public page` switch (FR-27); a new service starts hidden (FR-68). */
+  shown_on_public_view: boolean
   unhealthy_message: string
   recovery_message: string
   /** The four timing values, as typed (FR-41, FR-51, FR-53, FR-57). */
@@ -59,6 +61,7 @@ export const ADD_DEFAULT_VALUES: ServiceFormValues = {
   cert_days: DEFAULT_CERT_DAYS,
   ignore_cert_errors: false,
   alerts_enabled: true,
+  shown_on_public_view: false,
   unhealthy_message: '',
   recovery_message: '',
   ...TIMING_DEFAULTS,
