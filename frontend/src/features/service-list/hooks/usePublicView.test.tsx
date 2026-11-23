@@ -172,6 +172,10 @@ describe('toggle', () => {
     await act(async () => settle.resolve({ enabled: true }))
     await waitFor(() => expect(view.result.current.state).toBe('on'))
     await act(async () => refetch.resolve({ enabled: false }))
+    // Wait until the late request has settled (or was cancelled) before looking at the value.
+    await waitFor(() => expect(view.client.getQueryState(publicViewQueryKey)?.fetchStatus).toBe('idle'))
+    await act(async () => {})
+    expect(cached(view.client)).toEqual({ enabled: true })
     expect(view.result.current.state).toBe('on')
   })
 

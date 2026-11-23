@@ -1050,6 +1050,8 @@ describe('Public page switch (FR-26, FR-28, FR-95, NFR-4, NFR-8)', () => {
     expect(control().getAttribute('aria-checked')).toBe('false')
     expect(word()).toBe('Off')
     expect(control()).not.toHaveAttribute('disabled')
+    // The Base UI switch is a span: it marks "disabled" with aria-disabled, which is the real proof here.
+    expect(control()).not.toHaveAttribute('aria-disabled', 'true')
     await user.click(control())
     expect(updatePublicViewSettings).toHaveBeenCalledTimes(1)
 
@@ -1118,7 +1120,10 @@ describe('Public page switch (FR-26, FR-28, FR-95, NFR-4, NFR-8)', () => {
     await act(async () => settle.resolve({ enabled: true }))
     await waitFor(() => expect(control()).toBeChecked())
     await act(async () => refetch.resolve({ enabled: false }))
-    await act(async () => {})
+    // Let the late answer land, if it is going to, before looking.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
     expect(control()).toBeChecked()
     expect(word()).toBe('On')
   })
