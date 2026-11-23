@@ -54,7 +54,7 @@ export async function addService(page: Page, name: string, url: string, options:
   await expect(servicesHeading(page)).toBeVisible()
 }
 
-async function readStatus(page: Page, name: string): Promise<string> {
+export async function readStatus(page: Page, name: string): Promise<string> {
   const row = serviceRow(page, name)
   if ((await row.count()) === 0) return '(no row)'
   const badge = row.locator('xpath=.//*[normalize-space(text())="Healthy" or normalize-space(text())="Unhealthy" or normalize-space(text())="Not checked yet"]')
