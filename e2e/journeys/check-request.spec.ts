@@ -124,4 +124,30 @@ test.describe('M3 journey 3: the saved request, redirects and the edit screen', 
     expect(firstCycle.map((r) => r.url)).toEqual(['/start', '/mid', '/end'])
     for (const request of firstCycle) expect(request.headers['x-e2e-token']).toBe('abc123')
   })
+
+  test('M3 journey 3 redirects to another host still carry the saved headers (FR-58)', async ({ page, site }) => {
+    test.setTimeout(120_000)
+    // Go's client copies the first request's headers by itself on a redirect to the same host, and drops
+    // `Authorization` on a redirect to another one (`localhost` is another host than `127.0.0.1`). Only
+    // the app setting the saved headers again on each hop makes it arrive: it is what FR-58 asks for.
+    site.route('/start', { redirectTo: `http://localhost:${site.port}/end` })
+    site.route('/end', {})
+    const name = serviceName()
+    await signIn(page)
+    await openAddService(page)
+    await fillServiceForm(page, {
+      name,
+      url: site.url('/start'),
+      headers: [TOKEN, { name: 'Authorization', value: 'Bearer saved-1' }],
+      alerts: false,
+    })
+    await saveService(page)
+    await waitForStatus(page, name, 'Healthy')
+    const hops = site.requests().slice(0, 2)
+    expect(hops.map((r) => r.url)).toEqual(['/start', '/end'])
+    for (const hop of hops) {
+      expect(hop.headers['x-e2e-token']).toBe('abc123')
+      expect(hop.headers['authorization']).toBe('Bearer saved-1')
+    }
+  })
 })
