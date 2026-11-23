@@ -156,9 +156,9 @@ None.
 3. **A fixed 500 ms `setTimeout` in the journey 5 polling loop** (cosmetic). Matters when: report only. It is a poll interval, not a wait for an event.
 4. **M1's `delete-service.spec.ts` uses `waitForTimeout` and writes over HTTP** (test quality, outside this diff). Matters when: `delete-service.spec.ts` is next edited; the task rules say no other `waitForTimeout`.
 5. **Journey 4 cannot show which fault failed a certificate, as the task's Known gaps say** (decision needed). Every generated certificate is self-signed, so the probe's "unknown authority" hides an expired or wrong-host fault. Matters when: the probe's certificate options are changed in a way the probe unit tests do not cover.
-6. **Added by this verifier: the saved `Authorization` header goes to a different host on a redirect.** FR-58 says the saved headers go with each redirected request, and the product does it, including to another host (decision needed). Matters when: a saved credential header is used on a URL that can redirect off-site. The product behaves as specified, so this is not a defect; the user may want to confirm it is intended.
+6. **The saved `Authorization` header goes to a different host on a redirect.** FR-58 says the saved headers go with each redirected request, and the product does it, including to another host (decision needed). Matters when: a saved credential header is used on a URL that can redirect off-site. The product behaves as specified, so this is not a defect; the user may want to confirm it is intended.
 
-## Tests added
+## Test added
 
 - `e2e/journeys/check-request.spec.ts`, test `M3 journey 3 redirects to another host still carry the saved headers (FR-58)`: a redirect from `127.0.0.1` to `localhost` with a saved `Authorization` header. It passes on the product as is, and fails under mutation 6, which the builder's same-host test did not catch. I added it in the journey file of the criterion, not in a new file.
 
