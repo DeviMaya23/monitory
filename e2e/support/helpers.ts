@@ -459,3 +459,9 @@ export async function serviceCount(page: Page): Promise<number> {
 
 /** A text of `n` copies of `char`. */
 export const repeat = (char: string, n: number): string => char.repeat(n)
+
+/** Removes every JSON rule row from the open form. */
+export async function clearRules(page: Page): Promise<void> {
+  const remove = page.getByRole('button', { name: 'Remove rule 1', exact: true })
+  while ((await remove.count()) > 0) await remove.click()
+}
