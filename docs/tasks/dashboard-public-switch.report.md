@@ -102,6 +102,7 @@ None.
 ### Non-blocking
 
 **N1. Two criteria tested nothing (test quality). Fixed here.**
+
 - The "no `disabled` attribute while pending" assertion could not fail: the Base UI switch is a `span role="switch"` and uses `aria-disabled`, so the `disabled` attribute never exists. A switch disabled during the request passed the test (M6).
 - The "refetch cannot overwrite the answer" tests asserted before the late response had landed, so removing `cancelQueries` passed (M13). I checked in a throwaway test that, with this library version (5.107.1), a pending fetch really does overwrite `setQueryData`, so the call is needed.
 - Fix, in the existing test files: `ServiceList.test.tsx` gains `expect(control()).not.toHaveAttribute('aria-disabled', 'true')` while pending, and waits 100 ms of fake time before checking the value in the overwrite case; `usePublicView.test.tsx` waits for `fetchStatus` to be idle and checks the cached value. Both fail under the mutations and pass on the real code.
