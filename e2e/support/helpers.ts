@@ -327,11 +327,13 @@ export async function saveService(page: Page): Promise<void> {
   await expect(servicesHeading(page)).toBeVisible()
 }
 
-/** Presses `Cancel` and, when the form has changes, `Discard changes`; waits for the dashboard. */
+/** Presses `Cancel` and, when the form asks, `Discard changes`; waits for the dashboard. */
 export async function cancelForm(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  // An unchanged form leaves at once; a changed one asks first.
   const discard = page.getByRole('button', { name: 'Discard changes', exact: true })
-  await discard.click()
+  await expect(discard.or(servicesHeading(page))).toBeVisible()
+  if (await discard.isVisible()) await discard.click()
   await expect(servicesHeading(page)).toBeVisible()
 }
 
