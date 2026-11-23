@@ -523,6 +523,7 @@ describe('Add service (FR-6, FR-4)', () => {
         ignore_certificate_errors: false,
       },
       alerts_enabled: true,
+      shown_on_public_view: false,
       unhealthy_message: '',
       recovery_message: '',
       settings: { check_interval_seconds: 60, timeout_seconds: 10, retry_count: 2, retry_interval_seconds: 10 },

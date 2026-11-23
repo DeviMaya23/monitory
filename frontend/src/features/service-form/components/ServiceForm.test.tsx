@@ -115,15 +115,17 @@ afterEach(() => {
 })
 
 describe.each<Screen>(['add', 'edit'])('the test panel on the %s screen (NFR-4)', (kind) => {
-  it('sits after the last group and before the footer, and Tab goes from the Alerts group to Run test, then Cancel', async () => {
+  it('sits after the last group and before the footer, and Tab goes from the Public page switch to Run test, then Cancel', async () => {
     const { user } = await setup(kind)
     const panel = screen.getByRole('complementary', { name: 'Test check' })
-    const lastGroup = screen.getByRole('group', { name: /Alerts/ })
+    const lastGroup = screen.getByRole('group', { name: 'Public page' })
     const foot = document.querySelector('.form-foot') as HTMLElement
     expect(lastGroup.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(panel.compareDocumentPosition(foot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(panel.closest('form')).not.toBeNull()
     await user.click(screen.getByLabelText('Recovery message', { exact: false }))
+    await user.tab()
+    expect(screen.getByRole('switch', { name: 'Show on public page' })).toHaveFocus()
     await user.tab()
     expect(runButton()).toHaveFocus()
     await user.tab()

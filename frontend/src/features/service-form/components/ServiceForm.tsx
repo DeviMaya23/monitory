@@ -21,6 +21,7 @@ import { FieldErrorText } from './FieldErrorText'
 import { FormBanners } from './FormBanners'
 import { HealthRulesGroup } from './HealthRulesGroup'
 import { HttpsGroup } from './HttpsGroup'
+import { PublicPageGroup } from './PublicPageGroup'
 import { RequestRowsGroup } from './RequestRowsGroup'
 import { TestPanel } from './TestPanel'
 import { TcpGroup } from './TcpGroup'
@@ -361,6 +362,8 @@ export function ServiceForm({ title, subtitle, initialValues, save: saveState, m
               recoveryError={serverErrors.errorFor('recovery_message')}
               clearField={serverErrors.clearField}
             />
+
+            <PublicPageGroup control={control} saving={saving} />
           </div>
           <TestPanel state={test.state} saving={saving} onRun={() => void onRunTest()} buttonRef={testRef} />
         </div>
