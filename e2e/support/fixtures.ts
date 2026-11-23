@@ -1,12 +1,21 @@
 import { test as base, expect } from '@playwright/test'
 import { App } from './app'
+import type { Cert } from './certs'
 import { StubReceiver } from './stubReceiver'
+import { StubSite } from './stubSite'
+import { StubTcp } from './stubTcp'
 import { StubTarget } from './stubTarget'
 
 interface Fixtures {
   app: App
   stub: StubTarget
   receiver: StubReceiver
+  /** A scriptable HTTP stub of a checked service. */
+  site: StubSite
+  /** Starts an HTTPS stub with the given certificate; every one it started is closed at the end. */
+  tlsSite: (cert: Cert) => Promise<StubSite>
+  /** A TCP stub, not yet listening. */
+  tcp: StubTcp
   /** Environment overrides for the app of each test; set with `test.use`. */
   appOverrides: Record<string, string>
 }
@@ -36,6 +45,27 @@ export const test = base.extend<Fixtures>({
     await receiver.listen()
     await use(receiver)
     await receiver.close()
+  },
+  site: async ({}, use) => {
+    const site = new StubSite()
+    await site.listen()
+    await use(site)
+    await site.close()
+  },
+  tlsSite: async ({}, use) => {
+    const started: StubSite[] = []
+    await use(async (cert) => {
+      const site = new StubSite({ tls: cert })
+      await site.listen()
+      started.push(site)
+      return site
+    })
+    for (const site of started) await site.close()
+  },
+  tcp: async ({}, use) => {
+    const tcp = new StubTcp()
+    await use(tcp)
+    await tcp.close()
   },
   baseURL: async ({ app }, use) => {
     await use(app.baseURL)
