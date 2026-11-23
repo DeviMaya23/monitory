@@ -164,6 +164,7 @@ describe('saving a valid form (FR-6, FR-12)', () => {
         ignore_certificate_errors: false,
       },
       alerts_enabled: true,
+      shown_on_public_view: false,
       unhealthy_message: '',
       recovery_message: '',
       settings: {
@@ -610,6 +611,7 @@ describe('the banners', () => {
         ignore_certificate_errors: false,
       },
       alerts_enabled: true,
+      shown_on_public_view: false,
       unhealthy_message: '',
       recovery_message: '',
       settings: {
@@ -860,7 +862,7 @@ describe('the Alerts group (FR-20, FR-65)', () => {
   it('shows after the Request group: the switch on and described, two text areas with counters at 0/500', () => {
     setup()
     const legends = Array.from(document.querySelectorAll('legend.group__legend')).map((legend) => legend.textContent)
-    expect(legends).toEqual(['Service', 'Request', 'Health rules (optional)', 'HTTPS', 'Timing', 'Alerts'])
+    expect(legends).toEqual(['Service', 'Request', 'Health rules (optional)', 'HTTPS', 'Timing', 'Alerts', 'Public page'])
     expect(alertsSwitch()).toHaveAttribute('aria-checked', 'true')
     expect(alertsSwitch()).toHaveAccessibleDescription('To this service’s alert list when it goes down or recovers.')
     expect(screen.getByText('On')).toBeInTheDocument()
@@ -928,6 +930,7 @@ describe('the Alerts group (FR-20, FR-65)', () => {
         ignore_certificate_errors: false,
       },
       alerts_enabled: false,
+      shown_on_public_view: false,
       unhealthy_message: '  down ',
       recovery_message: '<b>x</b>',
       settings: {
@@ -1057,7 +1060,7 @@ describe('the Alerts group: boundaries and keyboard (FR-20, FR-65, NFR-4)', () =
   const alertsSwitch = () => screen.getByRole('switch', { name: 'Send alerts' })
   const counters = () => Array.from(document.querySelectorAll('.counter')).map((counter) => counter.textContent)
 
-  it('is reached by Tab in the order URL, the rows’ Add buttons, Body type, the four timing inputs, switch, Unhealthy message, Recovery message, Run test, Cancel, Save; Space toggles the switch', async () => {
+  it('is reached by Tab in the order URL, the rows’ Add buttons, Body type, the four timing inputs, switch, Unhealthy message, Recovery message, Show on public page, Run test, Cancel, Save; Space toggles the switch', async () => {
     const { user } = setup()
     await user.click(urlInput())
     // Add parameter, Add header, the Body type choice, Add rule, the mode choice (the HTTPS options are disabled
@@ -1073,6 +1076,8 @@ describe('the Alerts group: boundaries and keyboard (FR-20, FR-65, NFR-4)', () =
     expect(unhealthyArea()).toHaveFocus()
     await user.tab()
     expect(recoveryArea()).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('switch', { name: 'Show on public page' })).toHaveFocus()
     await user.tab()
     expect(screen.getByRole('button', { name: 'Run test' })).toHaveFocus()
     await user.tab()
@@ -1923,7 +1928,7 @@ describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, 
     if (text !== undefined)
       fireEvent.change(screen.getByLabelText(`Rule ${n} failing text`), { target: { value: text } })
   }
-  const GROUPS = ['Service', 'Request', 'Health rules (optional)', 'HTTPS', 'Timing', 'Alerts']
+  const GROUPS = ['Service', 'Request', 'Health rules (optional)', 'HTTPS', 'Timing', 'Alerts', 'Public page']
   /** Saves a filled form that the server refuses with `error`, with the rules added by `prepare`. */
   async function saveRefused(user: User, error: unknown, prepare: () => Promise<void> = async () => {}) {
     vi.mocked(createService).mockRejectedValueOnce(error)
@@ -2579,7 +2584,7 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
       expect(within(typeGroup()).getByRole('radio', { name: 'HTTP(S)' })).toBeChecked()
       expect(within(typeGroup()).getByRole('radio', { name: 'TCP port' })).not.toBeChecked()
       expect(screen.getByText('Changing type swaps the fields below.')).toBeInTheDocument()
-      expect(legends()).toEqual(['Service', 'Request', 'Health rules (optional)', 'HTTPS', 'Timing', 'Alerts'])
+      expect(legends()).toEqual(['Service', 'Request', 'Health rules (optional)', 'HTTPS', 'Timing', 'Alerts', 'Public page'])
       expect(screen.queryByLabelText('Host')).toBeNull()
       expect(screen.queryByLabelText('Port')).toBeNull()
       const name = nameInput().closest('.field') as HTMLElement
@@ -2592,7 +2597,7 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
       await user.type(screen.getByLabelText('Timeout'), '5')
       await user.click(screen.getByRole('switch', { name: 'Send alerts' }))
       await chooseType(user, 'TCP port')
-      expect(legends()).toEqual(['Service', 'TCP port', 'Timing', 'Alerts'])
+      expect(legends()).toEqual(['Service', 'TCP port', 'Timing', 'Alerts', 'Public page'])
       expect(hostInput()).toHaveValue('')
       expect(hostInput()).toHaveAttribute('placeholder', 'db.internal or 10.0.0.12')
       expect(portInput()).toHaveValue('')
@@ -3005,5 +3010,126 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
       await user.tab()
       expect(screen.getByLabelText('Check interval')).toHaveFocus()
     })
+  })
+})
+
+describe('the Public page group (FR-27, FR-68, NFR-4)', () => {
+  const publicSwitch = () => screen.getByRole('switch', { name: 'Show on public page' })
+  const legends = () => Array.from(document.querySelectorAll('legend.group__legend')).map((legend) => legend.textContent)
+
+  it('is the last group, after Alerts and before the test panel, with the switch off and described', () => {
+    setup()
+    expect(legends().slice(-2)).toEqual(['Alerts', 'Public page'])
+    const group = screen.getByRole('group', { name: 'Public page' })
+    const panel = screen.getByRole('complementary', { name: 'Test check' })
+    expect(group.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(publicSwitch()).toHaveAttribute('aria-checked', 'false')
+    expect(publicSwitch()).toHaveAccessibleDescription(
+      'Anyone can see its name, status and last check time. Hidden while paused.',
+    )
+  })
+
+  it.each([
+    ['untouched', false],
+    ['turned on', true],
+  ])('sends shown_on_public_view for the switch %s', async (_label, turnOn) => {
+    vi.mocked(createService).mockResolvedValueOnce(makeService())
+    const { user } = setup()
+    await fill(user)
+    if (turnOn) await user.click(publicSwitch())
+    await user.click(saveButton())
+    await marker()
+    expect(sentInput().shown_on_public_view).toBe(turnOn)
+  })
+
+  it('sends false after the switch is turned on and off again', async () => {
+    vi.mocked(createService).mockResolvedValueOnce(makeService())
+    const { user } = setup()
+    await fill(user)
+    await user.click(publicSwitch())
+    await user.click(publicSwitch())
+    await user.click(saveButton())
+    await marker()
+    expect(sentInput().shown_on_public_view).toBe(false)
+  })
+
+  it('counts the switch on as changed (status, Cancel, unload prompt), and off again as unchanged', async () => {
+    const { user } = setup()
+    await user.click(publicSwitch())
+    expect(footerStatus()).toHaveTextContent('Unsaved changes')
+    expect(unloadPrompts()).toBe(true)
+    await user.click(cancelButton())
+    expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await user.click(backLink())
+    expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await user.click(publicSwitch())
+    expect(footerStatus()).toBeEmptyDOMElement()
+    expect(unloadPrompts()).toBe(false)
+    await user.click(cancelButton())
+    expect(await marker()).toBeInTheDocument()
+    expect(discardDialog()).not.toBeInTheDocument()
+  })
+
+  it('is disabled while a save is pending, and enabled again after a failure', async () => {
+    const settle = pending()
+    const { user } = setup()
+    await fill(user)
+    await user.click(publicSwitch())
+    await user.click(saveButton())
+    await waitFor(() => expect(publicSwitch()).toHaveAttribute('aria-disabled', 'true'))
+    await act(async () => settle.reject(problem(500, 'internal_error')))
+    await waitFor(() => expect(publicSwitch()).not.toHaveAttribute('aria-disabled', 'true'))
+    expect(publicSwitch()).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('is reached by Tab after the Recovery message, then Run test, then Cancel, and Space toggles it', async () => {
+    const { user } = setup()
+    await user.click(screen.getByLabelText('Recovery message (optional)'))
+    await user.tab()
+    expect(publicSwitch()).toHaveFocus()
+    await user.keyboard(' ')
+    expect(publicSwitch()).toHaveAttribute('aria-checked', 'true')
+    await user.keyboard(' ')
+    expect(publicSwitch()).toHaveAttribute('aria-checked', 'false')
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Run test' })).toHaveFocus()
+    await user.tab()
+    expect(cancelButton()).toHaveFocus()
+  })
+
+  it('lists a 422 naming shown_on_public_view as plain text, with no link, no marked input and no text under the switch', async () => {
+    const { user } = setup()
+    vi.mocked(createService).mockRejectedValueOnce(
+      validationProblem(fieldError('shown_on_public_view', 'Not a field here.')),
+    )
+    await fill(user)
+    await user.click(publicSwitch())
+    await user.click(saveButton())
+    await waitFor(() => expect(saveButton()).toBeEnabled())
+    const summary = screen.getByRole('alert')
+    expect(summary).toHaveTextContent('shown_on_public_view: Not a field here.')
+    expect(within(summary).queryByRole('link')).toBeNull()
+    expect(document.querySelector('[aria-invalid="true"]')).toBeNull()
+    expect(document.querySelector('.error-text')).toBeNull()
+    await user.click(publicSwitch())
+    expect(publicSwitch()).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByRole('alert')).toHaveTextContent('shown_on_public_view: Not a field here.')
+  })
+
+  it('shows the group on a TCP form, after Timing and Alerts, and sends its value with the TCP check', async () => {
+    vi.mocked(createService).mockResolvedValueOnce(makeService())
+    const { user } = setup()
+    await user.type(nameInput(), 'DB')
+    await user.click(screen.getByRole('radio', { name: 'TCP port' }))
+    expect(legends()).toEqual(['Service', 'TCP port', 'Timing', 'Alerts', 'Public page'])
+    await user.type(screen.getByLabelText('Host'), 'db.internal')
+    await user.type(screen.getByLabelText('Port'), '5432')
+    await user.click(publicSwitch())
+    await user.click(saveButton())
+    await marker()
+    expect(sentInput().check).toStrictEqual({ type: 'tcp', host: 'db.internal', port: 5432 })
+    expect(sentInput().shown_on_public_view).toBe(true)
   })
 })

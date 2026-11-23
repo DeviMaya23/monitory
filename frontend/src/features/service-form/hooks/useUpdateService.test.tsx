@@ -28,21 +28,27 @@ beforeEach(() => {
 })
 
 describe('useUpdateService (FR-7)', () => {
-  it('sends the create body and the loaded public flag to the service id', async () => {
-    const service = makeRichService({ shown_on_public_view: true })
+  it.each([
+    [true, false],
+    [false, true],
+  ])('sends the form’s public flag, not the loaded one: loaded %s, form %s', async (loaded, formValue) => {
+    const service = makeRichService({ shown_on_public_view: loaded })
     vi.mocked(updateService).mockResolvedValue(service)
     const { result } = setup(service)
-    const values = { ...toFormValues(service), name: 'Renamed' }
+    const values = { ...toFormValues(service), name: 'Renamed', shown_on_public_view: formValue }
     await act(() => result.current.submit(values))
-    expect(updateService).toHaveBeenCalledWith('0190-rich', { ...toServiceInput(values), shown_on_public_view: true })
+    expect(updateService).toHaveBeenCalledWith('0190-rich', toServiceInput(values))
+    expect(vi.mocked(updateService).mock.calls[0][1].shown_on_public_view).toBe(formValue)
   })
 
-  it('sends false when the loaded service has no public flag', async () => {
+  it('sends a saved form value as it is, whatever the loaded service lacks', async () => {
     const service = makeService({ id: 'x', shown_on_public_view: undefined })
     vi.mocked(updateService).mockResolvedValue(service)
     const { result } = setup(service)
-    await act(() => result.current.submit(toFormValues(service)))
-    expect(vi.mocked(updateService).mock.calls[0][1]).toMatchObject({ shown_on_public_view: false })
+    await act(() => result.current.submit({ ...toFormValues(service), shown_on_public_view: true }))
+    expect(vi.mocked(updateService).mock.calls[0][1]).toStrictEqual(
+      toServiceInput({ ...toFormValues(service), shown_on_public_view: true }),
+    )
   })
 
   it('on 200 removes the list entry, keeps the detail entry and calls onSaved', async () => {

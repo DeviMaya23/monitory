@@ -27,6 +27,7 @@ describe('isFormChanged', () => {
     ['the days with a trailing space', { cert_days: '30 ' }],
     ['a timing text', { timeout: '8' }],
     ['the alerts switch', { alerts_enabled: true }],
+    ['the public page switch', { shown_on_public_view: !initial.shown_on_public_view }],
     ['a message', { recovery_message: 'Back' }],
     ['a host', { host: 'db' }],
     ['a port', { port: '5432' }],

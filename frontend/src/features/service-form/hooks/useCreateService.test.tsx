@@ -29,6 +29,7 @@ const VALUES: ServiceFormValues = {
   cert_days: '14',
   ignore_cert_errors: false,
   alerts_enabled: true,
+  shown_on_public_view: false,
   unhealthy_message: '',
   recovery_message: '',
   check_interval: '60',
@@ -211,6 +212,7 @@ describe('a 201', () => {
         ignore_certificate_errors: false,
       },
       alerts_enabled: true,
+      shown_on_public_view: false,
       unhealthy_message: '',
       recovery_message: '',
       settings: {
