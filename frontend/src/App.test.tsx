@@ -6,6 +6,7 @@ import { appRoutes } from './App'
 import { setUnauthenticatedHandler } from './lib/api/request'
 import { createService, deleteService, getService, listServices, updateService } from './lib/api/services'
 import { getPublicDashboard } from './lib/api/publicDashboard'
+import { getPublicViewSettings, updatePublicViewSettings } from './lib/api/publicView'
 import { listTargets } from './lib/api/targets'
 import { getSession, signIn, signOut, type SessionInfo } from './lib/api/session'
 import {
@@ -21,6 +22,11 @@ import { renderRoutes } from './test/renderRoutes'
 
 vi.mock('./lib/api/session')
 vi.mock('./lib/api/publicDashboard')
+vi.mock('./lib/api/publicView', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/api/publicView')>()),
+  getPublicViewSettings: vi.fn(),
+  updatePublicViewSettings: vi.fn(),
+}))
 // The real query key is kept (an automock would empty it); only the requests are mocked.
 vi.mock('./lib/api/services', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./lib/api/services')>()),
@@ -87,6 +93,7 @@ const addServiceForm = () => screen.findByRole('heading', { name: 'Add service' 
 beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(listServices).mockResolvedValue([])
+  vi.mocked(getPublicViewSettings).mockResolvedValue({ enabled: false })
   vi.mocked(getPublicDashboard).mockResolvedValue(makePublicDashboard(makePublicService()))
 })
 afterEach(() => {
@@ -426,6 +433,55 @@ describe('The dashboard and a session that ends (FR-4)', () => {
     expect(screen.queryByText('Couldn’t delete the service. Try again.')).not.toBeInTheDocument()
     expect(screen.queryAllByRole('alertdialog', { hidden: true })).toHaveLength(0)
     expect(client.getQueryData(['services'])).toBeUndefined()
+  })
+})
+
+describe('The dashboard’s public page switch (FR-26)', () => {
+  it('shows the switch and the Open link, and a toggle sends the new value and shows the answer', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    renderAt('/')
+    const control = await screen.findByRole('switch', { name: 'Public page' })
+    await waitFor(() => expect(control).not.toHaveAttribute('aria-disabled', 'true'))
+    expect(screen.getByRole('link', { name: 'Open public page (new tab)' })).toHaveAttribute('href', '/status')
+    vi.mocked(updatePublicViewSettings).mockResolvedValueOnce({ enabled: true })
+    await userEvent.click(control)
+    expect(updatePublicViewSettings).toHaveBeenCalledExactlyOnceWith({ enabled: true })
+    expect(await screen.findByText('Public page turned on.')).toBeInTheDocument()
+    expect(control).toBeChecked()
+  })
+
+  it('a 401 on the setting’s refresh ends on the sign-in form with the notice and no toast', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    renderAt('/')
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'Public page' })).not.toHaveAttribute('aria-disabled', 'true'),
+    )
+    // As apiRequest does: run the registered handler, then reject.
+    vi.mocked(getPublicViewSettings).mockImplementationOnce(async () => {
+      registeredHandler()()
+      throw problem(401, 'unauthenticated')
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await form()
+    expect(screen.getByText('Your session has ended.')).toBeInTheDocument()
+    expect(screen.queryByText(/Couldn’t turn the public page/)).not.toBeInTheDocument()
+  })
+
+  it('a toggle answered 401 ends on the sign-in form with the notice and no toast', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    renderAt('/')
+    const control = await screen.findByRole('switch', { name: 'Public page' })
+    await waitFor(() => expect(control).not.toHaveAttribute('aria-disabled', 'true'))
+    vi.mocked(updatePublicViewSettings).mockImplementationOnce(async () => {
+      registeredHandler()()
+      throw problem(401, 'unauthenticated')
+    })
+    fireEvent.click(control)
+    await form()
+    expect(screen.getByText('Your session has ended.')).toBeInTheDocument()
+    expect(updatePublicViewSettings).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/Couldn’t turn the public page/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Public page turned/)).not.toBeInTheDocument()
   })
 })
 

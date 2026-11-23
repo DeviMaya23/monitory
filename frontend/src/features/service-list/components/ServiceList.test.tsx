@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../../../components/ui/Toast'
+import { getPublicViewSettings, updatePublicViewSettings } from '../../../lib/api/publicView'
 import { deleteService, listServices, pauseService, resumeService, type Service } from '../../../lib/api/services'
 import {
   makePaused,
@@ -16,6 +17,7 @@ import {
 } from '../../../test/fixtures'
 import { useDeleteService } from '../hooks/useDeleteService'
 import { usePauseService } from '../hooks/usePauseService'
+import { usePublicView } from '../hooks/usePublicView'
 import { useServiceList } from '../hooks/useServiceList'
 import { formatTime } from '../../../lib/formatTime'
 import { ServiceList } from './ServiceList'
@@ -28,6 +30,11 @@ vi.mock('../../../lib/api/services', async (importOriginal) => ({
   pauseService: vi.fn(),
   resumeService: vi.fn(),
 }))
+vi.mock('../../../lib/api/publicView', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/api/publicView')>()),
+  getPublicViewSettings: vi.fn(),
+  updatePublicViewSettings: vi.fn(),
+}))
 const config = vi.hoisted(() => ({ REFRESH_INTERVAL_MS: 5 * 60 * 1000 }))
 vi.mock('../../../lib/config', () => config)
 
@@ -35,7 +42,14 @@ const NOW = new Date('2026-11-15T14:35:00Z')
 
 // The composition of DashboardPage.
 function Page() {
-  return <ServiceList view={useServiceList()} deletion={useDeleteService()} pausing={usePauseService()} />
+  return (
+    <ServiceList
+      view={useServiceList()}
+      deletion={useDeleteService()}
+      pausing={usePauseService()}
+      publicView={usePublicView()}
+    />
+  )
 }
 
 function renderPage() {
@@ -71,6 +85,7 @@ const meta = () => document.querySelector('.refresh-meta')?.textContent
 
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(getPublicViewSettings).mockResolvedValue({ enabled: false })
   config.REFRESH_INTERVAL_MS = 5 * 60 * 1000
   vi.useFakeTimers({ shouldAdvanceTime: true })
   vi.setSystemTime(NOW)
@@ -161,13 +176,13 @@ describe('List', () => {
     expect(line()).toBe(`${text} · times in your local time`)
   })
 
-  it('has a Pause or Resume and a Delete button per row, no Edit button, no switch, no Open link; a row’s links are the name link, Alerts and Edit', async () => {
+  it('has a Pause or Resume and a Delete button per row, no Edit button; the toolbar has the switch and the Open link; a row’s links are the name link, Alerts and Edit', async () => {
     await loaded(makeServiceList(makeService(), makeUnhealthy({ code: 'timed_out' }, { paused: true })))
     for (const name of [/Alerts/, /Edit/]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
-    expect(screen.queryByRole('switch')).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Open/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Public page' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open public page (new tab)' })).toBeInTheDocument()
     const list = screen.getByRole('list', { name: 'Services' })
     expect(within(list).getAllByRole('link').map((l) => l.getAttribute('aria-label') ?? l.textContent)).toEqual([
       'API gateway',
@@ -184,7 +199,7 @@ describe('List', () => {
       'Resume Billing webhook',
       'Delete Billing webhook',
     ])
-    expect(screen.getAllByRole('link')).toHaveLength(1 + 2 * 3)
+    expect(screen.getAllByRole('link')).toHaveLength(1 + 1 + 2 * 3)
   })
 
   it('lists the six column header words and Actions', async () => {
@@ -916,5 +931,226 @@ describe('Pause and Resume (FR-75, FR-77, FR-78, FR-79)', () => {
     fireEvent.click(button('Resume Sleeper'))
     expect(await toast('Couldn’t resume the service. Try again.')).toBeInTheDocument()
     expect(row('Sleeper')).toHaveTextContent('Paused')
+  })
+})
+
+describe('Public page switch (FR-26, FR-28, FR-95, NFR-4, NFR-8)', () => {
+  const toast = async (text: string) => (await screen.findAllByText(text))[0]
+  const control = () => screen.getByRole('switch', { name: 'Public page' })
+  const openLink = () => screen.getByRole('link', { name: 'Open public page (new tab)' })
+  // Rows have their own On and Off words, so look inside the toolbar's box.
+  const box = () => document.querySelector('.public-toggle') as HTMLElement
+  const word = () => box().querySelector('.switch-row__state')?.textContent
+  const noWord = () => expect(word()).toBe('')
+  type Settle = { resolve: (v: { enabled: boolean }) => void; reject: (e: unknown) => void }
+  function pendingUpdate(): Settle {
+    const settle: Settle = { resolve: () => {}, reject: () => {} }
+    vi.mocked(updatePublicViewSettings).mockReturnValueOnce(
+      new Promise((resolve, reject) => {
+        settle.resolve = resolve
+        settle.reject = reject
+      }),
+    )
+    return settle
+  }
+  function pendingGet(): Settle {
+    const settle: Settle = { resolve: () => {}, reject: () => {} }
+    vi.mocked(getPublicViewSettings).mockReturnValueOnce(
+      new Promise((resolve, reject) => {
+        settle.resolve = resolve
+        settle.reject = reject
+      }),
+    )
+    return settle
+  }
+  async function loadedWith(enabled: boolean, list = makeServiceList(makeService())) {
+    vi.mocked(getPublicViewSettings).mockResolvedValue({ enabled })
+    await loaded(list)
+    await waitFor(() => expect(control()).not.toHaveAttribute('aria-disabled', 'true'))
+  }
+
+  it('shows the switch and the Open link in every list state, loading included', async () => {
+    renderPage()
+    expect(control()).toBeInTheDocument()
+    expect(openLink()).toBeInTheDocument()
+    await screen.findByRole('heading', { name: 'Services' })
+  })
+
+  it('is disabled, unchecked and wordless while loading; the link works; no banner or toast; enabled with its word after the load', async () => {
+    const answer = pendingGet()
+    vi.mocked(listServices).mockResolvedValueOnce(makeServiceList(makeService()))
+    renderPage()
+    await screen.findByText('API gateway')
+    expect(control()).toHaveAttribute('aria-disabled', 'true')
+    expect(control()).not.toBeChecked()
+    noWord()
+    expect(openLink()).toHaveAttribute('href', '/status')
+    expect(openLink()).toHaveAttribute('target', '_blank')
+    expect(openLink().getAttribute('rel')).toContain('noopener')
+    expect(screen.queryByText('Couldn’t refresh.')).not.toBeInTheDocument()
+    await act(async () => answer.resolve({ enabled: true }))
+    await waitFor(() => expect(control()).not.toHaveAttribute('aria-disabled', 'true'))
+    expect(control()).toBeChecked()
+    expect(word()).toBe('On')
+  })
+
+  it('stays disabled and wordless when the setting could not be loaded, with no banner and no toast, and Refresh recovers it', async () => {
+    vi.mocked(getPublicViewSettings).mockRejectedValueOnce(problem(500, 'internal_error'))
+    await loaded(makeServiceList(makeService()))
+    await waitFor(() => expect(getPublicViewSettings).toHaveBeenCalledTimes(1))
+    await act(async () => {})
+    expect(control()).toHaveAttribute('aria-disabled', 'true')
+    noWord()
+    expect(openLink()).toHaveAttribute("href", "/status")
+    expect(screen.queryByText('Couldn’t refresh.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Couldn’t load services.')).not.toBeInTheDocument()
+
+    vi.mocked(getPublicViewSettings).mockResolvedValueOnce({ enabled: false })
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(control()).not.toHaveAttribute('aria-disabled', 'true'))
+    expect(word()).toBe('Off')
+  })
+
+  it.each([
+    [true, 'On'],
+    [false, 'Off'],
+  ])('with enabled: %s shows the word %s and the same link', async (enabled, shown) => {
+    await loadedWith(enabled)
+    expect(control().getAttribute('aria-checked')).toBe(String(enabled))
+    expect(word()).toBe(shown)
+    expect(openLink()).toHaveAttribute('href', '/status')
+  })
+
+  it('has the toolbar order Add service, Refresh, the switch, Open, and Tab goes through it in that order', async () => {
+    await loadedWith(false, [])
+    const toolbar = document.querySelector('.dash-toolbar') as HTMLElement
+    const tabbable = [...toolbar.querySelectorAll<HTMLElement>('a, button, [role="switch"]')].map(
+      (e) => (e.getAttribute('role') === 'switch' ? 'switch' : e.textContent),
+    )
+    expect(tabbable).toEqual(['Add service', 'Refresh', 'switch', 'Open public page (new tab)'])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    await user.tab()
+    expect(within(toolbar).getByRole('link', { name: 'Add service' })).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Refresh' })).toHaveFocus()
+    await user.tab()
+    expect(control()).toHaveFocus()
+    await user.tab()
+    expect(openLink()).toHaveFocus()
+  })
+
+  it('turns on from Off: sends { enabled: true } once, keeps Off and stays enabled while pending, then shows On, the toast and focus', async () => {
+    await loadedWith(false)
+    const settle = pendingUpdate()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    control().focus()
+    await user.keyboard(' ')
+    await waitFor(() => expect(updatePublicViewSettings).toHaveBeenCalledTimes(1))
+    expect(updatePublicViewSettings).toHaveBeenCalledWith({ enabled: true })
+    expect(control().getAttribute('aria-checked')).toBe('false')
+    expect(word()).toBe('Off')
+    expect(control()).not.toHaveAttribute('disabled')
+    await user.click(control())
+    expect(updatePublicViewSettings).toHaveBeenCalledTimes(1)
+
+    await act(async () => settle.resolve({ enabled: true }))
+    await waitFor(() => expect(control()).toBeChecked())
+    expect(word()).toBe('On')
+    expect(await toast('Public page turned on.')).toBeInTheDocument()
+    expect(control()).toHaveFocus()
+    // No refetch after the answer.
+    expect(getPublicViewSettings).toHaveBeenCalledTimes(1)
+  })
+
+  it('turns off from On with the toast Public page turned off.', async () => {
+    await loadedWith(true)
+    vi.mocked(updatePublicViewSettings).mockResolvedValueOnce({ enabled: false })
+    await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(control())
+    expect(updatePublicViewSettings).toHaveBeenCalledExactlyOnceWith({ enabled: false })
+    expect(await toast('Public page turned off.')).toBeInTheDocument()
+    expect(control()).not.toBeChecked()
+    expect(word()).toBe('Off')
+  })
+
+  it('a 403 csrf_failed shows the shared toast whose Reload reloads once, and the switch keeps its value (NFR-8)', async () => {
+    const reload = vi.fn()
+    vi.stubGlobal('location', { ...window.location, reload })
+    await loadedWith(false)
+    vi.mocked(updatePublicViewSettings).mockRejectedValueOnce(problem(403, 'csrf_failed'))
+    fireEvent.click(control())
+    expect(await toast('The request wasn’t accepted. Reload and try again.')).toBeInTheDocument()
+    // An error toast is hidden from the tree until it is focused, so look for the action with `hidden`.
+    fireEvent.click(screen.getByRole('button', { name: 'Reload', hidden: true }))
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(control()).not.toBeChecked()
+    vi.unstubAllGlobals()
+  })
+
+  it('a 500 shows the failure toast by the value being set, keeps the value, and a second try sends again', async () => {
+    await loadedWith(false)
+    vi.mocked(updatePublicViewSettings).mockRejectedValueOnce(problem(500, 'internal_error'))
+    fireEvent.click(control())
+    expect(await toast('Couldn’t turn the public page on. Try again.')).toBeInTheDocument()
+    expect(control()).not.toBeChecked()
+    await waitFor(() => expect(updatePublicViewSettings).toHaveBeenCalledTimes(1))
+
+    vi.mocked(updatePublicViewSettings).mockResolvedValueOnce({ enabled: true })
+    fireEvent.click(control())
+    await waitFor(() => expect(control()).toBeChecked())
+    expect(updatePublicViewSettings).toHaveBeenCalledTimes(2)
+  })
+
+  it('a failure while turning off says off', async () => {
+    await loadedWith(true)
+    vi.mocked(updatePublicViewSettings).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    fireEvent.click(control())
+    expect(await toast('Couldn’t turn the public page off. Try again.')).toBeInTheDocument()
+    expect(control()).toBeChecked()
+  })
+
+  it('a setting refetch still pending when a toggle is answered cannot overwrite the answer', async () => {
+    await loadedWith(false)
+    const refetch = pendingGet()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(getPublicViewSettings).toHaveBeenCalledTimes(2))
+    const settle = pendingUpdate()
+    fireEvent.click(control())
+    await act(async () => settle.resolve({ enabled: true }))
+    await waitFor(() => expect(control()).toBeChecked())
+    await act(async () => refetch.resolve({ enabled: false }))
+    await act(async () => {})
+    expect(control()).toBeChecked()
+    expect(word()).toBe('On')
+  })
+
+  it('Refresh and Retry fetch the list and the setting together; Refresh is busy by the list only', async () => {
+    await loadedWith(false)
+    expect(listServices).toHaveBeenCalledTimes(1)
+    expect(getPublicViewSettings).toHaveBeenCalledTimes(1)
+
+    const setting = pendingGet()
+    const refresh = screen.getByRole('button', { name: 'Refresh' })
+    fireEvent.click(refresh)
+    await waitFor(() => expect(getPublicViewSettings).toHaveBeenCalledTimes(2))
+    expect(listServices).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled())
+    await act(async () => setting.resolve({ enabled: false }))
+
+    vi.mocked(listServices).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    const retry = await screen.findByRole('button', { name: 'Retry' })
+    await waitFor(() => expect(retry).toBeEnabled())
+    fireEvent.click(retry)
+    await waitFor(() => expect(getPublicViewSettings).toHaveBeenCalledTimes(4))
+    expect(listServices).toHaveBeenCalledTimes(4)
+  })
+
+  it('the automatic refresh fetches the list and the setting after the interval', async () => {
+    await loadedWith(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(config.REFRESH_INTERVAL_MS)
+    })
+    expect(listServices).toHaveBeenCalledTimes(2)
+    expect(getPublicViewSettings).toHaveBeenCalledTimes(2)
   })
 })
