@@ -3118,6 +3118,22 @@ describe('the Public page group (FR-27, FR-68, NFR-4)', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('shown_on_public_view: Not a field here.')
   })
 
+  it('keeps the switch on after a 422 on the name, and the retry sends true', async () => {
+    vi.mocked(createService)
+      .mockRejectedValueOnce(validationProblem(fieldError('name', 'Name refused.')))
+      .mockResolvedValueOnce(makeService())
+    const { user } = setup()
+    await fill(user)
+    await user.click(publicSwitch())
+    await user.click(saveButton())
+    await waitFor(() => expect(saveButton()).toBeEnabled())
+    expect(publicSwitch()).toHaveAttribute('aria-checked', 'true')
+    expect(vi.mocked(createService).mock.calls[0][0].shown_on_public_view).toBe(true)
+    await user.click(saveButton())
+    await marker()
+    expect(vi.mocked(createService).mock.calls[1][0].shown_on_public_view).toBe(true)
+  })
+
   it('shows the group on a TCP form, after Timing and Alerts, and sends its value with the TCP check', async () => {
     vi.mocked(createService).mockResolvedValueOnce(makeService())
     const { user } = setup()

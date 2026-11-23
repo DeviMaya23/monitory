@@ -436,6 +436,17 @@ describe('the Public page switch (FR-27, FR-7, NFR-4)', () => {
     expect(sent()[1].shown_on_public_view).toBe(!shown)
   })
 
+  it.each([true, false])('for a service saved as shown=%s: toggled and put back, saving sends the saved value', async (shown) => {
+    const service = makeRichService({ shown_on_public_view: shown })
+    vi.mocked(updateService).mockResolvedValue(service)
+    const { user } = await setup({ service })
+    await user.click(publicSwitch())
+    await user.click(publicSwitch())
+    await user.click(saveButton())
+    await marker()
+    expect(sent()[1].shown_on_public_view).toBe(shown)
+  })
+
   it('shows a service with no saved flag as off and sends false', async () => {
     const service = makeRichService({ shown_on_public_view: undefined })
     vi.mocked(updateService).mockResolvedValue(service)
