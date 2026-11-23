@@ -4,9 +4,11 @@ import { Link } from 'react-router'
 import { REFRESH_INTERVAL_MS } from '../../../lib/config'
 import type { DeleteServiceFlow } from '../hooks/useDeleteService'
 import type { PauseServiceFlow } from '../hooks/usePauseService'
+import type { PublicViewFlow } from '../hooks/usePublicView'
 import type { ServiceListView } from '../hooks/useServiceList'
 import { formatTime } from '../../../lib/formatTime'
 import { DeleteServiceDialog } from './DeleteServiceDialog'
+import { PublicToggle } from './PublicToggle'
 import { ServiceRow } from './ServiceRow'
 import '../service-list.css'
 
@@ -27,16 +29,16 @@ function headingLine({ state, services }: ServiceListView): string {
   return `${count} · times in your local time`
 }
 
-function RetryButton({ view }: { view: ServiceListView }) {
+function RetryButton({ view, onRetry }: { view: ServiceListView; onRetry: () => void }) {
   return (
-    <button type="button" className="btn" disabled={view.fetching} onClick={view.refresh}>
+    <button type="button" className="btn" disabled={view.fetching} onClick={onRetry}>
       <RefreshCw className="icon icon--sm" aria-hidden="true" />
       <span>Retry</span>
     </button>
   )
 }
 
-function Banner({ view, now }: { view: ServiceListView; now: Date }) {
+function Banner({ view, now, onRetry }: { view: ServiceListView; now: Date; onRetry: () => void }) {
   const couldNotLoad = view.state === 'could-not-load'
   if (!couldNotLoad && !view.refreshFailed) return null
   return (
@@ -50,7 +52,7 @@ function Banner({ view, now }: { view: ServiceListView; now: Date }) {
           )}
         </div>
         <div className="banner__actions">
-          <RetryButton view={view} />
+          <RetryButton view={view} onRetry={onRetry} />
         </div>
       </div>
     </div>
@@ -114,12 +116,19 @@ export function ServiceList({
   view,
   deletion,
   pausing,
+  publicView,
 }: {
   view: ServiceListView
   deletion: DeleteServiceFlow
   pausing: PauseServiceFlow
+  publicView: PublicViewFlow
 }) {
   const now = new Date()
+  // Refresh and Retry fetch the list and the setting together (FR-95).
+  const refreshAll = () => {
+    view.refresh()
+    publicView.refresh()
+  }
   const heading = useRef<HTMLHeadingElement>(null)
   // After a removal the opener is gone: focus goes to the heading. Otherwise back to the Delete button.
   const finalFocus = () => (deletion.closedAs === 'removed' ? heading.current : null)
@@ -139,7 +148,7 @@ export function ServiceList({
           className="btn"
           disabled={view.fetching}
           aria-busy={view.fetching ? 'true' : undefined}
-          onClick={view.refresh}
+          onClick={refreshAll}
         >
           {view.fetching ? (
             <LoaderCircle className="icon icon--sm spinner" aria-hidden="true" />
@@ -149,9 +158,11 @@ export function ServiceList({
           <span>Refresh</span>
         </button>
         <Meta view={view} now={now} />
+        <span className="dash-toolbar__spacer" />
+        <PublicToggle publicView={publicView} />
       </div>
 
-      <Banner view={view} now={now} />
+      <Banner view={view} now={now} onRetry={refreshAll} />
 
       {view.state === 'loading' && <Skeleton />}
       {view.state === 'empty' && (

@@ -9,10 +9,12 @@ type Props = {
   disabled?: boolean
   /** Optional hint under the label; the switch's description, not part of its name. */
   description?: string
+  /** Leaves the state word's text out; the element keeps its place, so the layout does not shift. */
+  hideState?: boolean
 }
 
 /** An on/off switch with a visible text label and its state in words; clicking the label toggles it too. */
-export function Switch({ checked, onCheckedChange, label, disabled = false, description }: Props) {
+export function Switch({ checked, onCheckedChange, label, disabled = false, description, hideState = false }: Props) {
   const labelId = useId()
   const hintId = useId()
   return (
@@ -39,7 +41,7 @@ export function Switch({ checked, onCheckedChange, label, disabled = false, desc
         )}
       </span>
       <span className="switch-row__state" aria-hidden="true">
-        {checked ? 'On' : 'Off'}
+        {hideState ? '' : checked ? 'On' : 'Off'}
       </span>
     </label>
   )

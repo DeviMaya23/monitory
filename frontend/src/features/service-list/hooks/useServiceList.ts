@@ -1,8 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { REFRESH_INTERVAL_MS } from '../../../lib/config'
-import { listServices, type Service } from '../../../lib/api/services'
-
-export const SERVICES_KEY = ['services'] as const
+import { listServices, servicesQueryKey, type Service } from '../../../lib/api/services'
 
 export type ServiceListState = 'loading' | 'could-not-load' | 'empty' | 'list'
 
@@ -23,7 +21,7 @@ export type ServiceListView = {
 /** The admin's service list: one query, refreshed on an interval, and the screen state derived from it (FR-9, FR-95). */
 export function useServiceList(): ServiceListView {
   const query = useQuery({
-    queryKey: SERVICES_KEY,
+    queryKey: servicesQueryKey,
     queryFn: listServices,
     retry: false,
     refetchInterval: REFRESH_INTERVAL_MS,
