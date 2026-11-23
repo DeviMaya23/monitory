@@ -18,6 +18,9 @@ import (
 
 var registerProblemDecoder sync.Once
 
+// contract is the embedded contract, read once per process. Nothing here writes to it.
+var contract = sync.OnceValues(api.GetSwagger)
+
 // AssertConforms fails the test unless response is a response docs/openapi.yaml
 // allows for the operation: a declared status, the declared content type, required
 // headers, and a body that matches the schema. It reads the body and puts it back, so
@@ -29,7 +32,7 @@ func AssertConforms(t *testing.T, operationID string, response *http.Response) {
 		openapi3filter.RegisterBodyDecoder("application/problem+json", openapi3filter.JSONBodyDecoder)
 	})
 
-	spec, err := api.GetSwagger()
+	spec, err := contract()
 	require.NoError(t, err)
 
 	path, method, pathItem, operation := findOperation(spec, operationID)

@@ -59,17 +59,14 @@ func TestTargetServer_DelayAndRedirect(t *testing.T) {
 	ts.Script("/go", testutil.Route{Status: http.StatusMovedPermanently, RedirectTo: "/slow"})
 	ts.Script("/abs", testutil.Route{RedirectTo: "http://example.invalid/x"})
 
-	// A scripted delay is observed; the baseline (no delay) answers sooner.
-	ts.Script("/fast", testutil.Route{})
+	// A scripted delay is observed: the answer comes no sooner than the delay. (That an
+	// undelayed route answers quickly is not asserted: an upper bound on a wall clock
+	// fails on a slow machine.)
 	wall := clock.Real{}
 	start := wall.Now()
-	get(t, http.DefaultClient, ts.URL()+"/fast", nil)
-	fast := wall.Now().Sub(start)
-	start = wall.Now()
 	get(t, http.DefaultClient, ts.URL()+"/slow", nil)
 	slow := wall.Now().Sub(start)
 	assert.GreaterOrEqual(t, slow, 100*time.Millisecond)
-	assert.Less(t, fast, 100*time.Millisecond)
 
 	resp, _ := get(t, noRedirects(), ts.URL()+"/go", nil)
 	assert.Equal(t, http.StatusMovedPermanently, resp.StatusCode)

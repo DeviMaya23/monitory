@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -281,10 +282,13 @@ type operation struct {
 	public bool
 }
 
-func operations(t *testing.T) []operation {
-	t.Helper()
+// contractOperations reads the contract once per test binary run. Callers only range
+// over the result.
+var contractOperations = sync.OnceValues(func() ([]operation, error) {
 	spec, err := api.GetSwagger()
-	require.NoError(t, err)
+	if err != nil {
+		return nil, err
+	}
 	var ops []operation
 	for path, item := range spec.Paths.Map() {
 		for method, op := range item.Operations() {
@@ -297,6 +301,13 @@ func operations(t *testing.T) []operation {
 			})
 		}
 	}
+	return ops, nil
+})
+
+func operations(t *testing.T) []operation {
+	t.Helper()
+	ops, err := contractOperations()
+	require.NoError(t, err)
 	require.NotEmpty(t, ops)
 	return ops
 }
