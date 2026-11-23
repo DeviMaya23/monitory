@@ -17,7 +17,7 @@ import {
   ROW_LISTS,
   type RowList,
 } from '../lib/requestRows'
-import { FieldErrorText } from './FieldErrorText'
+import { FieldErrorText } from '../../../components/FieldErrorText'
 
 type ServerErrors = Pick<
   ReturnType<typeof useServerErrors>,

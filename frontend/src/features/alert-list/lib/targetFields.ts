@@ -55,10 +55,3 @@ export function headerPath(index: number, part: HeaderPart): string {
 export function isHeadersPath(path: string): boolean {
   return path === 'headers' || path.startsWith('headers[')
 }
-
-/** The title of the error summary for `count` errors. */
-export function summaryTitle(count: number): string {
-  return count === 1
-    ? '1 field needs fixing before this can be saved.'
-    : `${count} fields need fixing before this can be saved.`
-}

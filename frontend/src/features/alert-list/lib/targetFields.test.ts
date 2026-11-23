@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FIELD_IDS, NAME_MAX_LENGTH, fieldInfo, headerInputId, headerPath, summaryTitle } from './targetFields'
+import { FIELD_IDS, NAME_MAX_LENGTH, fieldInfo, headerInputId, headerPath } from './targetFields'
 
 describe('fieldInfo', () => {
   it('turns header paths into one-based labels and the row inputs', () => {
@@ -28,9 +28,5 @@ describe('the rest', () => {
   })
   it('builds the server path of a header input', () => {
     expect(headerPath(1, 'value')).toBe('headers[1].value')
-  })
-  it('words the summary title for one and for many', () => {
-    expect(summaryTitle(1)).toBe('1 field needs fixing before this can be saved.')
-    expect(summaryTitle(3)).toBe('3 fields need fixing before this can be saved.')
   })
 })

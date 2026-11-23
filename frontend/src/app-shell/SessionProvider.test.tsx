@@ -8,6 +8,7 @@ import { getSession, signOut, type SessionInfo } from '../lib/api/session'
 import { problem, sessionInfo } from '../test/fixtures'
 import { SessionProvider } from './SessionProvider'
 import { useSession } from './useSession'
+import { RELOAD_LABEL, REQUEST_NOT_ACCEPTED_TOAST } from '../lib/requestNotAccepted'
 
 vi.mock('../lib/api/session')
 vi.mock('../lib/api/request', () => ({
@@ -209,6 +210,20 @@ describe('sign-out', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
     expect(reload).toHaveBeenCalledTimes(1)
     expect(state()).toBe('signed-in')
+  })
+
+  it('shows the shared csrfToast: its message and Reload action', async () => {
+    const reload = vi.fn()
+    vi.stubGlobal('location', { ...window.location, reload })
+    await signedInSetup()
+    vi.mocked(signOut).mockRejectedValue(problem(403, 'csrf_failed'))
+    await userEvent.click(screen.getByText('sign out'))
+    const toast = await screen.findByRole('alert')
+    expect(toast).toHaveTextContent(REQUEST_NOT_ACCEPTED_TOAST)
+    fireEvent.focus(screen.getAllByRole('alertdialog', { hidden: true })[0])
+    expect(screen.getByRole('button', { name: RELOAD_LABEL })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: RELOAD_LABEL }))
+    expect(reload).toHaveBeenCalledTimes(1)
   })
 
   it('on 401 unauthenticated shows no toast', async () => {

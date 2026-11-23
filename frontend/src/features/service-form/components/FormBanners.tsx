@@ -1,6 +1,7 @@
 import type { ReactNode, RefObject } from 'react'
-import { CircleAlert, RefreshCw, WifiOff } from 'lucide-react'
+import { CircleAlert } from 'lucide-react'
 import { Link } from 'react-router'
+import { CsrfBanner, UnexpectedBanner } from '../../../components/FailureBanners'
 import type { SaveFailure } from '../hooks/useSaveService'
 import { LEAVE_WITHOUT_ASKING } from '../hooks/useLeaveGuard'
 
@@ -58,37 +59,9 @@ function Banner({ failure, onRetry, notFoundLinkRef }: Pick<Props, 'failure' | '
         </div>
       )
     case 'csrf':
-      return (
-        <div className="banner banner--error" role="alert">
-          <CircleAlert className="icon" aria-hidden="true" />
-          <div className="banner__body">
-            <span className="banner__title">The request wasn’t accepted.</span>
-            <span>Reload the page and try again.</span>
-          </div>
-          <div className="banner__actions">
-            <button type="button" className="btn" onClick={() => window.location.reload()}>
-              <RefreshCw className="icon icon--sm" aria-hidden="true" />
-              <span>Reload</span>
-            </button>
-          </div>
-        </div>
-      )
+      return <CsrfBanner />
     case 'unexpected':
-      return (
-        <div className="banner banner--error" role="alert">
-          <WifiOff className="icon" aria-hidden="true" />
-          <div className="banner__body">
-            <span className="banner__title">Something went wrong.</span>
-            <span>The server couldn’t be reached or returned an error. Your values are still here.</span>
-          </div>
-          <div className="banner__actions">
-            <button type="button" className="btn" onClick={onRetry}>
-              <RefreshCw className="icon icon--sm" aria-hidden="true" />
-              <span>Try again</span>
-            </button>
-          </div>
-        </div>
-      )
+      return <UnexpectedBanner onRetry={onRetry} />
     default:
       return null
   }

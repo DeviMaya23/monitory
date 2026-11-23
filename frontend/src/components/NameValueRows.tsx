@@ -1,6 +1,8 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
-import { CircleAlert, Plus, Trash2 } from 'lucide-react'
+import { useCallback, useId, type ReactNode } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
 import type { UseFormRegisterReturn } from 'react-hook-form'
+import { useRowFocus } from '../hooks/useRowFocus'
+import { FieldErrorText } from './FieldErrorText'
 
 type Part = 'name' | 'value'
 
@@ -33,16 +35,6 @@ type Props = {
 
 const errorId = (id: string) => `${id}-error`
 
-/** An error message: the icon and the text (NFR-7). The same markup as the service form's field error. */
-function ErrorText({ id, message }: { id: string; message: string }) {
-  return (
-    <p className="error-text" id={id}>
-      <CircleAlert className="icon icon--sm" aria-hidden="true" />
-      <span>{message}</span>
-    </p>
-  )
-}
-
 /** A list of name and value rows with Add and Remove, over a form's field array. The words are props. */
 export function NameValueRows({
   legend,
@@ -59,26 +51,8 @@ export function NameValueRows({
   onAdd,
   onRemove,
 }: Props) {
-  const addButton = useRef<HTMLButtonElement>(null)
-  // Where focus goes once the rows have changed: a row's name input, or the Add button.
-  const focusAfter = useRef<{ index: number } | 'add' | null>(null)
-
-  useEffect(() => {
-    const target = focusAfter.current
-    if (target === null) return
-    focusAfter.current = null
-    if (target === 'add') addButton.current?.focus()
-    else document.getElementById(inputId(target.index, 'name'))?.focus()
-  }, [rows, inputId])
-
-  const remove = (index: number) => {
-    focusAfter.current = index < rows.length - 1 ? { index } : index > 0 ? { index: index - 1 } : 'add'
-    onRemove(index)
-  }
-  const add = () => {
-    focusAfter.current = { index: rows.length }
-    onAdd()
-  }
+  const firstInputId = useCallback((index: number) => inputId(index, 'name'), [inputId])
+  const { addButton, addRow, removeRow } = useRowFocus(rows, firstInputId)
 
   const uid = useId()
   const listErrorId = `${uid}-error`
@@ -120,7 +94,7 @@ export function NameValueRows({
                           aria-describedby={message ? errorId(id) : undefined}
                           {...register(index, part)}
                         />
-                        {message && <ErrorText id={errorId(id)} message={message} />}
+                        {message && <FieldErrorText id={errorId(id)} message={message} />}
                       </div>
                     )
                   })}
@@ -129,7 +103,7 @@ export function NameValueRows({
                     className="btn btn--ghost btn--icon"
                     aria-label={`Remove ${itemName.toLowerCase()} ${n}`}
                     disabled={readOnly}
-                    onClick={() => remove(index)}
+                    onClick={() => removeRow(index, () => onRemove(index))}
                   >
                     <Trash2 className="icon" aria-hidden="true" />
                   </button>
@@ -138,9 +112,9 @@ export function NameValueRows({
             })}
           </>
         )}
-        {listError && <ErrorText id={listErrorId} message={listError} />}
+        {listError && <FieldErrorText id={listErrorId} message={listError} />}
         <div className="rows__foot">
-          <button type="button" className="btn" ref={addButton} disabled={readOnly} onClick={add}>
+          <button type="button" className="btn" ref={addButton} disabled={readOnly} onClick={() => addRow(onAdd)}>
             <Plus className="icon icon--sm" aria-hidden="true" />
             <span>{addLabel}</span>
           </button>

@@ -1,5 +1,6 @@
-import { BellOff, RefreshCw, WifiOff } from 'lucide-react'
+import { BellOff } from 'lucide-react'
 import { Link } from 'react-router'
+import { LoadFailedBanner } from '../../../components/FailureBanners'
 
 /** The alert list's live region: "Something went wrong." first, then "Alerts are off for this service." */
 export function AlertListBanners({
@@ -19,21 +20,7 @@ export function AlertListBanners({
 }) {
   return (
     <div className="alerts-banners" aria-live="polite">
-      {failed && (
-        <div className="banner banner--warn" role="status">
-          <WifiOff className="icon" aria-hidden="true" />
-          <div className="banner__body">
-            <span className="banner__title">Something went wrong.</span>
-            <span>The server couldn’t be reached or returned an error.</span>
-          </div>
-          <div className="banner__actions">
-            <button type="button" className="btn" disabled={fetching} onClick={onRetry}>
-              <RefreshCw className="icon icon--sm" aria-hidden="true" />
-              <span>Try again</span>
-            </button>
-          </div>
-        </div>
-      )}
+      {failed && <LoadFailedBanner fetching={fetching} onRetry={onRetry} />}
       {alertsOff && (
         <div className="banner banner--warn" role="status">
           <BellOff className="icon" aria-hidden="true" />

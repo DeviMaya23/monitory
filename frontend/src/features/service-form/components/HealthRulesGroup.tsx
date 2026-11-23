@@ -3,7 +3,7 @@ import { Controller, useFieldArray, useWatch, type Control, type UseFormRegister
 import { RadioGroup } from '../../../components/ui/RadioGroup'
 import { Select } from '../../../components/ui/Select'
 import type { ServiceFormValues } from '../lib/formValues'
-import { useRowFocus } from '../hooks/useRowFocus'
+import { useRowFocus } from '../../../hooks/useRowFocus'
 import type { useServerErrors } from '../hooks/useServerErrors'
 import { errorId } from '../lib/fieldIds'
 import {
@@ -22,7 +22,7 @@ import {
   ruleTextName,
   ruleLabel,
 } from '../lib/jsonRules'
-import { FieldErrorText } from './FieldErrorText'
+import { FieldErrorText } from '../../../components/FieldErrorText'
 
 type ServerErrors = Pick<
   ReturnType<typeof useServerErrors>,

@@ -2,7 +2,8 @@ import { useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '../../../components/ui/useToast'
 import { deleteService, type Service } from '../../../lib/api/services'
-import { csrfToast, goneToast, toOutcome } from '../lib/rowActionToasts'
+import { csrfToast } from '../../../lib/requestNotAccepted'
+import { goneToast, toOutcome } from '../lib/rowActionToasts'
 import { removeFromList } from '../lib/servicesCache'
 
 /** How the dialog last closed: the service is gone from the list (`removed`), or the list is as it was (`kept`). */

@@ -7,6 +7,7 @@ import { ApiError } from '../../../lib/api/ApiError'
 import { deleteTarget, listTargets, targetsQueryKey, type TargetList } from '../../../lib/api/targets'
 import { makeEmailTarget, makeTargetList, makeWebhookTarget, problem } from '../../../test/fixtures'
 import { useRemoveTarget } from './useRemoveTarget'
+import { RELOAD_LABEL, REQUEST_NOT_ACCEPTED_TOAST } from '../../../lib/requestNotAccepted'
 
 vi.mock('../../../lib/api/targets', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/api/targets')>()),
@@ -187,6 +188,32 @@ describe('a 403 csrf_failed', () => {
       expect(view.result.current.closed).toEqual({ id: b.id, as: 'kept' })
     } finally {
       Object.defineProperty(window, 'location', { configurable: true, value: original })
+    }
+  })
+
+  it('shows the shared csrfToast: its message and Reload action, reloading once', async () => {
+    const reload = vi.fn()
+    const original = window.location
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...original, reload },
+    })
+    try {
+      const view = setup()
+      await removeWith(view, { reject: problem(403, 'csrf_failed') })
+      const toast = view.show.mock.calls[0][0]
+      expect(toast).toEqual({
+        kind: 'error',
+        message: REQUEST_NOT_ACCEPTED_TOAST,
+        action: { label: RELOAD_LABEL, onClick: expect.any(Function) },
+      })
+      toast.action?.onClick()
+      expect(reload).toHaveBeenCalledOnce()
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: original,
+      })
     }
   })
 })

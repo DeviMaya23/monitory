@@ -15,19 +15,7 @@ export function toOutcome(error: unknown): Outcome {
 /** What the admin reads when the service is already gone. */
 export const GONE_MESSAGE = 'That service was already deleted.'
 
-/** What the admin reads when the server refused the request's CSRF token. */
-export const CSRF_MESSAGE = 'The request wasn’t accepted. Reload and try again.'
-
 /** The toast for the "gone" outcome. */
 export function goneToast() {
   return { kind: 'error' as const, message: GONE_MESSAGE }
-}
-
-/** The toast for the CSRF outcome, with a Reload action that reloads the page. */
-export function csrfToast() {
-  return {
-    kind: 'error' as const,
-    message: CSRF_MESSAGE,
-    action: { label: 'Reload', onClick: () => window.location.reload() },
-  }
 }

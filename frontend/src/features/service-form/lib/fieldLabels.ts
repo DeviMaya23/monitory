@@ -108,10 +108,3 @@ export function fieldLabel(path: string): {
   if (isBarePath(path)) return { label: BARE_LABELS[path], target: null }
   return { label: path, target: null }
 }
-
-/** The title of the error summary for `count` errors. */
-export function summaryTitle(count: number): string {
-  return count === 1
-    ? '1 field needs fixing before this can be saved.'
-    : `${count} fields need fixing before this can be saved.`
-}

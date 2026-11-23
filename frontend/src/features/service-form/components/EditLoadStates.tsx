@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { ArrowLeft, CircleAlert, RefreshCw, WifiOff } from 'lucide-react'
+import { ArrowLeft, CircleAlert } from 'lucide-react'
 import { Link } from 'react-router'
+import { LoadFailedBanner } from '../../../components/FailureBanners'
 
 /** The back link and the heading, which the loading and load-failed states keep. */
 function Head({ children }: { children: ReactNode }) {
@@ -35,19 +36,7 @@ export function EditLoading() {
 export function EditLoadFailed({ fetching, onRetry }: { fetching: boolean; onRetry: () => void }) {
   return (
     <Head>
-      <div className="banner banner--warn" role="status">
-        <WifiOff className="icon" aria-hidden="true" />
-        <div className="banner__body">
-          <span className="banner__title">Something went wrong.</span>
-          <span>The server couldn’t be reached or returned an error.</span>
-        </div>
-        <div className="banner__actions">
-          <button type="button" className="btn" disabled={fetching} onClick={onRetry}>
-            <RefreshCw className="icon icon--sm" aria-hidden="true" />
-            <span>Try again</span>
-          </button>
-        </div>
-      </div>
+      <LoadFailedBanner fetching={fetching} onRetry={onRetry} />
     </Head>
   )
 }

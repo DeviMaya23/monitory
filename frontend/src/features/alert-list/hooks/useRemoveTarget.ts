@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '../../../components/ui/useToast'
 import { ApiError } from '../../../lib/api/ApiError'
 import { deleteTarget, targetsQueryKey, type TargetList } from '../../../lib/api/targets'
+import { csrfToast } from '../../../lib/requestNotAccepted'
 
 /** The answer to a removal, by status and code (never by message text). */
 type Outcome = 'unauthenticated' | 'already-removed' | 'csrf' | 'failed'
@@ -70,11 +71,7 @@ export function useRemoveTarget(serviceId: string) {
         return
       }
       if (outcome === 'csrf') {
-        toast.show({
-          kind: 'error',
-          message: 'The request wasn’t accepted. Reload and try again.',
-          action: { label: 'Reload', onClick: () => window.location.reload() },
-        })
+        toast.show(csrfToast())
       } else {
         toast.show({
           kind: 'error',

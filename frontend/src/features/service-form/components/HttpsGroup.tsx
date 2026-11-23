@@ -16,7 +16,7 @@ import {
 } from '../lib/certificateOptions'
 import { errorId } from '../lib/fieldIds'
 import { readWholeNumber, TIMING_TEXT } from '../lib/timingGroup'
-import { FieldErrorText } from './FieldErrorText'
+import { FieldErrorText } from '../../../components/FieldErrorText'
 
 type ServerErrors = Pick<
   ReturnType<typeof useServerErrors>,

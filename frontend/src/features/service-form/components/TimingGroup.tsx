@@ -13,7 +13,7 @@ import {
   TIMING_TEXT,
   type TimingName,
 } from '../lib/timingGroup'
-import { FieldErrorText } from './FieldErrorText'
+import { FieldErrorText } from '../../../components/FieldErrorText'
 
 type Props = {
   control: Control<ServiceFormValues>
