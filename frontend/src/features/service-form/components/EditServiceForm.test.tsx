@@ -412,3 +412,100 @@ describe('leaving (NFR-4)', () => {
     expect(unloadPrompts()).toBe(false)
   })
 })
+
+describe('the Public page switch (FR-27, FR-7, NFR-4)', () => {
+  const publicSwitch = () => switchOf('Show on public page')
+
+  it.each([true, false])('for a service saved as shown=%s: shows it, sends it unchanged, and sends the opposite once toggled', async (shown) => {
+    const service = makeRichService({ shown_on_public_view: shown })
+    vi.mocked(updateService).mockResolvedValue(service)
+    const { user } = await setup({ service })
+    expect(publicSwitch()).toHaveAttribute('aria-checked', String(shown))
+    await user.click(saveButton())
+    await marker()
+    expect(sent()[1].shown_on_public_view).toBe(shown)
+  })
+
+  it.each([true, false])('for a service saved as shown=%s: sends the opposite once toggled', async (shown) => {
+    const service = makeRichService({ shown_on_public_view: shown })
+    vi.mocked(updateService).mockResolvedValue(service)
+    const { user } = await setup({ service })
+    await user.click(publicSwitch())
+    await user.click(saveButton())
+    await marker()
+    expect(sent()[1].shown_on_public_view).toBe(!shown)
+  })
+
+  it.each([true, false])('for a service saved as shown=%s: toggled and put back, saving sends the saved value', async (shown) => {
+    const service = makeRichService({ shown_on_public_view: shown })
+    vi.mocked(updateService).mockResolvedValue(service)
+    const { user } = await setup({ service })
+    await user.click(publicSwitch())
+    await user.click(publicSwitch())
+    await user.click(saveButton())
+    await marker()
+    expect(sent()[1].shown_on_public_view).toBe(shown)
+  })
+
+  it('shows a service with no saved flag as off and sends false', async () => {
+    const service = makeRichService({ shown_on_public_view: undefined })
+    vi.mocked(updateService).mockResolvedValue(service)
+    const { user } = await setup({ service })
+    expect(publicSwitch()).toHaveAttribute('aria-checked', 'false')
+    await user.click(saveButton())
+    await marker()
+    expect(sent()[1].shown_on_public_view).toBe(false)
+  })
+
+  it.each([
+    ['Cancel', () => userEvent.click(cancelButton())],
+    ['the back link', () => userEvent.click(backLink())],
+  ])('counts a change from the loaded value as unsaved, asks on %s, and putting it back is unchanged', async (_label, leave) => {
+    const { user } = await setup()
+    await user.click(publicSwitch())
+    expect(footerStatus()).toHaveTextContent('Unsaved changes')
+    expect(unloadPrompts()).toBe(true)
+    await leave()
+    expect(discardDialog()).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await user.click(publicSwitch())
+    expect(footerStatus()).toBeEmptyDOMElement()
+    expect(unloadPrompts()).toBe(false)
+    await user.click(cancelButton())
+    await marker()
+    expect(discardDialog()).not.toBeInTheDocument()
+  })
+
+  it('is disabled while the save is pending and enabled again after a failure', async () => {
+    let reject: (error: unknown) => void = () => {}
+    vi.mocked(updateService).mockReturnValueOnce(new Promise<Service>((_resolve, rej) => (reject = rej)))
+    const { user } = await setup()
+    await user.click(saveButton())
+    await waitFor(() => expect(publicSwitch()).toHaveAttribute('aria-disabled', 'true'))
+    await act(async () => reject(problem(500, 'internal_error')))
+    await waitFor(() => expect(publicSwitch()).not.toHaveAttribute('aria-disabled', 'true'))
+  })
+
+  it('lists a 422 naming shown_on_public_view as plain text and marks nothing', async () => {
+    vi.mocked(updateService).mockRejectedValueOnce(validationProblem(fieldError('shown_on_public_view', 'Not here.')))
+    const { user } = await setup()
+    await user.click(saveButton())
+    await waitFor(() => expect(saveButton()).toBeEnabled())
+    expect(within(screen.getByRole('alert')).queryByRole('link')).toBeNull()
+    expect(screen.getByRole('alert')).toHaveTextContent('shown_on_public_view: Not here.')
+    expect(document.querySelector('[aria-invalid="true"]')).toBeNull()
+    await user.click(publicSwitch())
+    expect(screen.getByRole('alert')).toHaveTextContent('shown_on_public_view: Not here.')
+  })
+
+  it('sends a TCP service’s saved flag with the TCP check', async () => {
+    const service = makeTcp({ shown_on_public_view: true })
+    vi.mocked(updateService).mockResolvedValue(service)
+    const { user } = await setup({ service })
+    expect(publicSwitch()).toHaveAttribute('aria-checked', 'true')
+    await user.click(publicSwitch())
+    await user.click(saveButton())
+    await marker()
+    expect(sent()[1]).toMatchObject({ check: { type: 'tcp' }, shown_on_public_view: false })
+  })
+})

@@ -29,11 +29,12 @@ export function toTestInput(values: ServiceFormValues): ServiceTestInput {
 
 /** The body `createService` and `updateService` take, from the form's values. */
 export function toServiceInput(values: ServiceFormValues): ServiceInput {
-  const { name, alerts_enabled, unhealthy_message, recovery_message } = values
+  const { name, alerts_enabled, shown_on_public_view, unhealthy_message, recovery_message } = values
   return {
     name,
     check: toCheckInput(values),
     alerts_enabled,
+    shown_on_public_view,
     unhealthy_message,
     recovery_message,
     settings: {
@@ -49,7 +50,7 @@ const text = (value: number | undefined, fallback: string) => (value === undefin
 
 /**
  * The form's values for a saved service, the inverse of `toServiceInput` for what the form edits.
- * The other type's values are the add defaults; what the form has no control for is not read.
+ * The other type's values are the add defaults; every value the form holds is read.
  */
 export function toFormValues(service: Service): ServiceFormValues {
   const { check, settings } = service
@@ -58,6 +59,7 @@ export function toFormValues(service: Service): ServiceFormValues {
     name: service.name,
     type: check.type,
     alerts_enabled: service.alerts_enabled ?? true,
+    shown_on_public_view: service.shown_on_public_view ?? false,
     unhealthy_message: service.unhealthy_message ?? '',
     recovery_message: service.recovery_message ?? '',
     check_interval: text(settings?.check_interval_seconds, TIMING_DEFAULTS.check_interval),

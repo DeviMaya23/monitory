@@ -29,6 +29,7 @@ describe('toFormValues (FR-7, FR-39)', () => {
       cert_days: '30',
       ignore_cert_errors: true,
       alerts_enabled: false,
+      shown_on_public_view: true,
       unhealthy_message: 'Edge is down',
       recovery_message: 'Edge is back',
       check_interval: '120',
@@ -52,12 +53,13 @@ describe('toFormValues (FR-7, FR-39)', () => {
       type: 'tcp',
       host: 'cache.internal',
       port: '6379',
+      shown_on_public_view: true,
     })
   })
 
   it('gives the add timing defaults for a service with no settings, and the add values for the rest', () => {
     const values = toFormValues(makeService({ name: 'Plain' }))
-    expect(values).toEqual({ ...ADD_DEFAULT_VALUES, name: 'Plain', url: 'https://example.com/health' })
+    expect(values).toEqual({ ...ADD_DEFAULT_VALUES, name: 'Plain', url: 'https://example.com/health', shown_on_public_view: true })
   })
 
   it('treats a body with a type and no content as an empty text, and a none body as no text', () => {
@@ -75,6 +77,35 @@ describe('toFormValues (FR-7, FR-39)', () => {
   })
 })
 
+describe('the public page flag (FR-27, FR-68)', () => {
+  it('starts false on the add form', () => {
+    expect(ADD_DEFAULT_VALUES.shown_on_public_view).toBe(false)
+  })
+
+  it.each([true, false])('is sent as %s for an HTTP and a TCP form', (shown) => {
+    const http = toFormValues(makeService({ shown_on_public_view: !shown }))
+    const tcp = toFormValues(makeTcp({ shown_on_public_view: !shown }))
+    expect(toServiceInput({ ...http, shown_on_public_view: shown }).shown_on_public_view).toBe(shown)
+    expect(toServiceInput({ ...tcp, shown_on_public_view: shown }).shown_on_public_view).toBe(shown)
+  })
+
+  it.each<[string, boolean | undefined, boolean]>([
+    ['true', true, true],
+    ['false', false, false],
+    ['absent', undefined, false],
+  ])('is read from a service with the flag %s', (_label, saved, expected) => {
+    expect(toFormValues(makeService({ shown_on_public_view: saved })).shown_on_public_view).toBe(expected)
+    expect(toFormValues(makeTcp({ shown_on_public_view: saved })).shown_on_public_view).toBe(expected)
+  })
+
+  it('survives the round trip', () => {
+    for (const shown of [true, false]) {
+      const service = makeRichService({ shown_on_public_view: shown })
+      expect(toServiceInput(toFormValues(service)).shown_on_public_view).toBe(shown)
+    }
+  })
+})
+
 describe('toServiceInput', () => {
   it('round-trips an HTTP service with rules, a body and certificate options on', () => {
     const service = makeRichService()
@@ -84,6 +115,7 @@ describe('toServiceInput', () => {
       check: service.check,
       settings: service.settings,
       alerts_enabled: service.alerts_enabled,
+      shown_on_public_view: true,
       unhealthy_message: service.unhealthy_message,
       recovery_message: service.recovery_message,
     })

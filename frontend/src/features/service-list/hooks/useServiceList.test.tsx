@@ -2,11 +2,15 @@ import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { listServices } from '../../../lib/api/services'
+import { listServices, servicesQueryKey } from '../../../lib/api/services'
 import { makeService, makeServiceList, problem } from '../../../test/fixtures'
 import { useServiceList } from './useServiceList'
 
-vi.mock('../../../lib/api/services')
+// The real query key is kept (an automock would empty it); only the request is mocked.
+vi.mock('../../../lib/api/services', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/api/services')>()),
+  listServices: vi.fn(),
+}))
 vi.mock('../../../lib/config', () => ({ REFRESH_INTERVAL_MS: 5 * 60 * 1000 }))
 
 function setup() {
@@ -22,6 +26,20 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.useRealTimers()
+})
+
+describe('the list key', () => {
+  it('caches the list under the shared servicesQueryKey', async () => {
+    vi.mocked(listServices).mockResolvedValue(makeServiceList(makeService()))
+    const client = new QueryClient()
+    renderHook(() => useServiceList(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    })
+    await waitFor(() => expect(client.getQueryData(servicesQueryKey)).toHaveLength(1))
+    expect(servicesQueryKey).toEqual(['services'])
+  })
 })
 
 describe('state', () => {
@@ -140,7 +158,10 @@ describe('the automatic refresh (FR-95)', () => {
   it('moves with the constant', async () => {
     vi.resetModules()
     vi.doMock('../../../lib/config', () => ({ REFRESH_INTERVAL_MS: 2 * 60 * 1000 }))
-    vi.doMock('../../../lib/api/services', () => ({ listServices }))
+    vi.doMock('../../../lib/api/services', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../../lib/api/services')>()),
+      listServices,
+    }))
     const { useServiceList: hook } = await import('./useServiceList')
     vi.useFakeTimers()
     vi.mocked(listServices).mockResolvedValue(makeServiceList(makeService()))

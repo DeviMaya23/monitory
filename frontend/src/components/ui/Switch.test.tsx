@@ -14,6 +14,17 @@ describe('Switch', () => {
     expect(screen.getByText('On')).toBeInTheDocument()
   })
 
+  it('with hideState leaves the state word empty for both values and keeps its element in the row', () => {
+    const { rerender } = render(<Switch label="Public page" checked={false} onCheckedChange={() => {}} hideState />)
+    const state = () => document.querySelector('.switch-row__state')
+    expect(state()).toHaveTextContent('')
+    expect(state()?.parentElement).toHaveClass('switch-row')
+    rerender(<Switch label="Public page" checked onCheckedChange={() => {}} hideState />)
+    expect(state()).toHaveTextContent('')
+    expect(screen.queryByText('On')).not.toBeInTheDocument()
+    expect(screen.queryByText('Off')).not.toBeInTheDocument()
+  })
+
   it('calls onCheckedChange with the new value, from the control and from the label', async () => {
     const onCheckedChange = vi.fn()
     const { rerender } = render(<Switch label="Public page" checked={false} onCheckedChange={onCheckedChange} />)
