@@ -1,6 +1,6 @@
 import { CircleAlert } from 'lucide-react'
 
-/** The message of a field the server refused, under its input. */
+/** A field's error under its input: the icon and the message as text (NFR-7). */
 export function FieldErrorText({ id, message }: { id: string; message: string }) {
   return (
     <p className="error-text" id={id}>

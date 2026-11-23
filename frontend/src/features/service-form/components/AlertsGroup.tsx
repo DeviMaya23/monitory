@@ -4,7 +4,7 @@ import type { ServiceFormValues } from '../lib/formValues'
 import { errorId, FIELD_IDS } from '../lib/fieldIds'
 import type { FieldTarget } from '../lib/fieldLabels'
 import { ALERTS_TEXT, countCharacters, MESSAGE_MAX } from '../lib/alertsGroup'
-import { FieldErrorText } from './FieldErrorText'
+import { FieldErrorText } from '../../../components/FieldErrorText'
 
 type MessageName = 'unhealthy_message' | 'recovery_message'
 
