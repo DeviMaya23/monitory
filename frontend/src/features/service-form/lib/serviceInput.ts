@@ -1,4 +1,4 @@
-import type { Service, ServiceInput } from '../../../lib/api/services'
+import type { Service, ServiceInput, ServiceTestInput } from '../../../lib/api/services'
 import { certificateParts, DEFAULT_CERT_DAYS } from './certificateOptions'
 import { ADD_DEFAULT_VALUES, type ServiceFormValues } from './formValues'
 import { ruleParts, type RuleValue } from './jsonRules'
@@ -6,23 +6,33 @@ import { requestParts } from './requestRows'
 import { tcpCheck } from './serviceType'
 import { readWholeNumber, TIMING_DEFAULTS } from './timingGroup'
 
-/** The body `createService` and `updateService` take, from the form's values. The one place it is built. */
+/** The check `createService`, `updateService` and `testServiceCheck` take, from the form's values. The one place it is built. */
+export function toCheckInput(values: ServiceFormValues): ServiceInput['check'] {
+  const { type, host, port, method, url } = values
+  return type === 'tcp'
+    ? // The form has checked the port; the fallback only satisfies the types.
+      tcpCheck(host, readWholeNumber(port) ?? 0)
+    : {
+        type: 'http',
+        method,
+        url,
+        ...requestParts(values),
+        ...ruleParts(values),
+        ...certificateParts(values),
+      }
+}
+
+/** The body `testServiceCheck` takes: the check and the timeout, nothing else (FR-104). */
+export function toTestInput(values: ServiceFormValues): ServiceTestInput {
+  return { check: toCheckInput(values), settings: { timeout_seconds: Number(values.timeout.trim()) } }
+}
+
+/** The body `createService` and `updateService` take, from the form's values. */
 export function toServiceInput(values: ServiceFormValues): ServiceInput {
-  const { name, type, host, port, method, url, alerts_enabled, unhealthy_message, recovery_message } = values
+  const { name, alerts_enabled, unhealthy_message, recovery_message } = values
   return {
     name,
-    check:
-      type === 'tcp'
-        ? // The form has checked the port; the fallback only satisfies the types.
-          tcpCheck(host, readWholeNumber(port) ?? 0)
-        : {
-            type: 'http',
-            method,
-            url,
-            ...requestParts(values),
-            ...ruleParts(values),
-            ...certificateParts(values),
-          },
+    check: toCheckInput(values),
     alerts_enabled,
     unhealthy_message,
     recovery_message,

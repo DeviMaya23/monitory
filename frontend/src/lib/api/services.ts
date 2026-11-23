@@ -5,6 +5,8 @@ export type Service = components['schemas']['Service']
 export type ServiceList = components['schemas']['ServiceList']
 export type FailureReason = components['schemas']['FailureReason']
 export type ServiceInput = components['schemas']['ServiceInput']
+export type ServiceTestInput = components['schemas']['ServiceTestInput']
+export type ServiceTestResult = components['schemas']['ServiceTestResult']
 export type FieldError = components['schemas']['FieldError']
 export type HttpMethod = components['schemas']['HttpCheck']['method']
 
@@ -47,4 +49,9 @@ export function pauseService(id: string): Promise<Service> {
 /** `resumeService`: starts the checks again and runs one now. Resolves with the resumed `Service`. */
 export function resumeService(id: string): Promise<Service> {
   return apiRequest<Service>('POST', `/api/services/${encodeURIComponent(id)}/resume`)
+}
+
+/** `testServiceCheck`: runs one attempt of a check with the given settings and saves nothing. */
+export function testServiceCheck(input: ServiceTestInput): Promise<ServiceTestResult> {
+  return apiRequest<ServiceTestResult>('POST', '/api/service-tests', input)
 }

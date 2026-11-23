@@ -27,6 +27,28 @@ const RULE_ROWS = 'rows:json_rules'
 /** Stands for every path that starts with `check.`, an unknown one included. */
 const CHECK_PATHS = 'prefix:check.'
 
+export type ErrorSource = 'save' | 'test'
+
+/**
+ * The one set of server field errors of the form and where it came from. A new `422` replaces
+ * the set, whether a save's (`saveErrors`, the errors of the save hook's failure) or a test's
+ * (`showTest`). Starting a test drops the set only if a test made it; starting a save drops any.
+ */
+export function useFieldErrorSet(saveErrors: readonly FieldError[] | null) {
+  // A test's 422 and the save errors it found on screen: a newer save failure (another array) hides it.
+  const [test, setTest] = useState<{ errors: readonly FieldError[]; over: readonly FieldError[] | null } | null>(null)
+  const testShows = test !== null && test.over === saveErrors
+  const drop = () => setTest(null)
+  return {
+    errors: testShows ? test.errors : saveErrors,
+    source: (testShows ? 'test' : saveErrors !== null ? 'save' : null) as ErrorSource | null,
+    showTest: (errors: readonly FieldError[]) => setTest({ errors, over: saveErrors }),
+    // A save's own errors go with its failure; only a test's are dropped here.
+    startTest: drop,
+    startSave: drop,
+  }
+}
+
 /**
  * The state of a `422`: the errors of the last response (`errors`, a new array for every
  * response) minus the fields edited since. The errors themselves are never copied.

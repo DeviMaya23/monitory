@@ -1,4 +1,4 @@
-import type { FailureReason } from '../../../lib/api/services'
+import type { FailureReason } from './api/services'
 
 /** The text shown for a failed check (FR-61). The only place this wording lives. */
 export function failureReasonText(reason: FailureReason): string {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Service } from '../../../lib/api/services'
 import { makeRichService, makeService, makeTcp } from '../../../test/fixtures'
 import { ADD_DEFAULT_VALUES } from './formValues'
-import { toFormValues, toServiceInput } from './serviceInput'
+import { toFormValues, toServiceInput, toTestInput } from './serviceInput'
 
 describe('toFormValues (FR-7, FR-39)', () => {
   it('gives each text of a full HTTP service as the form holds it', () => {
@@ -135,5 +135,24 @@ describe('toServiceInput', () => {
     const tcp = toServiceInput(toFormValues(makeTcp()))
     expect(tcp.check).toEqual({ type: 'tcp', host: 'db.internal', port: 5432 })
     expect(tcp.settings).toEqual(http.settings)
+  })
+})
+
+describe('toTestInput (FR-104)', () => {
+  it('gives an HTTP form the save’s check and only the timeout, none of the other settings', () => {
+    const service = makeRichService()
+    const values = toFormValues(service)
+    const input = toTestInput(values)
+    expect(input).toEqual({ check: toServiceInput(values).check, settings: { timeout_seconds: 7 } })
+    expect(Object.keys(input).sort()).toEqual(['check', 'settings'])
+    expect(Object.keys(input.settings ?? {})).toEqual(['timeout_seconds'])
+  })
+
+  it('gives a TCP form the TCP check and the timeout, none of the HTTP keys', () => {
+    const values = { ...toFormValues(makeTcp()), timeout: ' 4 ' }
+    expect(toTestInput(values)).toEqual({
+      check: { type: 'tcp', host: 'db.internal', port: 5432 },
+      settings: { timeout_seconds: 4 },
+    })
   })
 })

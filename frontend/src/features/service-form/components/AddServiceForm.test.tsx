@@ -124,7 +124,7 @@ describe('idle', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('has the Type control and no test button', () => {
+  it('has the Type control and the test button', () => {
     setup()
     // The choices are the type, the body's and the rules' mode.
     expect(screen.getAllByRole('radiogroup')).toHaveLength(3)
@@ -135,6 +135,7 @@ describe('idle', () => {
       'Add parameter',
       'Add header',
       'Add rule',
+      'Run test',
       'Cancel',
       'Save service',
     ])
@@ -874,6 +875,7 @@ describe('the Alerts group (FR-20, FR-65)', () => {
       'Add parameter',
       'Add header',
       'Add rule',
+      'Run test',
       'Cancel',
       'Save service',
     ])
@@ -1055,7 +1057,7 @@ describe('the Alerts group: boundaries and keyboard (FR-20, FR-65, NFR-4)', () =
   const alertsSwitch = () => screen.getByRole('switch', { name: 'Send alerts' })
   const counters = () => Array.from(document.querySelectorAll('.counter')).map((counter) => counter.textContent)
 
-  it('is reached by Tab in the order URL, the rows’ Add buttons, Body type, the four timing inputs, switch, Unhealthy message, Recovery message, Cancel, Save; Space toggles the switch', async () => {
+  it('is reached by Tab in the order URL, the rows’ Add buttons, Body type, the four timing inputs, switch, Unhealthy message, Recovery message, Run test, Cancel, Save; Space toggles the switch', async () => {
     const { user } = setup()
     await user.click(urlInput())
     // Add parameter, Add header, the Body type choice, Add rule, the mode choice (the HTTPS options are disabled
@@ -1071,6 +1073,8 @@ describe('the Alerts group: boundaries and keyboard (FR-20, FR-65, NFR-4)', () =
     expect(unhealthyArea()).toHaveFocus()
     await user.tab()
     expect(recoveryArea()).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Run test' })).toHaveFocus()
     await user.tab()
     expect(cancelButton()).toHaveFocus()
   })
