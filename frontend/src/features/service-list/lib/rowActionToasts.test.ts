@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { problem } from '../../../test/fixtures'
-import { CSRF_MESSAGE, GONE_MESSAGE, csrfToast, goneToast, toOutcome, type Outcome } from './rowActionToasts'
+import { GONE_MESSAGE, goneToast, toOutcome, type Outcome } from './rowActionToasts'
 
 describe('toOutcome', () => {
   it.each<[string, unknown, Outcome]>([
@@ -28,22 +28,9 @@ describe('row action toasts', () => {
 
   it('the texts are exactly what the admin reads today', () => {
     expect(GONE_MESSAGE).toBe('That service was already deleted.')
-    expect(CSRF_MESSAGE).toBe('The request wasn’t accepted. Reload and try again.')
   })
 
   it('the gone toast is an error with the gone text and no action', () => {
     expect(goneToast()).toEqual({ kind: 'error', message: 'That service was already deleted.' })
-  })
-
-  it('the CSRF toast carries a Reload action that reloads the page', () => {
-    const reload = vi.fn()
-    vi.stubGlobal('location', { ...window.location, reload })
-    const toast = csrfToast()
-    expect(toast.kind).toBe('error')
-    expect(toast.message).toBe('The request wasn’t accepted. Reload and try again.')
-    expect(toast.action.label).toBe('Reload')
-    expect(reload).not.toHaveBeenCalled()
-    toast.action.onClick()
-    expect(reload).toHaveBeenCalledTimes(1)
   })
 })

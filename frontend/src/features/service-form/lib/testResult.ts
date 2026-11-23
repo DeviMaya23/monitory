@@ -1,6 +1,7 @@
 import type { ServiceTestResult } from '../../../lib/api/services'
 import { failureReasonText } from '../../../lib/failureReason'
 import type { ServiceType } from './serviceType'
+import { RELOAD_LABEL, REQUEST_NOT_ACCEPTED_TEXT, REQUEST_NOT_ACCEPTED_TITLE } from '../../../lib/requestNotAccepted'
 
 /** The words of the test panel. Each string is defined here once. */
 export const TEST_TEXT = {
@@ -22,8 +23,8 @@ export const TEST_TEXT = {
   noResponse: 'No response was received, so there is no status code or body.',
   tcp: 'TCP checks have no status code or body.',
   notRun: 'Test not run. Fix the highlighted fields first.',
-  csrf: 'The request wasn’t accepted. Reload the page and try again.',
-  reload: 'Reload',
+  csrf: `${REQUEST_NOT_ACCEPTED_TITLE} ${REQUEST_NOT_ACCEPTED_TEXT}`,
+  reload: RELOAD_LABEL,
   tooLarge: 'The test is too large to send. Shorten the body or the header values.',
   unexpected: 'The test couldn’t be run. The server couldn’t be reached or returned an error.',
 } as const

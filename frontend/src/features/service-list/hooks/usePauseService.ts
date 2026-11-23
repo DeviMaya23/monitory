@@ -2,7 +2,8 @@ import { useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '../../../components/ui/useToast'
 import { pauseService, resumeService, type Service } from '../../../lib/api/services'
-import { csrfToast, goneToast, toOutcome } from '../lib/rowActionToasts'
+import { csrfToast } from '../../../lib/requestNotAccepted'
+import { goneToast, toOutcome } from '../lib/rowActionToasts'
 import { removeFromList, replaceInList } from '../lib/servicesCache'
 
 /** What `usePauseService` returns, for the components that show the rows. */

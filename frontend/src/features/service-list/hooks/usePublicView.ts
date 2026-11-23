@@ -8,7 +8,8 @@ import {
   type PublicViewSettings,
 } from '../../../lib/api/publicView'
 import { REFRESH_INTERVAL_MS } from '../../../lib/config'
-import { csrfToast, toOutcome } from '../lib/rowActionToasts'
+import { csrfToast } from '../../../lib/requestNotAccepted'
+import { toOutcome } from '../lib/rowActionToasts'
 
 export type PublicViewState = 'loading' | 'not-loaded' | 'on' | 'off'
 

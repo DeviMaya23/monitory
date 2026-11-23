@@ -5,6 +5,7 @@ import { ApiError } from '../lib/api/ApiError'
 import { setCsrfToken, setUnauthenticatedHandler } from '../lib/api/request'
 import { getSession, signOut as signOutRequest, type SessionInfo } from '../lib/api/session'
 import { SessionContext, type SessionState, type SessionValue } from './sessionContext'
+import { csrfToast } from '../lib/requestNotAccepted'
 
 const SESSION_KEY = ['session'] as const
 
@@ -69,11 +70,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     },
     onError: (error) => {
       if (error instanceof ApiError && error.code === 'csrf_failed') {
-        toast.show({
-          kind: 'error',
-          message: 'The request wasn’t accepted. Reload and try again.',
-          action: { label: 'Reload', onClick: () => window.location.reload() },
-        })
+        toast.show(csrfToast())
       } else {
         toast.show({ kind: 'error', message: 'Couldn’t sign out. Try again.' })
       }
