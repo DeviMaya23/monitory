@@ -50,4 +50,4 @@ All paths are under `frontend/src/features/sign-in/`.
 - **The countdown shows `null` at 0 even if `onEnd` leaves the failure in place**, so the banner never shows `0 s`. The form also requires a non-null `remaining` for the banner and the disabled button.
 - **`submit` during the lock calls `preventDefault` and resolves**, so a native form submit does not reload the page.
 - **Timer-count test on the form** compares against the count left by an unmounted idle form, because one timer from the test environment survives an unmount there; the hook's own test asserts 0.
-- **Ran Prettier on the feature folder** (formatting only), which touched my new files.
+- **Formatting.** An earlier commit on this branch accidentally reformatted existing files with Prettier's defaults; a follow-up commit restores them, so the final diff against the default branch holds only the intended changes.
