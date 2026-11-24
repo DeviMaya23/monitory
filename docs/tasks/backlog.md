@@ -66,6 +66,10 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `service-test-panel`: the frontend suite times out under full-parallel load: `make check` had 3 timeouts at 5 s (`AddServiceForm.test.tsx` two, `App.test.tsx` one) that passed alone, and `AddServiceForm.test.tsx` takes about 130 s alone (221 tests). Matters when: CI or a busy laptop runs `make check` and a red build clears on a rerun.
 - `target-dialog-test-flake`: the "under 1000 ms" criterion depends on machine load (1.1 to 1.6 s under heavy load; the 21-add no-limit case is the slowest). Matters when: CI runs on a runner several times slower than a quiet laptop and that case approaches 5 s again.
 
+- `public-dashboard-api`: the rate limiter prunes by scanning the whole map on every call, under the one lock, so the cost grows with the number of distinct addresses seen in the last minute. Matters when: tens of thousands of distinct addresses hit the public path in one minute.
+- `m3-e2e-journeys`: journey 8's first test cannot detect a pause that does not stop the scheduler (60-second interval, 10-second wait); only `a paused service keeps its state` protects the pause, and it has no alert target, so FR-76 is covered only through "no check ran". Matters when: that second test is changed or removed, or something other than the check path starts sending alerts. Fix to decide: add an email target to the second test, or pause with a short interval and resume with a long one.
+- `m3-e2e-journeys`: M1's `delete-service.spec.ts` uses `waitForTimeout` and writes over HTTP, against the task rules for end-to-end tests. Matters when: `delete-service.spec.ts` is next edited.
+
 ## Decisions waiting on the user
 
 Each needs a decision, or to be dropped, by the next milestone.
