@@ -83,12 +83,18 @@ const describedBy = (control: HTMLElement) =>
 const footerStatus = () => document.querySelector('.form-foot__status') as HTMLElement
 const summary = () => document.querySelector('.form-banners [role="alert"]') as HTMLElement | null
 
+/** Puts text that is not the subject of the case into a field: a click to focus it and one paste. */
+async function enter(user: User, control: HTMLElement, text: string) {
+  await user.click(control)
+  await user.paste(text)
+}
+
 async function typeUrl(user: User, url = URL_VALUE) {
-  await user.type(urlInput(), url)
+  await enter(user, urlInput(), url)
 }
 
 async function fillAdd(user: User) {
-  await user.type(screen.getByLabelText('Name'), 'Probe API')
+  await enter(user, screen.getByLabelText('Name'), 'Probe API')
   await typeUrl(user)
 }
 
@@ -165,8 +171,8 @@ describe('what a test sends (FR-104)', () => {
     vi.mocked(testServiceCheck).mockResolvedValue({ healthy: true, duration_ms: 5 })
     const { user } = await setup('add')
     await user.click(screen.getByRole('radio', { name: 'TCP port' }))
-    await user.type(screen.getByLabelText('Host'), 'cache.internal')
-    await user.type(screen.getByLabelText('Port'), '6379')
+    await enter(user, screen.getByLabelText('Host'), 'cache.internal')
+    await enter(user, screen.getByLabelText('Port'), '6379')
     await user.clear(timeoutInput())
     await user.type(timeoutInput(), '3')
     await user.click(runButton())
@@ -273,7 +279,7 @@ describe('client checks before a test (FR-106)', () => {
   it('an empty TCP port shows under Port', async () => {
     const { user } = await setup('add')
     await user.click(screen.getByRole('radio', { name: 'TCP port' }))
-    await user.type(screen.getByLabelText('Host'), 'cache.internal')
+    await enter(user, screen.getByLabelText('Host'), 'cache.internal')
     await user.click(runButton())
     expect(describedBy(screen.getByLabelText('Port'))).toBe('Enter a whole number.')
     expect(screen.getByLabelText('Port')).toHaveFocus()
@@ -483,7 +489,7 @@ describe('while a test runs', () => {
     const { user } = await setup('add')
     await fillAdd(user)
     await user.click(runButton())
-    await user.type(screen.getByLabelText('Name'), ' two')
+    await enter(user, screen.getByLabelText('Name'), ' two')
     expect(screen.getByLabelText('Name')).toHaveValue('Probe API two')
     expect(saveButton()).toBeEnabled()
     await user.click(saveButton())
@@ -546,7 +552,7 @@ describe('the known gap: a stale result', () => {
     await typeUrl(user)
     await user.click(runButton())
     await screen.findByText('Healthy')
-    await user.type(urlInput(), '/more')
+    await enter(user, urlInput(), '/more')
     expect(screen.getByText('Healthy')).toBeInTheDocument()
     await user.click(runButton())
     expect(await screen.findByText('Timed out')).toBeInTheDocument()

@@ -69,6 +69,12 @@ function unloadPrompts(): boolean {
   return event.defaultPrevented
 }
 
+/** Puts text that is not the subject of the case into a field: a click to focus it and one paste. */
+async function enter(user: ReturnType<typeof userEvent.setup>, control: HTMLElement, text: string) {
+  await user.click(control)
+  await user.paste(text)
+}
+
 async function retype(user: ReturnType<typeof userEvent.setup>, control: HTMLElement, text: string) {
   await user.clear(control)
   if (text !== '') await user.type(control, text)
@@ -202,8 +208,8 @@ describe('saving (FR-7, FR-20, FR-65, FR-66)', () => {
     vi.mocked(updateService).mockResolvedValue(makeRichService())
     const { user } = await setup()
     await user.click(screen.getByRole('radio', { name: 'TCP port' }))
-    await user.type(screen.getByLabelText('Host'), 'db.internal')
-    await user.type(screen.getByLabelText('Port'), '5432')
+    await enter(user, screen.getByLabelText('Host'), 'db.internal')
+    await enter(user, screen.getByLabelText('Port'), '5432')
     await user.click(saveButton())
     await marker()
     expect(sent()[1].check).toEqual({ type: 'tcp', host: 'db.internal', port: 5432 })
@@ -214,7 +220,7 @@ describe('saving (FR-7, FR-20, FR-65, FR-66)', () => {
     vi.mocked(updateService).mockResolvedValue(service)
     const { user } = await setup({ service })
     await user.click(screen.getByRole('radio', { name: 'HTTP(S)' }))
-    await user.type(screen.getByLabelText('URL'), 'https://new.example.com')
+    await enter(user, screen.getByLabelText('URL'), 'https://new.example.com')
     await user.click(saveButton())
     await marker()
     const check = sent()[1].check
