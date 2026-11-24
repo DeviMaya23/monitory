@@ -32,10 +32,10 @@ var (
 	ErrTargetDuplicate = errors.New("target duplicate")
 )
 
-// ErrPublicViewUnavailable: the public view is off (FR-29).
+// ErrPublicViewUnavailable says the public view is off (FR-29).
 var ErrPublicViewUnavailable = errors.New("the public view is off")
 
-// RateLimitedError: the client address made more requests than the public view allows
+// RateLimitedError says the client address made more requests than the public view allows
 // in the current window (FR-32). RetryAfterSeconds is what is left of the window, at
 // least 1.
 type RateLimitedError struct {
