@@ -149,7 +149,8 @@ func run(log *slog.Logger) error {
 	// (FR-104). It is given nothing that writes (FR-105).
 	checkTester := usecase.NewServiceCheckTestService(httpProber, tcpProber, clock.Real{}, serviceLimits(cfg.Limits))
 	sessions := memstore.NewSessions(clock.Real{})
-	auth := usecase.NewAuthService(cfg.AdminUsername, cfg.AdminPassword, cfg.RequireHTTPS, sessions, clock.Real{})
+	lockout := memstore.NewLockout(clock.Real{}, domain.MaxFailedSignIns, domain.SignInLockout)
+	auth := usecase.NewAuthService(cfg.AdminUsername, cfg.AdminPassword, cfg.RequireHTTPS, sessions, lockout, clock.Real{})
 	limiter := memstore.NewRateLimiter(clock.Real{}, cfg.Limits.PublicRateLimitPerMinute, domain.PublicRateLimitWindow)
 	publicView := usecase.NewPublicViewService(limiter, settingsRepo, serviceRepo)
 	e, err := handler.NewRouter(handler.Deps{

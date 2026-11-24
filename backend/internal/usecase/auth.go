@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"time"
 
 	"monitory/internal/domain"
 )
@@ -21,23 +22,32 @@ type SessionStore interface {
 	Delete(token string)
 }
 
+// Lockout counts failed sign-ins and locks the account after too many (FR-2). Attempt
+// checks the lock and, when not locked, calls matches and counts its result, as one step.
+// While locked it does not call matches and returns locked with the time left in wait.
+type Lockout interface {
+	Attempt(matches func() bool) (matched, locked bool, wait time.Duration)
+}
+
 // AuthService signs the admin in and out (FR-1, FR-3).
 type AuthService struct {
 	username     string
 	password     string
 	requireHTTPS bool
 	sessions     SessionStore
+	lockout      Lockout
 	clock        Clock
 }
 
 // NewAuthService returns an AuthService for the configured credentials.
-func NewAuthService(username, password string, requireHTTPS bool, sessions SessionStore, clock Clock) *AuthService {
-	return &AuthService{username: username, password: password, requireHTTPS: requireHTTPS, sessions: sessions, clock: clock}
+func NewAuthService(username, password string, requireHTTPS bool, sessions SessionStore, lockout Lockout, clock Clock) *AuthService {
+	return &AuthService{username: username, password: password, requireHTTPS: requireHTTPS, sessions: sessions, lockout: lockout, clock: clock}
 }
 
 // SignIn checks, in this order: the scheme (FR-97), the required fields, the
-// credentials (FR-1), then creates a session (FR-5). The error is
-// domain.ErrHTTPSRequired, a domain.ValidationError or domain.ErrInvalidCredentials.
+// lockout and credentials (FR-2, FR-1), then creates a session (FR-5). The error is
+// domain.ErrHTTPSRequired, a domain.ValidationError, a domain.SignInLockedError or
+// domain.ErrInvalidCredentials.
 func (a *AuthService) SignIn(_ context.Context, username, password string, https bool) (domain.Session, error) {
 	if a.requireHTTPS && !https {
 		return domain.Session{}, domain.ErrHTTPSRequired
@@ -55,10 +65,18 @@ func (a *AuthService) SignIn(_ context.Context, username, password string, https
 	}
 
 	// Both are always compared, on fixed-length digests, and the two results are
-	// combined without a branch between them (FR-1).
-	userOK := equalDigest(username, a.username)
-	passOK := equalDigest(password, a.password)
-	if userOK&passOK != 1 {
+	// combined without a branch between them (FR-1). While the account is locked the
+	// comparison is skipped.
+	matched, locked, wait := a.lockout.Attempt(func() bool {
+		userOK := equalDigest(username, a.username)
+		passOK := equalDigest(password, a.password)
+		return userOK&passOK == 1
+	})
+	if locked {
+		seconds := int((wait + time.Second - 1) / time.Second)
+		return domain.Session{}, domain.SignInLockedError{RetryAfterSeconds: max(seconds, 1)}
+	}
+	if !matched {
 		return domain.Session{}, domain.ErrInvalidCredentials
 	}
 

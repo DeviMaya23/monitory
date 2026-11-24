@@ -44,6 +44,26 @@ func newFakeSessions() *fakeSessions {
 func (f *fakeSessions) Put(session domain.Session) { f.sessions[session.Token] = session }
 func (f *fakeSessions) Delete(token string)        { delete(f.sessions, token) }
 
+// fakeLockout is a usecase.Lockout without the counting rule (that is memstore's). By
+// default it calls matches once and reports its result; a test can script locked and
+// wait instead. It records how many times Attempt was called and matches ran.
+type fakeLockout struct {
+	locked bool
+	wait   time.Duration
+
+	attempts int // calls of Attempt
+	compared int // calls of matches
+}
+
+func (f *fakeLockout) Attempt(matches func() bool) (matched, locked bool, wait time.Duration) {
+	f.attempts++
+	if f.locked {
+		return false, true, f.wait
+	}
+	f.compared++
+	return matches(), false, 0
+}
+
 // fakeServices is an in-memory usecase.ServiceRepository. It records its writes and
 // the scheduler's calls in one list, so a test can assert their order.
 type fakeServices struct {

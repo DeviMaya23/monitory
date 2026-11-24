@@ -18,6 +18,15 @@ func (s *Server) SignIn(ctx context.Context, request api.SignInRequestObject) (a
 	}
 	https := middleware.RequestInfoFrom(ctx).HTTPS
 	session, err := s.auth.SignIn(ctx, request.Body.Username, request.Body.Password, https)
+	var locked domain.SignInLockedError
+	if errors.As(err, &locked) {
+		s.log.Warn("sign-in locked")
+		retryAfter := locked.RetryAfterSeconds
+		return api.SignIn429ApplicationProblemPlusJSONResponse{
+			Body:    newProblem(http.StatusTooManyRequests, api.ProblemCodeSignInLocked, "Sign-in locked"),
+			Headers: api.SignIn429ResponseHeaders{RetryAfter: &retryAfter},
+		}, nil
+	}
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidCredentials) {
 			s.log.Warn("sign-in failed")

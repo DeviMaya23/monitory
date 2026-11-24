@@ -47,3 +47,12 @@ Branch: feat/sign-in-lockout-api
 - [ ] `make check` passes
 - [ ] Nothing outside the allowed paths changed; `go.mod`, `go.sum`, `.env.example`, `domain/limits.go` unchanged
 - [ ] Integration tests: not run: the task touches no code with integration tests and needs none (no `integration` tag test in this task)
+
+## Judgment calls
+
+- `make check` first failed on the frontend lint because a fresh worktree has no `node_modules`; I ran `npm ci` in `frontend/` (ignored by git, no file tracked changed) and it then passed.
+- The handler 429 branch runs before the generic `err != nil` branch and logs `sign-in locked` there, so the 401 path and its `sign-in failed` line are untouched.
+- The fake lockout's `locked`, `wait`, `attempts` and `compared` fields are plain exported-to-package fields rather than a constructor; the task left its shape to the builder.
+- The test helper `fail`/`lockedNow` in `lockout_test.go` and the `probe` type are my choice; `probe` counts calls of `matches`.
+- The "wrong username counts" mutation check is covered at the seam: the usecase passes both credentials into one `matches` function, and `TestAuthSignIn_RejectsMismatches` shows each wrong-username row makes one attempt; the counting itself is store-side and does not look at which credential was wrong.
+- No mutation checks were run by me; the verifier does them.
