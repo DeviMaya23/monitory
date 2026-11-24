@@ -47,7 +47,7 @@ async function setup({ service = makeRichService(), client = new QueryClient() }
   )
   await screen.findByRole('heading', { level: 1, name: 'Edit service' })
   await screen.findByLabelText('Name')
-  return { client, router, user: userEvent.setup(), service }
+  return { client, router, user: userEvent.setup({ delay: null }), service }
 }
 
 const nameInput = () => screen.getByLabelText('Name')

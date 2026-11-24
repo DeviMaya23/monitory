@@ -70,7 +70,7 @@ async function setup(kind: Screen = 'add', service: Service = makeRichService())
     { initialEntries: [kind === 'add' ? '/services/new' : `/services/${service.id}`], client },
   )
   await screen.findByLabelText('Name')
-  return { client, router, user: userEvent.setup() }
+  return { client, router, user: userEvent.setup({ delay: null }) }
 }
 
 const runButton = () => screen.getByRole('button', { name: /Run test|Testing…/ })
@@ -448,7 +448,7 @@ describe('a request that failed as a whole (NFR-8)', () => {
     const { user } = await (async () => {
       renderRoutes(appRoutes, { initialEntries: ['/services/new'] })
       await screen.findByLabelText('Name')
-      return { user: userEvent.setup() }
+      return { user: userEvent.setup({ delay: null }) }
     })()
     await typeUrl(user)
     await user.click(runButton())

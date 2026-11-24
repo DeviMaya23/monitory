@@ -35,7 +35,7 @@ function setup({ saving = false, errors = {} }: { saving?: boolean; errors?: Err
     )
   }
   render(<Harness />)
-  return { user: userEvent.setup(), serverErrors }
+  return { user: userEvent.setup({ delay: null }), serverErrors }
 }
 
 describe('RequestRowsGroup', () => {
