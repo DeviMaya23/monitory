@@ -92,6 +92,10 @@ describe('useSignIn', () => {
     ['a 429 sign_in_locked with a Retry-After of 0', lockedError(0)],
     ['a 429 rate_limited with a Retry-After of 30', lockedError(30, 'rate_limited')],
     ['a 401 with another code', problem(401, 'unauthenticated')],
+    [
+      'a non-429 status carrying sign_in_locked and a Retry-After',
+      new ApiError(403, { title: 'Sign-in locked', status: 403, code: 'sign_in_locked' }, 30),
+    ],
   ])('maps %s to unexpected and keeps both values', async (_name, error) => {
     vi.mocked(signIn).mockRejectedValue(error)
     await fillAndSubmit()

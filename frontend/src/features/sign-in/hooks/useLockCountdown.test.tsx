@@ -80,6 +80,17 @@ describe('useLockCountdown', () => {
     expect(result.current).toBe(60)
   })
 
+  it('restarts the timer itself on a new object with the same seconds, not only the shown value', async () => {
+    const { result, rerender, onEnd } = setup(locked(10))
+    await advance(6000)
+    rerender({ failure: locked(10), onEnd })
+    await advance(5000)
+    expect(result.current).toBe(5)
+    expect(onEnd).not.toHaveBeenCalled()
+    await advance(5000)
+    expect(onEnd).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps one timer at a time: 1 while counting, 1 after a restart, 0 once ended', async () => {
     const { rerender, onEnd } = setup(locked(10))
     expect(vi.getTimerCount()).toBe(1)

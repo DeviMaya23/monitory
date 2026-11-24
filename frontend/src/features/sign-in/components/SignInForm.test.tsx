@@ -366,6 +366,22 @@ describe('locked after too many failures', () => {
     expect(password()).toHaveFocus()
   })
 
+  it.each([
+    [1, '1 s'],
+    [59, '59 s'],
+    [60, '1 min 0 s'],
+    [61, '1 min 1 s'],
+    [900, '15 min 0 s'],
+  ])('a wait of %i s shows %s, is locked one millisecond before the end and open at it (FR-2)', async (seconds, text) => {
+    await lockWith(seconds)
+    expect(screen.getByRole('alert')).toHaveTextContent(`Try again in ${text}.`)
+    await advance(seconds * 1000 - 1)
+    expect(submitButton()).toBeDisabled()
+    await advance(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(submitButton()).toBeEnabled()
+  })
+
   it('is still locked one millisecond before the end', async () => {
     await lockWith(292)
     await advance(292_000 - 1)
