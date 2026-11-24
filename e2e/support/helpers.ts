@@ -63,7 +63,7 @@ export async function readStatus(page: Page, name: string): Promise<string> {
 }
 
 /** Presses Refresh and re-reads until the row's status is exactly `status`. */
-export async function waitForStatus(page: Page, name: string, status: StatusWord): Promise<void> {
+export async function waitForStatus(page: Page, name: string, status: StatusWord, timeout = 30_000): Promise<void> {
   let last = '(not read)'
   const refresh = page.getByRole('button', { name: 'Refresh', exact: true })
   await expect
@@ -77,7 +77,7 @@ export async function waitForStatus(page: Page, name: string, status: StatusWord
         }
         return last
       },
-      { intervals: [500], timeout: 30_000, message: `status of ${name}: expected ${status}` },
+      { intervals: [500], timeout, message: `status of ${name}: expected ${status}` },
     )
     .toBe(status)
 }
@@ -525,4 +525,11 @@ export async function publicApi(request: APIRequestContext): Promise<PublicApiRe
     // not JSON: `json` stays null
   }
   return { status: res.status(), headers: res.headers(), text, json }
+}
+
+/** Adds a service through the Add form, from the dashboard. */
+export async function createService(page: Page, spec: ServiceSpec): Promise<void> {
+  await openAddService(page)
+  await fillServiceForm(page, spec)
+  await saveService(page)
 }
