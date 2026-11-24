@@ -14,17 +14,9 @@ import (
 
 const problemContentType = "application/problem+json"
 
-// ErrNotImplemented is returned by operations that have no implementation yet. It
-// disappears once every operation is implemented.
-var ErrNotImplemented = errors.New("not implemented")
-
 // errMalformedRequest is a request whose body is missing or cannot be read as the
 // contract's shape.
 var errMalformedRequest = echo.NewHTTPError(http.StatusBadRequest)
-
-// codeNotImplemented is the one code that is not in docs/openapi.yaml: the temporary
-// one for stubs (CONVENTIONS.md, rule 2).
-const codeNotImplemented api.ProblemCode = "not_implemented"
 
 // httpsRequiredDetail tells the installer what to change (FR-97).
 const httpsRequiredDetail = "Sign-in is only allowed over HTTPS. If the app is behind an HTTPS proxy, set TRUST_PROXY=true. To allow sign-in over plain HTTP, set REQUIRE_HTTPS=false. Restart the app after changing either setting."
@@ -46,6 +38,7 @@ var domainProblems = []struct {
 	{domain.ErrServiceLimitReached, http.StatusConflict, api.ProblemCodeServiceLimitReached, "Service limit reached", ""},
 	{domain.ErrAlertListFull, http.StatusConflict, api.ProblemCodeAlertListFull, "Alert list full", ""},
 	{domain.ErrTargetDuplicate, http.StatusConflict, api.ProblemCodeTargetDuplicate, "Contact already in the list", ""},
+	{domain.ErrPublicViewUnavailable, http.StatusNotFound, api.ProblemCodePublicViewUnavailable, "Public view unavailable", ""},
 	{domain.ErrHTTPSRequired, http.StatusForbidden, api.ProblemCodeHttpsRequired, "HTTPS required", httpsRequiredDetail},
 }
 
@@ -92,9 +85,6 @@ func problemFor(err error) api.Problem {
 		}
 		problem.Errors = &fields
 		return problem
-	}
-	if errors.Is(err, ErrNotImplemented) {
-		return newProblem(http.StatusNotImplemented, codeNotImplemented, "Not implemented")
 	}
 
 	// Errors Echo and the generated code raise themselves: bad parameters, bad JSON,
