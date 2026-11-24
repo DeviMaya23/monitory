@@ -192,6 +192,20 @@ func (s *checkTesterSpy) TestServiceCheck(_ context.Context, input domain.Servic
 	return s.result, s.err
 }
 
+// publicViewSpy is a handler.PublicViewService that returns canned values and records
+// the client addresses it was given.
+type publicViewSpy struct {
+	services []domain.PublicService
+	err      error
+
+	addrs []string
+}
+
+func (s *publicViewSpy) PublicDashboard(_ context.Context, clientAddr string) ([]domain.PublicService, error) {
+	s.addrs = append(s.addrs, clientAddr)
+	return s.services, s.err
+}
+
 type routerOptions struct {
 	settings        handler.SettingsService
 	services        handler.ServiceService
@@ -199,6 +213,7 @@ type routerOptions struct {
 	tester          handler.TargetTester
 	checkTester     handler.ServiceCheckTester
 	auth            handler.AuthService
+	public          handler.PublicViewService
 	requireHTTPS    bool
 	logOutput       io.Writer
 	maxRequestBytes int
@@ -227,6 +242,9 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 	if opts.auth == nil {
 		opts.auth = &authSpy{}
 	}
+	if opts.public == nil {
+		opts.public = &publicViewSpy{}
+	}
 	if opts.logOutput == nil {
 		opts.logOutput = io.Discard
 	}
@@ -238,7 +256,7 @@ func newRouter(t *testing.T, opts routerOptions) *echo.Echo {
 		opts.clientIPHeader = "X-Forwarded-For"
 	}
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(opts.settings, opts.services, opts.targets, opts.tester, opts.checkTester, opts.auth, log, opts.requireHTTPS),
+		Server:          handler.NewServer(opts.settings, opts.services, opts.targets, opts.tester, opts.checkTester, opts.auth, opts.public, log, opts.requireHTTPS),
 		Sessions:        oneSession{},
 		Log:             log,
 		MaxRequestBytes: opts.maxRequestBytes,

@@ -12,9 +12,17 @@ import (
 type fakeSettings struct {
 	publicViewEnabled bool
 	updatedAt         time.Time
+	// err, when set, is what PublicViewEnabled returns.
+	err error
+	// reads counts the calls to PublicViewEnabled.
+	reads int
 }
 
 func (f *fakeSettings) PublicViewEnabled(context.Context) (bool, error) {
+	f.reads++
+	if f.err != nil {
+		return false, f.err
+	}
 	return f.publicViewEnabled, nil
 }
 
@@ -312,4 +320,28 @@ func (f *fakeTargets) Delete(_ context.Context, serviceID, targetID string) erro
 		}
 	}
 	return domain.ErrNotFound
+}
+
+// fakeLimiter is a usecase.RateLimiter that answers as scripted and records the keys.
+type fakeLimiter struct {
+	allowed bool
+	wait    time.Duration
+	keys    []string
+}
+
+func (f *fakeLimiter) Allow(key string) (bool, time.Duration) {
+	f.keys = append(f.keys, key)
+	return f.allowed, f.wait
+}
+
+// fakePublicServices is a usecase.PublicServiceRepository.
+type fakePublicServices struct {
+	services []domain.PublicService
+	err      error
+	reads    int
+}
+
+func (f *fakePublicServices) ListPublic(context.Context) ([]domain.PublicService, error) {
+	f.reads++
+	return f.services, f.err
 }

@@ -52,23 +52,23 @@ type AuthService interface {
 	SignOut(ctx context.Context, token string) error
 }
 
+// PublicViewService is what the public dashboard handler needs from the usecase layer.
+type PublicViewService interface {
+	PublicDashboard(ctx context.Context, clientAddr string) ([]domain.PublicService, error)
+}
+
 // Server implements the generated strict server interface, one method per operation in
-// docs/openapi.yaml. Operations without an implementation fall through to the embedded
-// `unimplemented` and answer 501.
-//
-// To implement an operation, define its method on *Server in a file named after its
-// feature (services.go, targets.go, ...). A method on Server shadows the promoted stub
-// of the same name, so stubs.go needs no edit. Add a new dependency as its own field
+// docs/openapi.yaml. Define each operation's method on *Server in a file named after
+// its feature (services.go, targets.go, ...). Add a new dependency as its own field
 // line and its own NewServer argument.
 type Server struct {
-	unimplemented
-
 	settings SettingsService
 	services ServiceService
 	targets  TargetService
 	tester   TargetTester
 	checks   ServiceCheckTester
 	auth     AuthService
+	public   PublicViewService
 	log      *slog.Logger
 	// secureCookie is whether the session cookie carries Secure: it follows the
 	// "require HTTPS" setting, not the scheme of the request (FR-98).
@@ -76,8 +76,8 @@ type Server struct {
 }
 
 // NewServer builds the Server from its dependencies.
-func NewServer(settings SettingsService, services ServiceService, targets TargetService, tester TargetTester, checks ServiceCheckTester, auth AuthService, log *slog.Logger, secureCookie bool) *Server {
-	return &Server{settings: settings, services: services, targets: targets, tester: tester, checks: checks, auth: auth, log: log, secureCookie: secureCookie}
+func NewServer(settings SettingsService, services ServiceService, targets TargetService, tester TargetTester, checks ServiceCheckTester, auth AuthService, public PublicViewService, log *slog.Logger, secureCookie bool) *Server {
+	return &Server{settings: settings, services: services, targets: targets, tester: tester, checks: checks, auth: auth, public: public, log: log, secureCookie: secureCookie}
 }
 
 // The compiler checks that Server covers every operation in the contract.

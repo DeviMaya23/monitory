@@ -101,7 +101,8 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	settings := usecase.NewSettingsService(repository.NewSettingsRepository(db), clock.Real{})
+	settingsRepo := repository.NewSettingsRepository(db)
+	settings := usecase.NewSettingsService(settingsRepo, clock.Real{})
 
 	serviceRepo := repository.NewServiceRepository(db)
 	targetRepo := repository.NewTargetRepository(db)
@@ -149,8 +150,10 @@ func run(log *slog.Logger) error {
 	checkTester := usecase.NewServiceCheckTestService(httpProber, tcpProber, clock.Real{}, serviceLimits(cfg.Limits))
 	sessions := memstore.NewSessions(clock.Real{})
 	auth := usecase.NewAuthService(cfg.AdminUsername, cfg.AdminPassword, cfg.RequireHTTPS, sessions, clock.Real{})
+	limiter := memstore.NewRateLimiter(clock.Real{}, cfg.Limits.PublicRateLimitPerMinute, domain.PublicRateLimitWindow)
+	publicView := usecase.NewPublicViewService(limiter, settingsRepo, serviceRepo)
 	e, err := handler.NewRouter(handler.Deps{
-		Server:          handler.NewServer(settings, services, targets, targetTester, checkTester, auth, log, cfg.RequireHTTPS),
+		Server:          handler.NewServer(settings, services, targets, targetTester, checkTester, auth, publicView, log, cfg.RequireHTTPS),
 		Sessions:        sessions,
 		Log:             log,
 		MaxRequestBytes: cfg.Limits.APIRequestMaxBytes,

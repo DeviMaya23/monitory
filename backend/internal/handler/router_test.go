@@ -159,15 +159,6 @@ func TestRouter_BodyMustBeJSON(t *testing.T) {
 	})
 }
 
-func TestRouter_UnimplementedOperationAnswers501(t *testing.T) {
-	e := newRouter(t, routerOptions{})
-
-	res := do(e, http.MethodGet, "/api/public/dashboard", "", withSession)
-
-	require.Equal(t, http.StatusNotImplemented, res.StatusCode)
-	assert.Equal(t, "not_implemented", problemCode(t, res))
-}
-
 func TestRouter_UnknownPaths(t *testing.T) {
 	appPage := func(c echo.Context) error { return c.String(http.StatusOK, "app page") }
 	e := newRouter(t, routerOptions{web: appPage})
