@@ -182,6 +182,11 @@ func TestAuthSignIn_LockedRoundsUp(t *testing.T) {
 		{"1.5 s", 1500 * time.Millisecond, 2},
 		{"500 ms", 500 * time.Millisecond, 1},
 		{"1 ns", time.Nanosecond, 1},
+		// Added by the verifier: the rows above also pass for round-half-up and for a
+		// ceiling with no floor of 1.
+		{"1.1 s rounds up, not to nearest", 1100 * time.Millisecond, 2},
+		{"899.1 s rounds up, not to nearest", 899*time.Second + 100*time.Millisecond, 900},
+		{"0 never gives 0", 0, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
