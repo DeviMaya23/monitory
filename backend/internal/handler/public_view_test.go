@@ -194,3 +194,19 @@ func TestGetPublicDashboard_LogsNothingOfItsOwn(t *testing.T) {
 		assert.NotContains(t, lines[0], "10.0.0.9")
 	})
 }
+
+// Only GET reaches the operation: other methods on the path are the router's, and the
+// usecase is not asked (so nothing is counted against the client's limit).
+func TestGetPublicDashboard_OtherMethodsDoNotReachTheOperation(t *testing.T) {
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			spy := &publicViewSpy{}
+			e := newRouter(t, routerOptions{public: spy})
+
+			res := do(e, method, publicPath, "")
+
+			assert.Contains(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, res.StatusCode)
+			assert.Empty(t, spy.addrs)
+		})
+	}
+}

@@ -178,3 +178,42 @@ func TestRateLimiter_ConcurrentRequestsOfOneKeyAreCountedExactly(t *testing.T) {
 
 	assert.EqualValues(t, 50, allowed.Load())
 }
+
+// Keys are the exact strings given: forms of one IPv6 address are different clients
+// (the task's "Known gaps"), and two addresses taking turns keep separate budgets.
+func TestRateLimiter_KeysAreExactStringsAndTakeTurnsIndependently(t *testing.T) {
+	c := clock.NewFake(start)
+	l := memstore.NewRateLimiter(c, 1, testWindow)
+
+	for _, key := range []string{"2001:db8::1", "2001:DB8::1", "2001:db8:0:0:0:0:0:1", "10.0.0.1"} {
+		ok, _ := l.Allow(key)
+		assert.True(t, ok, key)
+	}
+	for _, key := range []string{"2001:db8::1", "10.0.0.1"} {
+		ok, wait := l.Allow(key)
+		assert.False(t, ok, key)
+		assert.Equal(t, testWindow, wait, key)
+	}
+	assert.Equal(t, 4, l.Len())
+}
+
+func TestRateLimiter_ConcurrentRequestsOfManyKeysAreCountedPerKey(t *testing.T) {
+	c := clock.NewFake(start)
+	l := memstore.NewRateLimiter(c, 5, testWindow)
+	var allowed atomic.Int32
+	var wg sync.WaitGroup
+
+	for i := range 200 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok, _ := l.Allow("key-" + strconv.Itoa(i%20)); ok {
+				allowed.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	assert.EqualValues(t, 20*5, allowed.Load())
+	assert.Equal(t, 20, l.Len())
+}

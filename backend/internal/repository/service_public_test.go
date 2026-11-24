@@ -106,3 +106,18 @@ func TestServiceListPublic_NothingQualifyingIsAnEmptyNonNilSlice(t *testing.T) {
 	assert.NotNil(t, none)
 	assert.Empty(t, none)
 }
+
+// A status that is not healthy or unhealthy is not shown, even with a check time stored.
+func TestServiceListPublic_NotYetCheckedWithACheckTimeIsNotReturned(t *testing.T) {
+	db := testutil.NewDB(t)
+	repo := repository.NewServiceRepository(db)
+	at := publicChecked
+	seedPublic(t, db, repo, "baseline", true, false, domain.StatusHealthy, &at)
+	seedPublic(t, db, repo, "odd-state", true, false, domain.StatusNotYetChecked, &at)
+
+	got, err := repo.ListPublic(t.Context())
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "baseline", got[0].Name)
+}

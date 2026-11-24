@@ -91,6 +91,7 @@ func TestPublicView_RetryAfterIsTheWaitRoundedUpToWholeSeconds(t *testing.T) {
 		wait time.Duration
 		want int
 	}{
+		{0, 1}, // the floor: a refusal always tells the client to wait at least a second
 		{time.Nanosecond, 1},
 		{400 * time.Millisecond, 1},
 		{time.Second, 1},
