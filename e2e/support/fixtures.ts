@@ -1,4 +1,4 @@
-import { test as base, expect } from '@playwright/test'
+import { test as base, expect, type BrowserContext } from '@playwright/test'
 import { App } from './app'
 import type { Cert } from './certs'
 import { StubReceiver } from './stubReceiver'
@@ -16,6 +16,8 @@ interface Fixtures {
   tlsSite: (cert: Cert) => Promise<StubSite>
   /** A TCP stub, not yet listening. */
   tcp: StubTcp
+  /** An anonymous visitor: a fresh browser context with no cookies and no storage. */
+  visitor: BrowserContext
   /** Environment overrides for the app of each test; set with `test.use`. */
   appOverrides: Record<string, string>
 }
@@ -33,6 +35,12 @@ export const test = base.extend<Fixtures>({
       }
       await app.dispose()
     }
+  },
+  visitor: async ({ browser, app }, use) => {
+    // A context made with `browser.newContext` does not inherit the fixture's base URL.
+    const context = await browser.newContext({ baseURL: app.baseURL })
+    await use(context)
+    await context.close()
   },
   stub: async ({}, use) => {
     const stub = new StubTarget()

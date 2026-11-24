@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { expect, type Locator, type Page } from '@playwright/test'
+import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { ADMIN_PASSWORD, ADMIN_USERNAME } from './app'
 
 export type StatusWord = 'Healthy' | 'Unhealthy' | 'Not checked yet'
@@ -63,7 +63,7 @@ export async function readStatus(page: Page, name: string): Promise<string> {
 }
 
 /** Presses Refresh and re-reads until the row's status is exactly `status`. */
-export async function waitForStatus(page: Page, name: string, status: StatusWord): Promise<void> {
+export async function waitForStatus(page: Page, name: string, status: StatusWord, timeout = 30_000): Promise<void> {
   let last = '(not read)'
   const refresh = page.getByRole('button', { name: 'Refresh', exact: true })
   await expect
@@ -77,7 +77,7 @@ export async function waitForStatus(page: Page, name: string, status: StatusWord
         }
         return last
       },
-      { intervals: [500], timeout: 30_000, message: `status of ${name}: expected ${status}` },
+      { intervals: [500], timeout, message: `status of ${name}: expected ${status}` },
     )
     .toBe(status)
 }
@@ -240,6 +240,8 @@ export interface ServiceSpec {
   /** The four timing inputs. Left out: `defaultTiming`. `null`: the Timing group is not touched (for an Edit form). */
   timing?: Timing | null
   alerts?: boolean
+  /** The `Show on public page` switch. Left out: not touched (a new service starts off). */
+  shownOnPublic?: boolean
   unhealthyMessage?: string
   recoveryMessage?: string
 }
@@ -304,6 +306,7 @@ export async function fillServiceForm(page: Page, spec: ServiceSpec): Promise<vo
     await page.getByLabel('Retry interval', { exact: true }).fill(String(t.retryInterval))
   }
   if (spec.alerts !== undefined) await setSwitch(page, 'Send alerts', spec.alerts)
+  if (spec.shownOnPublic !== undefined) await setSwitch(page, 'Show on public page', spec.shownOnPublic)
   if (spec.unhealthyMessage !== undefined) await page.getByLabel('Unhealthy message').fill(spec.unhealthyMessage)
   if (spec.recoveryMessage !== undefined) await page.getByLabel('Recovery message').fill(spec.recoveryMessage)
 }
@@ -466,4 +469,70 @@ export const repeat = (char: string, n: number): string => char.repeat(n)
 export async function clearRules(page: Page): Promise<void> {
   const remove = page.getByRole('button', { name: 'Remove rule 1', exact: true })
   while ((await remove.count()) > 0) await remove.click()
+}
+
+// ---- Milestone 4 ----
+
+/** Opens `/status` and waits until the first answer has been shown (the heading alone is shown in every state). */
+export async function openStatusPage(page: Page): Promise<void> {
+  await page.goto('/status')
+  await expect(page.getByRole('heading', { level: 1, name: 'Service status', exact: true })).toBeVisible()
+  await expect(page.getByText('Loading service status…')).toBeHidden()
+}
+
+/** Presses `Refresh` and waits for the answer and for the button to be enabled again. */
+export async function visitorRefresh(page: Page): Promise<void> {
+  const refresh = page.getByRole('button', { name: 'Refresh', exact: true })
+  const answered = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/public/dashboard')
+  await refresh.click()
+  await answered
+  // The button is enabled again, or gone (an "unavailable" answer replaces the controls).
+  await expect
+    .poll(async () => (await refresh.count()) === 0 || (await refresh.isEnabled()), { message: 'Refresh enabled again or gone' })
+    .toBe(true)
+}
+
+/** On the dashboard: sets the `Public page` switch and waits for the toast and the switch state. */
+export async function setPublicView(page: Page, on: boolean): Promise<void> {
+  const toggle = page.getByRole('switch', { name: 'Public page', exact: true })
+  // Disabled until the setting arrives.
+  await expect(toggle).toBeEnabled()
+  if (((await toggle.getAttribute('aria-checked')) === 'true') !== on) {
+    await toggle.click()
+    await expect(page.getByText(on ? 'Public page turned on.' : 'Public page turned off.').first()).toBeVisible()
+  }
+  await expect(toggle).toHaveAttribute('aria-checked', on ? 'true' : 'false')
+}
+
+/** The names of the rows of the public list, in page order (the first element of each row, without badge and time). */
+export async function publicNames(page: Page): Promise<string[]> {
+  const rows = page.getByRole('list', { name: 'Services' }).getByRole('listitem')
+  return rows.evaluateAll((items) => items.map((li) => (li.firstElementChild?.textContent ?? '').trim()))
+}
+
+export interface PublicApiResult {
+  status: number
+  headers: Record<string, string>
+  text: string
+  json: unknown
+}
+
+/** `GET /api/public/dashboard` with the given request context. */
+export async function publicApi(request: APIRequestContext): Promise<PublicApiResult> {
+  const res = await request.get('/api/public/dashboard')
+  const text = await res.text()
+  let json: unknown = null
+  try {
+    json = JSON.parse(text)
+  } catch {
+    // not JSON: `json` stays null
+  }
+  return { status: res.status(), headers: res.headers(), text, json }
+}
+
+/** Adds a service through the Add form, from the dashboard. */
+export async function createService(page: Page, spec: ServiceSpec): Promise<void> {
+  await openAddService(page)
+  await fillServiceForm(page, spec)
+  await saveService(page)
 }
