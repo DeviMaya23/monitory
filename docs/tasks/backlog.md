@@ -31,7 +31,7 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-2 | `signIn` | Sign-in locked state | In memory, fake clock. Left out of `sign-in-api` and `sign-in-screen`: `429 sign_in_locked` and the countdown |
+| FR-2 | none | none | Left out of `sign-in-lockout-api` and `sign-in-locked-screen`: the end-to-end journey (5 wrong attempts, then the right password is refused; the locked state is on screen; a restart clears it) |
 | FR-99 | `signIn`, `getPublicDashboard` | none | `TRUST_PROXY`, `CLIENT_IP_HEADER`: the policy router resolves the scheme and the client address. Left: the journey with trust on |
 | NFR-1 | none | none | Restart and upgrade with data, against the Docker image and a volume |
 | NFR-4 | none | All forms, delete dialog | Keyboard journeys in the end-to-end suite |
@@ -59,12 +59,9 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 - `target-form-dialog`: a `422` summary keeps the entries of the inactive type. After a `url` error, switching to Email leaves `Webhook URL: …` in the summary with a link that moves focus nowhere, while its message is hidden with the field. Matters when: an admin gets a `url` or `headers` error and then switches type. Needs: the user, to decide whether a type switch drops the other type's entries.
 
 - `leave-prompt-data-router`: in the Back and Forward test, `Discard changes` is only exercised for Back; Forward is asked and kept but never discarded. Matters when: someone changes how a pending `POP` forward is proceeded (for example by moving the `leaveWithoutAsking` rule).
-- `service-form-json-and-cert-rows`: two form cases in `AddServiceForm.test.tsx` carry a 15 s timeout instead of being shortened to about 1 s. Matters when: the file's total time grows enough that the slow cases become the flake.
 - `service-form-type-tcp`: the Type hint (`Changing type swaps the fields below.`) is not linked to the radio group by `aria-describedby`, because the `RadioGroup` wrapper takes no such prop. Matters when: the milestone 5 keyboard and screen-reader check (NFR-4) is run, or the wrapper is next changed.
 - `backend-test-hardening`: two probe tests keep a real 150 ms deadline that a healthy path must meet (`TestCheckHTTP_JSONBodyReadInsideTimeout`, `TestTestHTTP_StalledBodyWithoutRules`); raising it changes the scenario. Matters when: CI runs on a runner much slower than an 8-core laptop under 8 busy loops. Needs: the user, to decide.
 - `backend-test-hardening`: `tcp_test.go` asserts `WithinDuration(..., 40ms)` against `time.Now()` (around line 219). Matters when: a loaded CI runner delays the stub's recorded deadline by more than 40 ms.
-- `service-test-panel`: the frontend suite times out under full-parallel load: `make check` had 3 timeouts at 5 s (`AddServiceForm.test.tsx` two, `App.test.tsx` one) that passed alone, and `AddServiceForm.test.tsx` takes about 130 s alone (221 tests). Matters when: CI or a busy laptop runs `make check` and a red build clears on a rerun.
-- `target-dialog-test-flake`: the "under 1000 ms" criterion depends on machine load (1.1 to 1.6 s under heavy load; the 21-add no-limit case is the slowest). Matters when: CI runs on a runner several times slower than a quiet laptop and that case approaches 5 s again.
 
 - `public-dashboard-api`: the rate limiter prunes by scanning the whole map on every call, under the one lock, so the cost grows with the number of distinct addresses seen in the last minute. Matters when: tens of thousands of distinct addresses hit the public path in one minute.
 - `m3-e2e-journeys`: journey 8's first test cannot detect a pause that does not stop the scheduler (60-second interval, 10-second wait); only `a paused service keeps its state` protects the pause, and it has no alert target, so FR-76 is covered only through "no check ran". Matters when: that second test is changed or removed, or something other than the check path starts sending alerts. Fix to decide: add an email target to the second test, or pause with a short interval and resume with a long one.
