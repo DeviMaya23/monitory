@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { Activity, CircleAlert, Info, LoaderCircle, RefreshCw, TriangleAlert, WifiOff } from 'lucide-react'
+import { Activity, CircleAlert, Info, LoaderCircle, Lock, RefreshCw, TriangleAlert, WifiOff } from 'lucide-react'
 import type { SessionInfo } from '../../../lib/api/session'
+import { useLockCountdown } from '../hooks/useLockCountdown'
 import { useSignIn } from '../hooks/useSignIn'
+import { formatWait } from '../lib/formatWait'
 import '../sign-in.css'
 
 interface SignInFormProps {
@@ -16,7 +18,8 @@ interface SignInFormProps {
 }
 
 export function SignInForm({ sessionEnded, unreachable, rechecking, onSignedIn, onRecheck }: SignInFormProps) {
-  const { register, submitting, failure, submit, retry } = useSignIn(onSignedIn)
+  const { register, submitting, failure, submit, retry, clearFailure } = useSignIn(onSignedIn)
+  const remaining = useLockCountdown(failure?.kind === 'locked' ? failure : null, clearFailure)
   const usernameRef = useRef<HTMLInputElement | null>(null)
   const passwordRef = useRef<HTMLInputElement | null>(null)
   const submitRef = useRef<HTMLButtonElement>(null)
@@ -32,6 +35,7 @@ export function SignInForm({ sessionEnded, unreachable, rechecking, onSignedIn, 
     if (failure?.kind === 'invalid-credentials') passwordRef.current?.focus()
     else if (failure?.kind === 'https-required') submitRef.current?.focus()
     else if (failure?.kind === 'unexpected') retryRef.current?.focus()
+    else if (failure?.kind === 'locked') passwordRef.current?.focus()
   }, [failure])
 
   // Focus follows the end of a recheck.
@@ -47,6 +51,7 @@ export function SignInForm({ sessionEnded, unreachable, rechecking, onSignedIn, 
   const usernameField = register('username', { required: true })
   const passwordField = register('password', { required: true })
   const locked = submitting || rechecking
+  const lockActive = failure?.kind === 'locked' && remaining !== null
   // Precedence: the last submit's failure, then an unreachable session, then the notice.
   const unexpected = failure?.kind === 'unexpected' || (failure === null && unreachable)
   const onRetry = failure?.kind === 'unexpected' ? retry : onRecheck
@@ -78,6 +83,21 @@ export function SignInForm({ sessionEnded, unreachable, rechecking, onSignedIn, 
                     <span className="signin__detail">{failure.detail}</span>
                   </span>
                 )}
+              </div>
+            </div>
+          )}
+          {!submitting && failure?.kind === 'locked' && remaining !== null && (
+            <div className="banner banner--error" role="alert">
+              <Lock className="icon" aria-hidden="true" />
+              <div className="banner__body">
+                <span className="banner__title">Too many failed attempts.</span>
+                <span>
+                  Try again in{' '}
+                  <span className="signin__wait" aria-live="off">
+                    {formatWait(remaining)}
+                  </span>
+                  .
+                </span>
               </div>
             </div>
           )}
@@ -144,7 +164,7 @@ export function SignInForm({ sessionEnded, unreachable, rechecking, onSignedIn, 
             type="submit"
             className="btn btn--primary"
             ref={submitRef}
-            disabled={locked}
+            disabled={locked || lockActive}
             aria-busy={submitting || undefined}
           >
             {submitting && <LoaderCircle className="icon icon--sm spinner" aria-hidden="true" />}

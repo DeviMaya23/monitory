@@ -20,6 +20,7 @@
 .signin__title { font-size: var(--text-2xl); font-weight: var(--weight-semibold); line-height: var(--leading-tight); }
 .signin__form { display: flex; flex-direction: column; gap: var(--space-3); }
 .signin__form .btn--primary { width: 100%; margin-top: var(--space-1); }
+.signin__wait { font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); }
 .signin__detail { font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 @container app (max-width: 640px) {
