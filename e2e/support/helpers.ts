@@ -486,7 +486,10 @@ export async function visitorRefresh(page: Page): Promise<void> {
   const answered = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/public/dashboard')
   await refresh.click()
   await answered
-  await expect(refresh).toBeEnabled()
+  // The button is enabled again, or gone (an "unavailable" answer replaces the controls).
+  await expect
+    .poll(async () => (await refresh.count()) === 0 || (await refresh.isEnabled()), { message: 'Refresh enabled again or gone' })
+    .toBe(true)
 }
 
 /** On the dashboard: sets the `Public page` switch and waits for the toast and the switch state. */
