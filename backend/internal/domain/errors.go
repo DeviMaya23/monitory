@@ -43,3 +43,11 @@ type RateLimitedError struct {
 }
 
 func (RateLimitedError) Error() string { return "rate limited" }
+
+// SignInLockedError says the account is locked after too many failed sign-ins in a row
+// (FR-2). RetryAfterSeconds is what is left of the lock, at least 1.
+type SignInLockedError struct {
+	RetryAfterSeconds int
+}
+
+func (SignInLockedError) Error() string { return "sign-in locked" }

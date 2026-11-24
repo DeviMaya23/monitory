@@ -3,8 +3,11 @@ package handler_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +113,73 @@ func TestSignIn_InvalidCredentials(t *testing.T) {
 	assert.Contains(t, logs.String(), "level=WARN")
 	assert.NotContains(t, logs.String(), "admin")
 	assert.NotContains(t, logs.String(), "s3cret-pass")
+}
+
+func TestSignIn_Locked(t *testing.T) {
+	var logs bytes.Buffer
+	spy := &authSpy{err: domain.SignInLockedError{RetryAfterSeconds: 292}}
+	e := newRouter(t, routerOptions{auth: spy, logOutput: &logs})
+
+	res := do(e, http.MethodPost, "/api/session", signInBody, withJSON)
+
+	require.Equal(t, http.StatusTooManyRequests, res.StatusCode)
+	testutil.AssertConforms(t, "signIn", res)
+	assert.Equal(t, "application/problem+json", res.Header.Get("Content-Type"))
+	assert.Equal(t, "292", res.Header.Get("Retry-After"))
+	assert.Empty(t, res.Header.Values("Set-Cookie"))
+	body := readBody(t, res)
+	assert.JSONEq(t, `{"title":"Sign-in locked","status":429,"code":"sign_in_locked"}`, body)
+	assert.NotContains(t, body, "detail")
+	assert.NotContains(t, body, "errors")
+	assert.NotContains(t, body, "admin")
+	assert.NotContains(t, body, "s3cret-pass")
+	for name, values := range res.Header {
+		for _, v := range values {
+			assert.NotContains(t, v, "admin", name)
+			assert.NotContains(t, v, "s3cret-pass", name)
+		}
+	}
+}
+
+func TestSignIn_LockedWrapped(t *testing.T) {
+	err := fmt.Errorf("x: %w", domain.SignInLockedError{RetryAfterSeconds: 292})
+	e := newRouter(t, routerOptions{auth: &authSpy{err: err}})
+
+	res := do(e, http.MethodPost, "/api/session", signInBody, withJSON)
+
+	require.Equal(t, http.StatusTooManyRequests, res.StatusCode)
+	testutil.AssertConforms(t, "signIn", res)
+	assert.Equal(t, "292", res.Header.Get("Retry-After"))
+	assert.JSONEq(t, `{"title":"Sign-in locked","status":429,"code":"sign_in_locked"}`, readBody(t, res))
+}
+
+func TestSignIn_LockedRetryAfterPassesThrough(t *testing.T) {
+	for _, seconds := range []int{1, 900} {
+		t.Run(strconv.Itoa(seconds), func(t *testing.T) {
+			e := newRouter(t, routerOptions{auth: &authSpy{err: domain.SignInLockedError{RetryAfterSeconds: seconds}}})
+
+			res := do(e, http.MethodPost, "/api/session", signInBody, withJSON)
+
+			require.Equal(t, http.StatusTooManyRequests, res.StatusCode)
+			testutil.AssertConforms(t, "signIn", res)
+			assert.Equal(t, strconv.Itoa(seconds), res.Header.Get("Retry-After"))
+		})
+	}
+}
+
+func TestSignIn_LockedLog(t *testing.T) {
+	line := regexp.MustCompile(`^time=\S+ level=WARN msg="sign-in locked"$`)
+
+	var locked bytes.Buffer
+	e := newRouter(t, routerOptions{auth: &authSpy{err: domain.SignInLockedError{RetryAfterSeconds: 5}}, logOutput: &locked})
+	do(e, http.MethodPost, "/api/session", signInBody, withJSON)
+	assert.Regexp(t, line, strings.TrimSpace(locked.String()))
+
+	var failed bytes.Buffer
+	e = newRouter(t, routerOptions{auth: &authSpy{err: domain.ErrInvalidCredentials}, logOutput: &failed})
+	do(e, http.MethodPost, "/api/session", signInBody, withJSON)
+	assert.Contains(t, failed.String(), `msg="sign-in failed"`)
+	assert.NotContains(t, failed.String(), "sign-in locked")
 }
 
 func TestSignIn_ExpiresAtIsUTC(t *testing.T) {
