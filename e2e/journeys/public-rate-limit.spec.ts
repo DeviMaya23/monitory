@@ -37,6 +37,15 @@ test.describe('M4 journeys 5 and 6: the rate limit', () => {
     const second = retryAfter(fifth.headers)
     expect(second).toBeGreaterThanOrEqual(1)
     expect(second).toBeLessThanOrEqual(first)
+    // A refused request does not extend the window: with the same window running, the header falls
+    // (right after the window starts it reads 60, so two reads in a row cannot tell the difference).
+    await expect
+      .poll(async () => retryAfter((await publicApi(visitor.request)).headers), {
+        intervals: [500],
+        timeout: 10_000,
+        message: 'Retry-After falls while the visitor keeps being refused',
+      })
+      .toBeLessThan(first)
 
     // 3. The page shows the refusal and a falling countdown.
     const v = await visitor.newPage()
