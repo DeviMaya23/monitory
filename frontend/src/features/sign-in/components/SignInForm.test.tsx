@@ -1,7 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '../../../lib/api/ApiError'
 import { signIn, type SessionInfo } from '../../../lib/api/session'
 import { problem, sessionInfo } from '../../../test/fixtures'
 import { SignInForm } from './SignInForm'
@@ -21,7 +22,7 @@ function setup(props: Partial<Props> = {}) {
   }
   const view = render(<SignInForm {...all} />)
   const rerender = (next: Partial<Props>) => view.rerender(<SignInForm {...all} {...next} />)
-  return { props: all, rerender, container: view.container }
+  return { props: all, rerender, container: view.container, unmount: view.unmount }
 }
 
 const username = () => screen.getByLabelText('Username')
@@ -194,7 +195,18 @@ describe('outcomes', () => {
     ['a network failure', new TypeError('Failed to fetch')],
     ['a 500', problem(500, 'internal_error')],
     ['a 422', problem(422, 'validation_failed')],
-    ['a 429', problem(429, 'sign_in_locked')],
+    [
+      'a 429 sign_in_locked without a usable Retry-After',
+      new ApiError(429, { title: 'Sign-in locked', status: 429, code: 'sign_in_locked' }, null),
+    ],
+    [
+      'a 429 sign_in_locked with a Retry-After of 0',
+      new ApiError(429, { title: 'Sign-in locked', status: 429, code: 'sign_in_locked' }, 0),
+    ],
+    [
+      'a 429 rate_limited with a Retry-After',
+      new ApiError(429, { title: 'Rate limited', status: 429, code: 'rate_limited' }, 30),
+    ],
   ])('%s shows the unexpected banner, focuses Retry, and Retry sends the same values', async (_name, error) => {
     const { props } = setup()
     await failWith(error)
@@ -289,5 +301,143 @@ describe('unreachable session and the notice', () => {
     await failWith(problem(401, 'invalid_credentials'))
     await screen.findByText('Username or password is incorrect.')
     expect(screen.queryByText('Your session has ended.')).not.toBeInTheDocument()
+  })
+})
+
+describe('locked after too many failures', () => {
+  const lockedError = (seconds: number) =>
+    new ApiError(429, { title: 'Sign-in locked', status: 429, code: 'sign_in_locked' }, seconds)
+  const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** Types the values, submits, and flushes the rejected signIn. */
+  async function lockWith(seconds: number, props: Partial<Props> = {}, user = 'admin', pass = 'secret') {
+    vi.mocked(signIn).mockRejectedValueOnce(lockedError(seconds))
+    const view = setup(props)
+    fireEvent.change(username(), { target: { value: user } })
+    fireEvent.change(password(), { target: { value: pass } })
+    fireEvent.submit(username().closest('form')!)
+    await advance(0)
+    return view
+  }
+
+  it('shows the locked banner with the time, and nothing else (FR-2)', async () => {
+    await lockWith(292)
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveClass('banner--error')
+    expect(within(alert).getByText('Too many failed attempts.')).toBeInTheDocument()
+    expect(alert).toHaveTextContent('Try again in 4 min 52 s.')
+    const wait = within(alert).getByText('4 min 52 s')
+    expect(wait).toHaveClass('signin__wait')
+    expect(wait).toHaveAttribute('aria-live', 'off')
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+  })
+
+  it('disables the button, keeps the fields enabled with their values, and focuses Password (FR-2)', async () => {
+    await lockWith(292)
+    expect(submitButton()).toBeDisabled()
+    expect(submitButton()).toHaveTextContent('Sign in')
+    expect(submitButton()).not.toHaveAttribute('aria-busy')
+    expect(username()).toBeEnabled()
+    expect(password()).toBeEnabled()
+    expect(username()).toHaveValue('admin')
+    expect(password()).toHaveValue('secret')
+    expect(password()).toHaveFocus()
+  })
+
+  it('counts down, and at the end removes the banner, enables the button and leaves values and focus', async () => {
+    await lockWith(292)
+    await advance(1000)
+    expect(screen.getByRole('alert')).toHaveTextContent('Try again in 4 min 51 s.')
+    await advance(291_000)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(submitButton()).toBeEnabled()
+    expect(username()).toHaveValue('admin')
+    expect(password()).toHaveValue('secret')
+    expect(password()).toHaveFocus()
+  })
+
+  it.each([
+    [1, '1 s'],
+    [59, '59 s'],
+    [60, '1 min 0 s'],
+    [61, '1 min 1 s'],
+    [900, '15 min 0 s'],
+  ])('a wait of %i s shows %s, is locked one millisecond before the end and open at it (FR-2)', async (seconds, text) => {
+    await lockWith(seconds)
+    expect(screen.getByRole('alert')).toHaveTextContent(`Try again in ${text}.`)
+    await advance(seconds * 1000 - 1)
+    expect(submitButton()).toBeDisabled()
+    await advance(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(submitButton()).toBeEnabled()
+  })
+
+  it('is still locked one millisecond before the end', async () => {
+    await lockWith(292)
+    await advance(292_000 - 1)
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(submitButton()).toBeDisabled()
+    await advance(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('sends nothing when the form is submitted during the lock (FR-2)', async () => {
+    await lockWith(292)
+    expect(signIn).toHaveBeenCalledTimes(1)
+    fireEvent.submit(username().closest('form')!)
+    await advance(0)
+    expect(signIn).toHaveBeenCalledTimes(1)
+  })
+
+  it('submits again after the lock, and a new lock replaces the old with one banner (FR-2)', async () => {
+    await lockWith(5)
+    await advance(5000)
+    vi.mocked(signIn).mockRejectedValueOnce(lockedError(60))
+    fireEvent.submit(username().closest('form')!)
+    await advance(0)
+    expect(signIn).toHaveBeenCalledTimes(2)
+    expect(signIn).toHaveBeenLastCalledWith({
+      username: 'admin',
+      password: 'secret',
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent('Try again in 1 min 0 s.')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+  })
+
+  it('outranks the unreachable banner, which appears when the countdown ends', async () => {
+    await lockWith(3, { unreachable: true })
+    expect(screen.getByText('Too many failed attempts.')).toBeInTheDocument()
+    expect(screen.queryByText('Can’t reach the server.')).not.toBeInTheDocument()
+    await advance(3000)
+    expect(screen.queryByText('Too many failed attempts.')).not.toBeInTheDocument()
+    expect(screen.getByText('Can’t reach the server.')).toBeInTheDocument()
+  })
+
+  it('repeats neither the typed username nor the password (FR-1)', async () => {
+    const { container } = await lockWith(292, {}, 'zq-user-7731', 'xk-pass-9042')
+    expect(container.textContent).not.toContain('zq-user-7731')
+    expect(container.textContent).not.toContain('xk-pass-9042')
+  })
+
+  it('leaves no timer when unmounted during the lock', async () => {
+    // One timer outside the countdown survives an unmount in this environment; measure it on an idle form.
+    const idle = setup()
+    idle.unmount()
+    const leftover = vi.getTimerCount()
+
+    const { unmount } = await lockWith(292)
+    expect(vi.getTimerCount()).toBe(leftover + 1)
+    unmount()
+    expect(vi.getTimerCount()).toBe(leftover)
   })
 })
