@@ -1,53 +1,51 @@
-import { useEffect, useRef, useState } from 'react'
-import type { SignInFailure } from './useSignIn'
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { SignInFailure } from "./useSignIn";
 
-type Locked = Extract<SignInFailure, { kind: 'locked' }>
+type Locked = Extract<SignInFailure, { kind: "locked" }>;
 
-const TICK_MS = 500
-
-const remainingFrom = (end: number) => Math.max(0, Math.ceil((end - Date.now()) / 1000))
+const TICK_MS = 500;
 
 /**
  * The whole seconds left of a sign-in lock, or null when there is none. `onEnd` runs once when it reaches 0.
  * The value is always read from the clock against a fixed end time, never counted per tick. A new `locked`
  * object restarts it, even with the same seconds.
  */
-export function useLockCountdown(locked: Locked | null, onEnd: () => void): number | null {
-  const onEndRef = useRef(onEnd)
+export function useLockCountdown(
+  locked: Locked | null,
+  onEnd: () => void,
+): number | null {
+  const onEndRef = useRef(onEnd);
   useEffect(() => {
-    onEndRef.current = onEnd
-  })
+    onEndRef.current = onEnd;
+  });
 
-  // The end time is fixed in the render that first sees a locked object, so the first value is the full wait.
-  const seen = useRef<Locked | null>(null)
-  const endRef = useRef<number | null>(null)
-  if (seen.current !== locked) {
-    seen.current = locked
-    endRef.current = locked ? Date.now() + locked.seconds * 1000 : null
-  }
-  const end = endRef.current
+  // The last value a tick showed, with the lock it belongs to. A lock without a tick yet shows its full wait.
+  const [shown, setShown] = useState<{ lock: Locked; seconds: number } | null>(
+    null,
+  );
 
-  const [remaining, setRemaining] = useState<number | null>(locked ? locked.seconds : null)
-  const [shownFor, setShownFor] = useState(locked)
-  if (shownFor !== locked) {
-    setShownFor(locked)
-    setRemaining(locked ? locked.seconds : null)
-  }
-
-  useEffect(() => {
-    if (locked === null || end === null) return
+  // A layout effect, so the end time is taken before the first paint of the lock and the clock is never read in render.
+  useLayoutEffect(() => {
+    if (locked === null) return;
+    const end = Date.now() + locked.seconds * 1000;
     const timer = setInterval(() => {
-      const left = remainingFrom(end)
+      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
       if (left === 0) {
-        clearInterval(timer)
-        setRemaining(null)
-        onEndRef.current()
+        clearInterval(timer);
+        setShown({ lock: locked, seconds: 0 });
+        onEndRef.current();
       } else {
-        setRemaining(left)
+        setShown((previous) =>
+          previous?.lock === locked && previous.seconds === left
+            ? previous
+            : { lock: locked, seconds: left },
+        );
       }
-    }, TICK_MS)
-    return () => clearInterval(timer)
-  }, [locked, end])
+    }, TICK_MS);
+    return () => clearInterval(timer);
+  }, [locked]);
 
-  return locked ? remaining : null
+  if (locked === null) return null;
+  const seconds = shown?.lock === locked ? shown.seconds : locked.seconds;
+  return seconds === 0 ? null : seconds;
 }
