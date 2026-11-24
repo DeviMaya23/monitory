@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useForm } from 'react-hook-form'
 import { describe, expect, it, vi } from 'vitest'
@@ -35,7 +35,7 @@ function setup({ saving = false, errors = {} }: { saving?: boolean; errors?: Err
     )
   }
   render(<Harness />)
-  return { user: userEvent.setup(), serverErrors }
+  return { user: userEvent.setup({ delay: null }), serverErrors }
 }
 
 describe('RequestRowsGroup', () => {
@@ -88,9 +88,9 @@ describe('RequestRowsGroup', () => {
     expect(add).toHaveFocus()
   })
 
-  it('has no limit on the number of rows', async () => {
-    const { user } = setup()
-    for (let i = 0; i < 21; i++) await user.click(screen.getByRole('button', { name: 'Add parameter' }))
+  it('has no limit on the number of rows', () => {
+    setup()
+    for (let i = 0; i < 21; i++) fireEvent.click(screen.getByRole('button', { name: 'Add parameter' }))
     expect(screen.getByLabelText('Query parameter 21 name')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add parameter' })).toBeEnabled()
   })

@@ -36,7 +36,7 @@ function setup() {
     ],
     { initialEntries: ['/services/new'], client },
   )
-  return { client, router, user: userEvent.setup() }
+  return { client, router, user: userEvent.setup({ delay: null }) }
 }
 
 const nameInput = () => screen.getByLabelText('Name')
@@ -76,9 +76,18 @@ function pending(): Settle {
   return settle
 }
 
+/**
+ * Puts text that is not the subject of the case into a field: a click to focus it and one
+ * paste, which fires the same input event as typing without one key event per character.
+ */
+async function enter(user: ReturnType<typeof userEvent.setup>, control: HTMLElement, text: string) {
+  await user.click(control)
+  await user.paste(text)
+}
+
 async function fill(user: ReturnType<typeof userEvent.setup>, name = 'Search API', url = URL_VALUE) {
-  await user.type(nameInput(), name)
-  await user.type(urlInput(), url)
+  await enter(user, nameInput(), name)
+  await enter(user, urlInput(), url)
 }
 
 /** Fills the form, has the request fail with `error`, and waits for the saving state to end. */
@@ -332,8 +341,8 @@ describe('client checks', () => {
     ['a name of only spaces', '   '],
   ])('%s shows Enter a name. and sends nothing', async (_case, typed) => {
     const { user } = setup()
-    if (typed) await user.type(nameInput(), typed)
-    await user.type(urlInput(), URL_VALUE)
+    if (typed) await enter(user, nameInput(), typed)
+    await enter(user, urlInput(), URL_VALUE)
     await user.click(saveButton())
     expect(await screen.findByText('Enter a name.')).toBeInTheDocument()
     expect(describedBy(nameInput())).toBe('Enter a name.')
@@ -349,8 +358,8 @@ describe('client checks', () => {
     ['a URL typed as only spaces', '   '],
   ])('%s shows Enter a URL. and sends nothing', async (_case, typed) => {
     const { user } = setup()
-    await user.type(nameInput(), 'Search API')
-    if (typed) await user.type(urlInput(), typed)
+    await enter(user, nameInput(), 'Search API')
+    if (typed) await enter(user, urlInput(), typed)
     expect(urlInput()).toHaveValue('')
     await user.click(saveButton())
     expect(await screen.findByText('Enter a URL.')).toBeInTheDocument()
@@ -548,7 +557,7 @@ describe('the banners', () => {
     // The entry the link made keeps its state: Forward onto it from a changed form still asks.
     await act(async () => router.navigate(-1))
     expect(await screen.findByRole('heading', { name: 'Add service' })).toBeInTheDocument()
-    await user.type(nameInput(), 'Search API')
+    await enter(user, nameInput(), 'Search API')
     await act(async () => router.navigate(1))
     expect(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/services/new')
@@ -755,7 +764,7 @@ describe('leaving', () => {
     '%s with a typed name opens the dialog with Keep editing focused; Keep editing closes it',
     async (_name, opener) => {
       const { user } = setup()
-      await user.type(nameInput(), 'Search API')
+      await enter(user, nameInput(), 'Search API')
       expect(footerStatus()).toHaveTextContent('Unsaved changes')
       await user.click(opener())
       const dialog = await screen.findByRole('dialog', {
@@ -775,7 +784,7 @@ describe('leaving', () => {
 
   it('a double click on the back link with a changed form opens one question, and Discard changes goes to /', async () => {
     const { user } = setup()
-    await user.type(nameInput(), 'Search API')
+    await enter(user, nameInput(), 'Search API')
     await user.dblClick(backLink())
     const dialogs = await screen.findAllByRole('dialog', { name: 'Discard unsaved changes?' })
     expect(dialogs).toHaveLength(1)
@@ -786,7 +795,7 @@ describe('leaving', () => {
 
   it('Esc closes the dialog and keeps the values', async () => {
     const { user } = setup()
-    await user.type(nameInput(), 'Search API')
+    await enter(user, nameInput(), 'Search API')
     await user.click(cancelButton())
     await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })
     await user.keyboard('{Escape}')
@@ -797,7 +806,7 @@ describe('leaving', () => {
 
   it('Discard changes goes to /', async () => {
     const { user } = setup()
-    await user.type(nameInput(), 'Search API')
+    await enter(user, nameInput(), 'Search API')
     await user.click(cancelButton())
     const dialog = await screen.findByRole('dialog', {
       name: 'Discard unsaved changes?',
@@ -818,7 +827,7 @@ describe('leaving', () => {
 
   it('Esc on the form does nothing', async () => {
     const { user } = setup()
-    await user.type(nameInput(), 'Search API')
+    await enter(user, nameInput(), 'Search API')
     await user.keyboard('{Escape}')
     expect(discardDialog()).not.toBeInTheDocument()
     expect(nameInput()).toHaveValue('Search API')
@@ -1445,13 +1454,13 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
   /** A form with query rows 1 and 2, header row 1 and a JSON body, all typed. */
   async function fillRows(user: User) {
     await addParameter(user)
-    await user.type(screen.getByLabelText('Query parameter 1 name'), 'page')
+    await enter(user, screen.getByLabelText('Query parameter 1 name'), 'page')
     await user.type(screen.getByLabelText('Query parameter 1 value'), '2')
     await addParameter(user)
     await user.type(screen.getByLabelText('Query parameter 2 name'), 'q')
     await addHeader(user)
-    await user.type(screen.getByLabelText('Header 1 name'), 'X-Key')
-    await user.type(screen.getByLabelText('Header 1 value'), 'secret-value')
+    await enter(user, screen.getByLabelText('Header 1 name'), 'X-Key')
+    await enter(user, screen.getByLabelText('Header 1 value'), 'secret-value')
     await chooseBody(user, 'JSON')
     await user.click(bodyText())
     await user.paste('{"a":1}')
@@ -1514,7 +1523,7 @@ describe('the Request group’s rows and body (FR-35, FR-37, FR-38, FR-39, NFR-4
     it('shows a header value in full in its input', async () => {
       const { user } = setup()
       await addHeader(user)
-      await user.type(screen.getByLabelText('Header 1 value'), 'Bearer abc.def')
+      await enter(user, screen.getByLabelText('Header 1 value'), 'Bearer abc.def')
       expect(screen.getByLabelText('Header 1 value')).toHaveValue('Bearer abc.def')
       expect(screen.getByLabelText('Header 1 value')).toHaveAttribute('type', 'text')
     })
@@ -1990,7 +1999,7 @@ describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, 
         ],
         json_rule_mode: 'all',
       })
-    }, 15_000)
+    })
 
     it('does not send the text typed before the kind became true', async () => {
       vi.mocked(createService).mockResolvedValue(makeService())
@@ -2001,7 +2010,7 @@ describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, 
       await user.click(saveButton())
       await marker()
       expect(sentInput().check).toMatchObject({ json_rules: [{ field: 'a', failing_value: true }] })
-    }, 15_000)
+    })
   })
 
   describe('the HTTPS options and the URL', () => {
@@ -2046,7 +2055,7 @@ describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, 
       await fill(user, 'Search API', 'https://x')
       await user.click(expiry())
       await user.clear(days())
-      await user.type(days(), '30')
+      await enter(user, days(), '30')
       await user.type(urlInput(), '{Backspace}'.repeat('https://x'.length))
       await user.type(urlInput(), 'https://')
       expect(isOn(expiry())).toBe(false)
@@ -2068,7 +2077,7 @@ describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, 
       await fill(user, 'Search API', 'https://x')
       await user.click(expiry())
       await user.clear(days())
-      await user.type(days(), '30')
+      await enter(user, days(), '30')
       await user.click(expiry())
       expect(days()).toBeDisabled()
       await user.click(expiry())
@@ -2083,7 +2092,7 @@ describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, 
       await fill(user, 'Search API', 'https://x')
       await user.click(expiry())
       await user.clear(days())
-      await user.type(days(), '45')
+      await enter(user, days(), '45')
       await user.click(ignore())
       await user.click(saveButton())
       await marker()
@@ -2114,7 +2123,7 @@ describe('the Health rules and HTTPS groups (FR-44, FR-46, FR-47, FR-34, FR-50, 
       await fill(user, 'Search API', 'https://x')
       await user.click(expiry())
       await user.clear(days())
-      if (text !== '') await user.type(days(), text)
+      if (text !== '') await enter(user, days(), text)
       await user.click(saveButton())
     }
 
@@ -2570,10 +2579,10 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
   /** Fills the name, chooses TCP, types host and port, has the request refused with `error`, and waits. */
   async function tcpRefused(user: User, error: unknown, host = 'db.internal', port = '5432') {
     vi.mocked(createService).mockRejectedValueOnce(error)
-    await user.type(nameInput(), 'DB')
+    await enter(user, nameInput(), 'DB')
     await chooseTcp(user)
-    if (host !== '') await user.type(hostInput(), host)
-    await user.type(portInput(), port)
+    if (host !== '') await enter(user, hostInput(), host)
+    await enter(user, portInput(), port)
     await user.click(saveButton())
     await waitFor(() => expect(saveButton()).toBeEnabled())
   }
@@ -2615,15 +2624,15 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
 
     it('keeps the HTTP values while TCP is chosen and the TCP values while HTTP(S) is chosen', async () => {
       const { user } = setup()
-      await user.type(urlInput(), 'https://a.example')
+      await enter(user, urlInput(), 'https://a.example')
       await user.click(screen.getByRole('button', { name: 'Add parameter' }))
       await user.type(screen.getByLabelText('Query parameter 1 name'), 'q')
       await user.click(screen.getByRole('button', { name: 'Add rule' }))
-      await user.type(screen.getByLabelText('Rule 1 field path'), 'ok')
+      await enter(user, screen.getByLabelText('Rule 1 field path'), 'ok')
       await user.click(screen.getByRole('switch', { name: /Ignore certificate errors/ }))
       await chooseTcp(user)
-      await user.type(hostInput(), 'db.internal')
-      await user.type(portInput(), '5432')
+      await enter(user, hostInput(), 'db.internal')
+      await enter(user, portInput(), '5432')
       await chooseType(user, 'HTTP(S)')
       expect(urlInput()).toHaveValue('https://a.example')
       expect(screen.getByLabelText('Query parameter 1 name')).toHaveValue('q')
@@ -2639,10 +2648,10 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
     it('sends only type, host and port for TCP with an empty URL, then the HTTP check when HTTP(S) is chosen again (FR-33, FR-49)', async () => {
       vi.mocked(createService).mockResolvedValue(makeService())
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await chooseTcp(user)
-      await user.type(hostInput(), 'db.internal')
-      await user.type(portInput(), ' 5432 ')
+      await enter(user, hostInput(), 'db.internal')
+      await enter(user, portInput(), ' 5432 ')
       await user.click(saveButton())
       await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
       expect(sentInput().check).toStrictEqual({ type: 'tcp', host: 'db.internal', port: 5432 })
@@ -2653,12 +2662,12 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
     it('sends the HTTP check, with no host or port, when HTTP(S) is chosen again with a URL', async () => {
       vi.mocked(createService).mockResolvedValue(makeService())
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await chooseTcp(user)
-      await user.type(hostInput(), 'db.internal')
-      await user.type(portInput(), '5432')
+      await enter(user, hostInput(), 'db.internal')
+      await enter(user, portInput(), '5432')
       await chooseType(user, 'HTTP(S)')
-      await user.type(urlInput(), URL_VALUE)
+      await enter(user, urlInput(), URL_VALUE)
       await user.click(saveButton())
       await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
       const check = sentInput().check
@@ -2670,7 +2679,7 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
     it('sends the Timing values as typed with a TCP check (FR-52)', async () => {
       vi.mocked(createService).mockResolvedValue(makeService())
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await chooseTcp(user)
       await user.type(hostInput(), 'h')
       await user.type(portInput(), '1')
@@ -2697,10 +2706,10 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
     ])('sends port %j as the integer %d, the range being the server’s (FR-74)', async (port, expected) => {
       vi.mocked(createService).mockResolvedValue(makeService())
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await chooseTcp(user)
       await user.type(hostInput(), 'h')
-      await user.type(portInput(), port)
+      await enter(user, portInput(), port)
       await user.click(saveButton())
       await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
       expect(sentInput().check).toStrictEqual({ type: 'tcp', host: 'h', port: expected })
@@ -2711,9 +2720,9 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
         validationProblem(fieldError('check.host', '<b>bad</b> host', 'invalid_value')),
       )
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await chooseTcp(user)
-      await user.type(hostInput(), '  <img src=x onerror=1> a b  ')
+      await enter(user, hostInput(), '  <img src=x onerror=1> a b  ')
       await user.type(portInput(), '1')
       await user.click(saveButton())
       await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
@@ -2725,11 +2734,11 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
     it('keeps both sets of values through five type switches and sends the chosen type', async () => {
       vi.mocked(createService).mockResolvedValue(makeService())
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
-      await user.type(urlInput(), URL_VALUE)
+      await enter(user, nameInput(), 'DB')
+      await enter(user, urlInput(), URL_VALUE)
       await chooseTcp(user)
-      await user.type(hostInput(), 'db.internal')
-      await user.type(portInput(), '5432')
+      await enter(user, hostInput(), 'db.internal')
+      await enter(user, portInput(), '5432')
       for (const next of ['HTTP(S)', 'TCP port', 'HTTP(S)', 'TCP port', 'HTTP(S)'] as const) await chooseType(user, next)
       expect(urlInput()).toHaveValue(URL_VALUE)
       await chooseType(user, 'TCP port')
@@ -2743,9 +2752,9 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
     it.each(['0', '70000'])('sends port %s and an empty host: the range and the host are the server’s (FR-74)', async (port) => {
       vi.mocked(createService).mockResolvedValue(makeService())
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await chooseTcp(user)
-      await user.type(portInput(), port)
+      await enter(user, portInput(), port)
       await user.click(saveButton())
       await waitFor(() => expect(createService).toHaveBeenCalledTimes(1))
       expect(sentInput().check).toStrictEqual({ type: 'tcp', host: '', port: Number(port) })
@@ -2755,10 +2764,10 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
   describe('the client check of the port', () => {
     it.each(['', 'abc', '1.5', '-3', '8o', '9007199254740992', '9999999999999999999999'])('refuses %j under Port, focuses it, sends nothing (FR-74)', async (port) => {
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await chooseTcp(user)
       await user.type(hostInput(), 'h')
-      if (port !== '') await user.type(portInput(), port)
+      if (port !== '') await enter(user, portInput(), port)
       await user.click(saveButton())
       expect(createService).not.toHaveBeenCalled()
       expect(portInput()).toHaveAttribute('aria-invalid', 'true')
@@ -2769,7 +2778,7 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
 
     it('goes when the port is edited, and when the type is changed', async () => {
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await chooseTcp(user)
       await user.click(saveButton())
       expect(screen.getByText(WHOLE)).toBeInTheDocument()
@@ -2786,7 +2795,7 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
 
     it('focuses Port before a bad timing field, which comes later on the page', async () => {
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await chooseTcp(user)
       set(screen.getByLabelText('Retries'), 'x')
       await user.click(saveButton())
@@ -2796,7 +2805,7 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
 
     it('focuses the URL, not a bad timing field, after choosing TCP and then HTTP(S) again', async () => {
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await chooseTcp(user)
       await chooseType(user, 'HTTP(S)')
       set(screen.getByLabelText('Retries'), 'x')
@@ -2807,7 +2816,7 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
 
     it('does not check the hidden URL, and a URL error left from HTTP(S) does not come back', async () => {
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await user.click(saveButton())
       expect(screen.getByText('Enter a URL.')).toBeInTheDocument()
       await chooseTcp(user)
@@ -2820,8 +2829,8 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
 
     it('does not check a hidden days field, and its error does not come back', async () => {
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
-      await user.type(urlInput(), 'https://x')
+      await enter(user, nameInput(), 'DB')
+      await enter(user, urlInput(), 'https://x')
       await user.click(screen.getByRole('switch', { name: /Check certificate expiry/ }))
       set(screen.getByLabelText('Minimum days left'), 'x')
       await user.click(saveButton())
@@ -2842,7 +2851,7 @@ describe('the Type choice and the TCP port group (FR-33, FR-49, FR-52, FR-74, NF
     it('locks the Type choice, Host and Port, and releases them after a failure', async () => {
       const settle = pending()
       const { user } = setup()
-      await user.type(nameInput(), 'DB')
+      await enter(user, nameInput(), 'DB')
       await chooseTcp(user)
       await user.type(hostInput(), 'h')
       await user.type(portInput(), '1')
@@ -3137,11 +3146,11 @@ describe('the Public page group (FR-27, FR-68, NFR-4)', () => {
   it('shows the group on a TCP form, after Timing and Alerts, and sends its value with the TCP check', async () => {
     vi.mocked(createService).mockResolvedValueOnce(makeService())
     const { user } = setup()
-    await user.type(nameInput(), 'DB')
+    await enter(user, nameInput(), 'DB')
     await user.click(screen.getByRole('radio', { name: 'TCP port' }))
     expect(legends()).toEqual(['Service', 'TCP port', 'Timing', 'Alerts', 'Public page'])
-    await user.type(screen.getByLabelText('Host'), 'db.internal')
-    await user.type(screen.getByLabelText('Port'), '5432')
+    await enter(user, screen.getByLabelText('Host'), 'db.internal')
+    await enter(user, screen.getByLabelText('Port'), '5432')
     await user.click(publicSwitch())
     await user.click(saveButton())
     await marker()

@@ -34,7 +34,7 @@ function setup({ saving = false, errors = {} }: { saving?: boolean; errors?: Err
     )
   }
   render(<Harness />)
-  return { user: userEvent.setup(), serverErrors, values: () => values() }
+  return { user: userEvent.setup({ delay: null }), serverErrors, values: () => values() }
 }
 
 const addRule = () => screen.getByRole('button', { name: 'Add rule' })

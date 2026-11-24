@@ -90,7 +90,11 @@ const placeholderRoutes = adminRoutes.filter(([path]) => !builtRoutes.includes(p
 const dashboard = () => screen.findByRole('heading', { name: 'Services' })
 const addServiceForm = () => screen.findByRole('heading', { name: 'Add service' })
 
+// One user per case, with no wait between its actions.
+let user: ReturnType<typeof userEvent.setup>
+
 beforeEach(() => {
+  user = userEvent.setup({ delay: null })
   vi.resetAllMocks()
   vi.mocked(listServices).mockResolvedValue([])
   vi.mocked(getPublicViewSettings).mockResolvedValue({ enabled: false })
@@ -156,8 +160,8 @@ describe('App routes', () => {
       throw problem(401, 'unauthenticated')
     })
     renderAt('/services/some-id')
-    await userEvent.type(await screen.findByLabelText('Name'), ' two')
-    await userEvent.click(screen.getByRole('button', { name: 'Save service' }))
+    await user.type(await screen.findByLabelText('Name'), ' two')
+    await user.click(screen.getByRole('button', { name: 'Save service' }))
     expect(await form()).toBeInTheDocument()
     expect(screen.getByText('Your session has ended.')).toBeInTheDocument()
     expect(updateService).toHaveBeenCalledTimes(1)
@@ -181,7 +185,7 @@ describe('App routes', () => {
     vi.mocked(listServices).mockResolvedValue(makeServiceList(makeService()))
     vi.mocked(listTargets).mockResolvedValue([])
     renderAt('/')
-    await userEvent.click(await screen.findByRole('link', { name: 'Alerts API gateway' }))
+    await user.click(await screen.findByRole('link', { name: 'Alerts API gateway' }))
     expect(await screen.findByRole('heading', { name: 'No notification targets' })).toBeInTheDocument()
     expect(listTargets).toHaveBeenCalledWith('id-API gateway')
   })
@@ -213,7 +217,7 @@ describe('App routes', () => {
 
     let answer: (info: SessionInfo) => void = () => {}
     vi.mocked(getSession).mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
-    await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
     expect(getSession).toHaveBeenCalledTimes(2)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled())
     expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
@@ -229,7 +233,7 @@ describe('App routes', () => {
     await form()
     let fail: (error: unknown) => void = () => {}
     vi.mocked(getSession).mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)))
-    await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled())
     await act(async () => fail(problem(401, 'unauthenticated')))
     await waitFor(() => expect(screen.queryByText('Can’t reach the server.')).not.toBeInTheDocument())
@@ -243,7 +247,7 @@ describe('App routes', () => {
     await form()
     let fail: (error: unknown) => void = () => {}
     vi.mocked(getSession).mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)))
-    await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled())
     await act(async () => fail(new TypeError('Failed to fetch')))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled())
@@ -313,9 +317,9 @@ describe('App routes', () => {
     vi.mocked(signIn).mockResolvedValue(sessionInfo)
     renderAt('/sign-in')
     await form()
-    await userEvent.type(screen.getByLabelText('Username'), 'admin')
-    await userEvent.type(screen.getByLabelText('Password'), 'secret')
-    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await user.type(screen.getByLabelText('Username'), 'admin')
+    await user.type(screen.getByLabelText('Password'), 'secret')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
     expect(await dashboard()).toBeInTheDocument()
     expect(signOutButton()).toBeInTheDocument()
     expect(signIn).toHaveBeenCalledWith({ username: 'admin', password: 'secret' })
@@ -329,7 +333,7 @@ describe('Sign out', () => {
     await dashboard()
     let finish: () => void = () => {}
     vi.mocked(signOut).mockReturnValue(new Promise<void>((resolve) => (finish = resolve)))
-    await userEvent.click(signOutButton())
+    await user.click(signOutButton())
     expect(signOut).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(signOutButton()).toBeDisabled())
 
@@ -344,7 +348,7 @@ describe('Sign out', () => {
     renderAt('/')
     await dashboard()
     vi.mocked(signOut).mockRejectedValue(problem(500, 'internal_error'))
-    await userEvent.click(signOutButton())
+    await user.click(signOutButton())
     expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t sign out. Try again.')
     await waitFor(() => expect(signOutButton()).toBeEnabled())
     expect(screen.getByRole('heading', { name: 'Services' })).toBeInTheDocument()
@@ -370,7 +374,7 @@ describe('Sign out failures', () => {
     renderAt('/')
     await dashboard()
     vi.mocked(signOut).mockRejectedValue(problem(403, 'csrf_failed'))
-    await userEvent.click(signOutButton())
+    await user.click(signOutButton())
     expect(await screen.findByRole('alert')).toHaveTextContent('The request wasn’t accepted. Reload and try again.')
     await waitFor(() => expect(signOutButton()).toBeEnabled())
     expect(screen.getByRole('heading', { name: 'Services' })).toBeInTheDocument()
@@ -385,7 +389,7 @@ describe('Sign out failures', () => {
     renderAt('/')
     await dashboard()
     vi.mocked(signOut).mockRejectedValue(problem(401, 'unauthenticated'))
-    await userEvent.click(signOutButton())
+    await user.click(signOutButton())
     await form()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryAllByRole('alertdialog', { hidden: true })).toHaveLength(0)
@@ -444,7 +448,7 @@ describe('The dashboard’s public page switch (FR-26)', () => {
     await waitFor(() => expect(control).not.toHaveAttribute('aria-disabled', 'true'))
     expect(screen.getByRole('link', { name: 'Open public page (new tab)' })).toHaveAttribute('href', '/status')
     vi.mocked(updatePublicViewSettings).mockResolvedValueOnce({ enabled: true })
-    await userEvent.click(control)
+    await user.click(control)
     expect(updatePublicViewSettings).toHaveBeenCalledExactlyOnceWith({ enabled: true })
     expect(await screen.findByText('Public page turned on.')).toBeInTheDocument()
     expect(control).toBeChecked()
@@ -488,9 +492,9 @@ describe('The dashboard’s public page switch (FR-26)', () => {
 describe('Add service (FR-6, FR-4)', () => {
   async function fillAndSave() {
     await addServiceForm()
-    await userEvent.type(screen.getByLabelText('Name'), 'Search API')
-    await userEvent.type(screen.getByLabelText('URL'), 'https://search.example.com/health')
-    await userEvent.click(screen.getByRole('button', { name: 'Save service' }))
+    await user.type(screen.getByLabelText('Name'), 'Search API')
+    await user.type(screen.getByLabelText('URL'), 'https://search.example.com/health')
+    await user.click(screen.getByRole('button', { name: 'Save service' }))
   }
 
   it('a valid submit ends on the dashboard with the toast and the new service’s row', async () => {
@@ -536,7 +540,7 @@ describe('Add service (FR-6, FR-4)', () => {
     renderAt('/')
     await dashboard()
     expect(await screen.findByText('No services yet')).toBeInTheDocument()
-    await userEvent.click(screen.getAllByRole('link', { name: 'Add service' })[0])
+    await user.click(screen.getAllByRole('link', { name: 'Add service' })[0])
 
     const created = makeService({ name: 'Search API' })
     vi.mocked(createService).mockImplementation(async () => {
@@ -587,9 +591,9 @@ describe('Leaving a changed Add service form', () => {
     await addServiceForm()
     return rendered
   }
-  const typeName = () => userEvent.type(screen.getByLabelText('Name'), 'Search API')
+  const typeName = () => user.type(screen.getByLabelText('Name'), 'Search API')
   const discard = async () => {
-    await userEvent.click(within(await question()).getByRole('button', { name: 'Discard changes' }))
+    await user.click(within(await question()).getByRole('button', { name: 'Discard changes' }))
   }
   const location = (router: { state: { location: { pathname: string } } }) => router.state.location.pathname
 
@@ -597,7 +601,7 @@ describe('Leaving a changed Add service form', () => {
     it('asks for a changed form, stays on it, and Discard changes ends on the dashboard', async () => {
       const { router } = await openForm()
       await typeName()
-      await userEvent.click(brand())
+      await user.click(brand())
       await question()
       expect(location(router)).toBe('/services/new')
       expect(screen.getByLabelText('Name')).toHaveValue('Search API')
@@ -608,7 +612,7 @@ describe('Leaving a changed Add service form', () => {
 
     it('goes at once for an untouched form', async () => {
       await openForm()
-      await userEvent.click(brand())
+      await user.click(brand())
       expect(await dashboard()).toBeInTheDocument()
       expect(noQuestion()).not.toBeInTheDocument()
     })
@@ -623,7 +627,7 @@ describe('Leaving a changed Add service form', () => {
       await act(async () => router.navigate(-1))
       await question()
       expect(location(router)).toBe('/services/new')
-      await userEvent.click(within(await question()).getByRole('button', { name: 'Keep editing' }))
+      await user.click(within(await question()).getByRole('button', { name: 'Keep editing' }))
       await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
       expect(location(router)).toBe('/services/new')
       expect(screen.getByLabelText('Name')).toHaveValue('Search API')
@@ -631,7 +635,7 @@ describe('Leaving a changed Add service form', () => {
       await act(async () => router.navigate(1))
       await question()
       expect(location(router)).toBe('/services/new')
-      await userEvent.click(within(await question()).getByRole('button', { name: 'Keep editing' }))
+      await user.click(within(await question()).getByRole('button', { name: 'Keep editing' }))
       await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
       expect(screen.getByLabelText('Name')).toHaveValue('Search API')
 
@@ -658,15 +662,15 @@ describe('Leaving a changed Add service form', () => {
       await openForm()
       await typeName()
       vi.mocked(signOut).mockResolvedValue()
-      await userEvent.click(signOutButton())
+      await user.click(signOutButton())
       await question()
       expect(signOut).not.toHaveBeenCalled()
-      await userEvent.click(within(await question()).getByRole('button', { name: 'Keep editing' }))
+      await user.click(within(await question()).getByRole('button', { name: 'Keep editing' }))
       await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
       expect(signOut).not.toHaveBeenCalled()
       expect(screen.getByLabelText('Name')).toHaveValue('Search API')
 
-      await userEvent.click(signOutButton())
+      await user.click(signOutButton())
       await discard()
       await form()
       expect(signOut).toHaveBeenCalledTimes(1)
@@ -678,21 +682,21 @@ describe('Leaving a changed Add service form', () => {
       await openForm()
       await typeName()
       vi.mocked(signOut).mockRejectedValue(problem(500, 'internal_error'))
-      await userEvent.click(signOutButton())
+      await user.click(signOutButton())
       await discard()
       expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t sign out. Try again.')
       await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
       expect(screen.getByLabelText('Name')).toHaveValue('Search API')
       await waitFor(() => expect(signOutButton()).toBeEnabled())
 
-      await userEvent.click(brand())
+      await user.click(brand())
       await question()
     })
 
     it('signs out at once for an untouched form, with no dialog', async () => {
       await openForm()
       vi.mocked(signOut).mockResolvedValue()
-      await userEvent.click(signOutButton())
+      await user.click(signOutButton())
       await form()
       expect(signOut).toHaveBeenCalledTimes(1)
       expect(noQuestion()).not.toBeInTheDocument()
@@ -707,10 +711,10 @@ describe('Leaving a changed Add service form', () => {
       await openForm()
       await typeName()
       opener().focus()
-      await userEvent.keyboard('{Enter}')
+      await user.keyboard('{Enter}')
       const dialog = await question()
       await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Keep editing' })).toHaveFocus())
-      await userEvent.keyboard('{Enter}')
+      await user.keyboard('{Enter}')
       await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
       expect(signOut).not.toHaveBeenCalled()
       await waitFor(() => expect(opener()).toHaveFocus())
@@ -722,9 +726,9 @@ describe('Leaving a changed Add service form', () => {
     ])('Esc closes the question asked by %s', async (_name, opener) => {
       await openForm()
       await typeName()
-      await userEvent.click(opener())
+      await user.click(opener())
       await question()
-      await userEvent.keyboard('{Escape}')
+      await user.keyboard('{Escape}')
       await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
       expect(screen.getByLabelText('Name')).toHaveValue('Search API')
     })
@@ -732,9 +736,9 @@ describe('Leaving a changed Add service form', () => {
     it('a click on the backdrop closes the question', async () => {
       await openForm()
       await typeName()
-      await userEvent.click(signOutButton())
+      await user.click(signOutButton())
       await question()
-      await userEvent.click(document.querySelector('.dialog-backdrop') as HTMLElement)
+      await user.click(document.querySelector('.dialog-backdrop') as HTMLElement)
       await waitFor(() => expect(noQuestion()).not.toBeInTheDocument())
       expect(screen.getByLabelText('Name')).toHaveValue('Search API')
     })
@@ -744,8 +748,8 @@ describe('Leaving a changed Add service form', () => {
     const { router } = await openForm(['/', '/services/new'], 1)
     vi.mocked(createService).mockReturnValue(new Promise(() => {}))
     await typeName()
-    await userEvent.type(screen.getByLabelText('URL'), 'https://search.example.com/health')
-    await userEvent.click(screen.getByRole('button', { name: 'Save service' }))
+    await user.type(screen.getByLabelText('URL'), 'https://search.example.com/health')
+    await user.click(screen.getByRole('button', { name: 'Save service' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled())
     await act(async () => router.navigate(-1))
     expect(await dashboard()).toBeInTheDocument()
@@ -759,8 +763,8 @@ describe('Leaving a changed Add service form', () => {
       throw problem(401, 'unauthenticated')
     })
     await typeName()
-    await userEvent.type(screen.getByLabelText('URL'), 'https://search.example.com/health')
-    await userEvent.click(screen.getByRole('button', { name: 'Save service' }))
+    await user.type(screen.getByLabelText('URL'), 'https://search.example.com/health')
+    await user.click(screen.getByRole('button', { name: 'Save service' }))
     await form()
     expect(screen.getByText('Your session has ended.')).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
