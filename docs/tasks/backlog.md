@@ -47,10 +47,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - `alert-dispatch`: authentication over `starttls` is never exercised: go-mail v0.8.1 authenticates only on an encrypted connection, so `SMTP_TLS=none` with `SMTP_USERNAME` set can never send, and the `starttls` success path is untested (the `tls` path, authentication included, is covered by `mailer-implicit-tls`). Matters when: the SMTP provider is chosen and `SMTP_USERNAME` is set; run the Milestone 2 manual check (`docs/manual-checks.md`) with the real `starttls` or `tls` settings.
 
-- `m3-e2e-journeys`: journey 8's first test cannot detect a pause that does not stop the scheduler (60-second interval, 10-second wait); only `a paused service keeps its state` protects the pause, and it has no alert target, so FR-76 is covered only through "no check ran". Matters when: that second test is changed or removed, or something other than the check path starts sending alerts. Fix to decide: add an email target to the second test, or pause with a short interval and resume with a long one.
-- `m3-e2e-journeys`: M1's `delete-service.spec.ts` uses `waitForTimeout` and writes over HTTP, against the task rules for end-to-end tests. Matters when: `delete-service.spec.ts` is next edited.
-- `backend-test-hardening`: `TestTestHTTP_StalledBodyWithoutRules` keeps a real 150 ms deadline that its healthy verdict must meet (the test waits out its timeout by design, and `TESTING.md` caps an exercised timeout at 200 ms). Matters when: CI runs on a runner much slower than an 8-core laptop under 8 busy loops. Needs: the user, to decide (raising the deadline needs a `TESTING.md` change).
-
 ## Decisions waiting on the user
 
 Each needs a decision, or to be dropped, by the next milestone.
@@ -65,8 +61,3 @@ Each needs a decision, or to be dropped, by the next milestone.
 
 <!-- Fix rounds append here: `- [<task slug>] finding. Matters when: <trigger>.` -->
 
-- [alert-list-screen] Test quality: the "failed reload with rows on screen" criterion is only reached through the delete-404 refetch; the task's screen test for a failed reload and the "both banners" test are one test, so the screen-level `refreshFailed` path has no test of its own (the hook test covers the hook). Matters when: a real reload (a refresh button or polling for this list) is added.
-- [alert-list-screen] Latent bug: `useRemoveTarget` keeps `askedId` if `serviceId` changes while the page stays mounted. No link goes from one alert list to another, so it cannot happen today. Matters when: a service switcher or a prev/next link appears on this page.
-- [backend-hardening] Decision needed: the HTTP test `TestCheckHTTP_JSONBodyReadInsideTimeout` has a real-clock elapsed check (`assert.Less(time.Since(begin), longTimeout)`) that the task did not list; without rules a body read still gives a healthy verdict, so only the elapsed time catches that mutation. Matters when: someone removes the check as "not in the task". Keep it.
-- [backend-hardening] Latent bug: the rate limiter's backing slice keeps its capacity after a burst (`started[:0]` keeps the array, and compaction only runs while a tail is live). Matters when: a single window sees on the order of a million distinct addresses (about 40 MB held until restart).
-- [backend-hardening] Test quality: the limiter cost test is timed on a wall clock (approved in the task). Matters when: a runner stalls for hundreds of µs only during the 50,000-key measurement, and the test starts to flake.
