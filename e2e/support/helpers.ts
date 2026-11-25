@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { expect, type APIRequestContext, type APIResponse, type Locator, type Page } from '@playwright/test'
 import { ADMIN_PASSWORD, ADMIN_USERNAME } from './app'
 
 export type StatusWord = 'Healthy' | 'Unhealthy' | 'Not checked yet'
@@ -517,9 +517,7 @@ export interface PublicApiResult {
   json: unknown
 }
 
-/** `GET /api/public/dashboard` with the given request context. */
-export async function publicApi(request: APIRequestContext): Promise<PublicApiResult> {
-  const res = await request.get('/api/public/dashboard')
+async function readResponse(res: APIResponse): Promise<PublicApiResult> {
   const text = await res.text()
   let json: unknown = null
   try {
@@ -528,6 +526,92 @@ export async function publicApi(request: APIRequestContext): Promise<PublicApiRe
     // not JSON: `json` stays null
   }
   return { status: res.status(), headers: res.headers(), text, json }
+}
+
+/** `GET /api/public/dashboard` with the given request context and optional extra headers. */
+export async function publicApi(request: APIRequestContext, headers: Record<string, string> = {}): Promise<PublicApiResult> {
+  return readResponse(await request.get('/api/public/dashboard', { headers }))
+}
+
+/** `POST /api/session` with a JSON body of the two values. */
+export async function signInApi(
+  request: APIRequestContext,
+  username: string,
+  password: string,
+  headers: Record<string, string> = {},
+): Promise<PublicApiResult> {
+  return signInRaw(request, JSON.stringify({ username, password }), 'application/json', headers)
+}
+
+/** `POST /api/session` with the body and content type exactly as given. */
+export async function signInRaw(
+  request: APIRequestContext,
+  body: string,
+  contentType: string,
+  headers: Record<string, string> = {},
+): Promise<PublicApiResult> {
+  return readResponse(await request.post('/api/session', { data: body, headers: { ...headers, 'content-type': contentType } }))
+}
+
+/** Opens `/sign-in`, fills both fields and presses `Sign in`. Waits for no outcome. */
+export async function attemptSignIn(page: Page, username: string, password: string): Promise<void> {
+  await page.goto('/sign-in')
+  await page.getByLabel('Username').fill(username)
+  await page.getByLabel('Password').fill(password)
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+}
+
+export interface SessionCookie {
+  value: string
+  path: string | null
+  maxAge: string | null
+  httpOnly: boolean
+  secure: boolean
+  sameSite: string | null
+  /** Attributes other than Path, Max-Age, HttpOnly, Secure and SameSite. */
+  other: string[]
+}
+
+/** Parses the single `session` cookie of a `set-cookie` header into named attributes. */
+export function setCookieOf(headers: Record<string, string>): SessionCookie {
+  const header = headers['set-cookie']
+  expect(header, 'set-cookie header').toBeTruthy()
+  const parts = header.split(';').map((p) => p.trim())
+  const [name, ...rest] = parts[0].split('=')
+  expect(name).toBe('session')
+  const cookie: SessionCookie = {
+    value: rest.join('='),
+    path: null,
+    maxAge: null,
+    httpOnly: false,
+    secure: false,
+    sameSite: null,
+    other: [],
+  }
+  for (const attr of parts.slice(1)) {
+    const [key, ...v] = attr.split('=')
+    const val = v.join('=')
+    switch (key.toLowerCase()) {
+      case 'path':
+        cookie.path = val
+        break
+      case 'max-age':
+        cookie.maxAge = val
+        break
+      case 'httponly':
+        cookie.httpOnly = true
+        break
+      case 'secure':
+        cookie.secure = true
+        break
+      case 'samesite':
+        cookie.sameSite = val
+        break
+      default:
+        cookie.other.push(attr)
+    }
+  }
+  return cookie
 }
 
 /** Adds a service through the Add form, from the dashboard. */
