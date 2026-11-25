@@ -223,14 +223,16 @@ test.describe('M5 journeys 10 to 13: the forms by keyboard (NFR-4)', () => {
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
 
-    // 2. The trap; both buttons are marked.
-    const cancel = await tabThrough(page, { max: 0 })
+    // 2. The trap; both buttons are marked, read after each Tab (a script-focused opener leaves the
+    //    first focus without a keyboard mark in Firefox, so the mark is read where Tab put focus).
     await page.keyboard.press('Tab')
     await expect(dialog.getByRole('button', { name: 'Delete service', exact: true })).toBeFocused()
     const del = await tabThrough(page, { max: 0 })
     await page.keyboard.press('Tab')
     await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
-    expectAllMarked([...cancel, ...del])
+    const cancel = await tabThrough(page, { max: 0 })
+    expect([...del, ...cancel].map((s) => s.label)).toEqual(['Delete service', 'Cancel'])
+    expectAllMarked([...del, ...cancel])
     await expectTabStaysIn(page, dialog, 10)
 
     // 3. Escape closes; the row stays; focus returns to the opener.

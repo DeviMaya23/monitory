@@ -695,6 +695,9 @@ export async function tabThrough(page: Page, options: { max: number; scope?: Loc
       if (!inside) break
     }
     if (stop.label === first.label && stop.top === first.top && stop.left === first.left) break
+    // Focus went to the browser's own controls (the document keeps the last element): nothing moved.
+    const last = stops[stops.length - 1]
+    if (stop.label === last.label && stop.top === last.top && stop.left === last.left) break
     stops.push(stop)
   }
   return stops
