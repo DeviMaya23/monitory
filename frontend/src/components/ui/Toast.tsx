@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from 'react'
 import { Toast as BaseToast } from '@base-ui/react/toast'
 import { CircleAlert, CircleCheck, X } from 'lucide-react'
+import { getPortalHost } from './portalHost'
 import { ToastContext, type ToastApi } from './useToast'
 
 /** How long a success toast stays; an error toast stays until dismissed (a timeout of 0). */
@@ -50,9 +51,11 @@ function ToastBridge({ children }: { children: ReactNode }) {
   return (
     <ToastContext value={api}>
       {children}
-      <BaseToast.Viewport className="toast-viewport">
-        <ToastList />
-      </BaseToast.Viewport>
+      <BaseToast.Portal container={getPortalHost()}>
+        <BaseToast.Viewport className="toast-viewport">
+          <ToastList />
+        </BaseToast.Viewport>
+      </BaseToast.Portal>
     </ToastContext>
   )
 }

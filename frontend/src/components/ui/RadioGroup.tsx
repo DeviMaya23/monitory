@@ -13,13 +13,15 @@ type Props<T extends string> = {
   disabled?: boolean
   /** The id of the group element. */
   id?: string
+  /** The id of the element that describes the group (a hint); set as `aria-describedby` on the group. */
+  describedBy?: string
 }
 
 /**
  * A segmented choice of one option (a radio group). The label is rendered above the control
  * and names the group; arrow keys move the choice, Tab enters and leaves the group once.
  */
-export function RadioGroup<T extends string>({ label, value, onValueChange, options, disabled = false, id }: Props<T>) {
+export function RadioGroup<T extends string>({ label, value, onValueChange, options, disabled = false, id, describedBy }: Props<T>) {
   const labelId = useId()
   return (
     <>
@@ -33,6 +35,7 @@ export function RadioGroup<T extends string>({ label, value, onValueChange, opti
         onValueChange={(next) => onValueChange(next as T)}
         disabled={disabled}
         aria-labelledby={labelId}
+        aria-describedby={describedBy}
       >
         {options.map((option) => (
           <label key={option.value}>

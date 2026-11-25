@@ -19,6 +19,11 @@ describe('TypeField', () => {
     expect(screen.getByText('Changing type swaps the fields below.')).toBeInTheDocument()
   })
 
+  it('describes the radiogroup with the hint', () => {
+    render(<Harness />)
+    expect(screen.getByRole('radiogroup', { name: 'Type' })).toHaveAccessibleDescription('Changing type swaps the fields below.')
+  })
+
   it('reports the new type once and keeps focus on the chosen radio', async () => {
     const onChange = vi.fn()
     render(<Harness onChange={onChange} />)

@@ -26,6 +26,20 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+describe('placement', () => {
+  it('renders the viewport inside the portal host, not in the page tree', () => {
+    const { container } = render(
+      <ToastProvider>
+        <span />
+      </ToastProvider>,
+    )
+    const viewport = document.querySelector('.toast-viewport')
+    expect(viewport).not.toBeNull()
+    expect(document.querySelector('[data-portal-host]')).toContainElement(viewport as HTMLElement)
+    expect(container).not.toContainElement(viewport as HTMLElement)
+  })
+})
+
 describe('success toast', () => {
   it('shows its message and is gone after exactly 5,000 ms, not at 4,999', async () => {
     setup({ kind: 'success', message: 'Service added' })

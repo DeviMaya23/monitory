@@ -47,6 +47,16 @@ export function useTargetServerErrors(errors: readonly FieldError[] | null) {
         return { source: errors, fields: new Set([...base.fields, path]), headers: base.headers }
       })
     },
+    /** The type was switched to `next`: the entries of the type no longer shown go (this response only). */
+    clearType: (next: 'email' | 'webhook') => {
+      setEdited((prev) => {
+        const base = prev.source === errors ? prev : NONE
+        if (next === 'email') {
+          return { source: errors, fields: new Set([...base.fields, 'url']), headers: true }
+        }
+        return { source: errors, fields: new Set([...base.fields, 'address']), headers: base.headers }
+      })
+    },
     /** A header row went: the bare `headers` error and every `headers[…]` error go (the indexes moved). */
     clearHeaders: () => {
       setEdited((prev) => {

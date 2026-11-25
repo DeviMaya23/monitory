@@ -4,7 +4,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appRoutes } from './App'
 import { setUnauthenticatedHandler } from './lib/api/request'
-import { createService, deleteService, getService, listServices, updateService } from './lib/api/services'
+import { createService, deleteService, getService, listServices, updateService, type Service } from './lib/api/services'
 import { getPublicDashboard } from './lib/api/publicDashboard'
 import { getPublicViewSettings, updatePublicViewSettings } from './lib/api/publicView'
 import { listTargets } from './lib/api/targets'
@@ -561,6 +561,28 @@ describe('Add service (FR-6, FR-4)', () => {
     expect(stale).toBe(false)
   })
 
+  it('a save that finishes after the admin has gone back to the dashboard refreshes the list (FR-95)', async () => {
+    vi.mocked(getSession).mockResolvedValue(sessionInfo)
+    const created = makeService({ name: 'Search API' })
+    let finish: (service: Service) => void = () => {}
+    let saved = false
+    vi.mocked(listServices).mockImplementation(async () => (saved ? makeServiceList(created) : []))
+    vi.mocked(createService).mockReturnValue(new Promise<Service>((resolve) => (finish = resolve)))
+    renderAt('/')
+    await dashboard()
+    expect(await screen.findByText('No services yet')).toBeInTheDocument()
+    await user.click(screen.getAllByRole('link', { name: 'Add service' })[0])
+    await fillAndSave()
+    await user.click(screen.getByRole('link', { name: 'Monitory' }))
+    await dashboard()
+    expect(await screen.findByText('No services yet')).toBeInTheDocument()
+    const before = vi.mocked(listServices).mock.calls.length
+    saved = true
+    await act(async () => finish(created))
+    expect(await screen.findByText('Search API')).toBeInTheDocument()
+    expect(vi.mocked(listServices).mock.calls.length).toBeGreaterThan(before)
+  })
+
   it('a 401 unauthenticated ends on the sign-in form with the notice and no banner', async () => {
     vi.mocked(getSession).mockResolvedValue(sessionInfo)
     renderAt('/services/new')
@@ -643,6 +665,18 @@ describe('Leaving a changed Add service form', () => {
       await discard()
       expect(await dashboard()).toBeInTheDocument()
       expect(location(router)).toBe('/')
+    })
+
+    it('Discard changes completes a Forward to the alert list, with no second question', async () => {
+      const { router } = await openForm(entries, 1)
+      await typeName()
+      await act(async () => router.navigate(1))
+      await question()
+      expect(location(router)).toBe('/services/new')
+      await discard()
+      expect(await screen.findByRole('heading', { name: 'Alert list' })).toBeInTheDocument()
+      expect(location(router)).toBe('/services/s1/alerts')
+      expect(noQuestion()).not.toBeInTheDocument()
     })
 
     it('move at once for an untouched form', async () => {

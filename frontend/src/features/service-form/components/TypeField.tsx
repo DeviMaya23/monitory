@@ -29,6 +29,7 @@ export function TypeField({ control, saving, onChange }: Props) {
             }}
             options={TYPE_OPTIONS}
             disabled={saving}
+            describedBy={TYPE_HINT_ID}
           />
         )}
       />
