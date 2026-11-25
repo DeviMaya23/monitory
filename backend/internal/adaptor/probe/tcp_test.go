@@ -199,10 +199,11 @@ func TestCheckTCP_EmptyHost(t *testing.T) {
 }
 
 func TestCheckTCP_Timeout(t *testing.T) {
-	var deadline time.Time
+	var deadline, dialedAt time.Time
 	var hasDeadline bool
 	p, _ := dialStub(func(ctx context.Context, address string) (net.Conn, error) {
 		deadline, hasDeadline = ctx.Deadline()
+		dialedAt = time.Now()
 		if !hasDeadline {
 			// Fail at once: blocking here would hang the test until go test's own limit.
 			return nil, errors.New("the dial context has no deadline")
@@ -221,6 +222,10 @@ func TestCheckTCP_Timeout(t *testing.T) {
 	// late the test runs.
 	assert.False(t, deadline.Before(begin.Add(50*time.Millisecond)), "deadline %v is before begin + 50ms", deadline)
 	assert.False(t, deadline.After(end.Add(50*time.Millisecond)), "deadline %v is after end + 50ms", deadline)
+	// The deadline exists before the dialer is called, so it cannot lie more than the
+	// timeout past the moment the dialer started. Unlike end, which waits for the
+	// deadline, this catches a timeout that is too long.
+	assert.False(t, deadline.After(dialedAt.Add(50*time.Millisecond)), "deadline %v is after the dial start + 50ms", deadline)
 }
 
 func TestCheckTCP_NonPositiveTimeout(t *testing.T) {

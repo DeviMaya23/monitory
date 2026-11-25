@@ -1,6 +1,7 @@
 package memstore_test
 
 import (
+	"math/rand/v2"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -318,4 +319,78 @@ func TestRateLimiter_CostDoesNotGrowWithLiveKeys(t *testing.T) {
 
 	t.Logf("mean per call: 50 keys %v, 50,000 keys %v", meanSmall, meanLarge)
 	assert.Less(t, meanLarge, 50*meanSmall+5*time.Microsecond)
+}
+
+func TestRateLimiter_KeyReturnsAtTheInstantAnotherKeyExpires(t *testing.T) {
+	l, c := newLimiter()
+	l.Allow("a")
+	l.Allow("b") // b's window ends at the same instant as a's
+	c.Advance(10 * time.Second)
+	l.Allow("c")
+
+	c.Advance(testWindow - 10*time.Second) // a and b end now; c is running
+	allowed, wait := l.Allow("a")
+	assert.True(t, allowed)
+	assert.Zero(t, wait)
+	assert.Equal(t, 2, l.Len(), "c and the new window of a")
+
+	c.Advance(10 * time.Second) // c ends; a's new window has 50 s left
+	l.Allow("d")
+	assert.Equal(t, 2, l.Len(), "a and d")
+	c.Advance(testWindow - 10*time.Second - time.Nanosecond)
+	l.Allow("e")
+	assert.Equal(t, 3, l.Len(), "a, d and e: a's new window ends one step later")
+	c.Advance(time.Nanosecond)
+	l.Allow("e")
+	assert.Equal(t, 2, l.Len(), "d and e: a has ended")
+}
+
+// naiveLimiter is the rule written the plain way, scanning every key.
+type naiveLimiter struct {
+	windows map[string]*struct {
+		end   time.Time
+		count int
+	}
+}
+
+func TestRateLimiter_MatchesAPlainModelOverRandomCalls(t *testing.T) {
+	const limit = 2
+	c := clock.NewFake(start)
+	l := memstore.NewRateLimiter(c, limit, testWindow)
+	model := naiveLimiter{windows: map[string]*struct {
+		end   time.Time
+		count int
+	}{}}
+	rng := rand.New(rand.NewPCG(1, 2))
+	// Many keys and short steps keep thousands of windows running and ending, so the
+	// queue's front is consumed past its compaction threshold.
+	for i := range 60_000 {
+		c.Advance(time.Duration(rng.IntN(3)) * time.Second)
+		now := c.Now()
+		key := "k" + strconv.Itoa(rng.IntN(4000))
+
+		for k, w := range model.windows {
+			if !now.Before(w.end) {
+				delete(model.windows, k)
+			}
+		}
+		w, ok := model.windows[key]
+		if !ok {
+			w = &struct {
+				end   time.Time
+				count int
+			}{end: now.Add(testWindow)}
+		}
+		wantAllowed, wantWait := false, w.end.Sub(now)
+		if w.count < limit {
+			w.count++
+			model.windows[key] = w
+			wantAllowed, wantWait = true, 0
+		}
+
+		allowed, wait := l.Allow(key)
+		require.Equal(t, wantAllowed, allowed, "call %d, key %s", i, key)
+		require.Equal(t, wantWait, wait, "call %d, key %s", i, key)
+		require.Equal(t, len(model.windows), l.Len(), "call %d", i)
+	}
 }
