@@ -620,3 +620,111 @@ export async function createService(page: Page, spec: ServiceSpec): Promise<void
   await fillServiceForm(page, spec)
   await saveService(page)
 }
+
+// ---- Milestone 5: keyboard journeys ----
+
+export interface TabStop {
+  /** The control's accessible name: its `aria-label`, its associated label text, or its own text. */
+  label: string
+  /** Bounding box, in page coordinates, read right after the Tab. */
+  top: number
+  left: number
+  /** The focus mark: an outline of the control, or of its closest `label` ancestor, is drawn. */
+  marked: boolean
+}
+
+/** Reads the control that has focus: its name, its page position and whether it carries a focus outline. */
+async function activeStop(page: Page): Promise<TabStop> {
+  return page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null
+    if (!el || el === document.body) return { label: '(body)', top: 0, left: 0, marked: false }
+    const text = (node: Element | null) => (node?.textContent ?? '').replace(/\s+/g, ' ').trim()
+    let label = el.getAttribute('aria-label') ?? ''
+    if (!label) {
+      const by = el.getAttribute('aria-labelledby')
+      if (by) label = by.split(/\s+/).map((id) => text(document.getElementById(id))).join(' ').trim()
+    }
+    if (!label) {
+      const labels = (el as HTMLInputElement).labels
+      if (labels && labels.length > 0) label = Array.from(labels).map((l) => text(l)).join(' ').trim()
+    }
+    if (!label) label = text(el)
+    const rect = el.getBoundingClientRect()
+    const outlined = (node: Element | null) => {
+      if (!node) return false
+      const style = getComputedStyle(node)
+      return style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0
+    }
+    return {
+      label,
+      top: rect.top + window.scrollY,
+      left: rect.left + window.scrollX,
+      marked: outlined(el) || outlined(el.closest('label')),
+    }
+  })
+}
+
+/**
+ * The control that has focus is the first stop; then presses Tab up to `max` times.
+ * Stops when focus returns to the first stop, leaves `scope`, or at `max`.
+ */
+export async function tabThrough(page: Page, options: { max: number; scope?: Locator }): Promise<TabStop[]> {
+  const first = await activeStop(page)
+  const stops: TabStop[] = [first]
+  const handle = options.scope ? await options.scope.elementHandle() : null
+  for (let i = 0; i < options.max; i++) {
+    await page.keyboard.press('Tab')
+    const stop = await activeStop(page)
+    if (handle) {
+      const inside = await page.evaluate((root) => root.contains(document.activeElement), handle)
+      if (!inside) break
+    }
+    if (stop.label === first.label && stop.top === first.top && stop.left === first.left) break
+    stops.push(stop)
+  }
+  return stops
+}
+
+/** Presses Tab `count` times; after each press the active element is inside `scope`. */
+export async function expectTabStaysIn(page: Page, scope: Locator, count: number): Promise<void> {
+  const handle = await scope.elementHandle()
+  expect(handle, 'the scope is on the page').not.toBeNull()
+  for (let i = 0; i < count; i++) {
+    await page.keyboard.press('Tab')
+    const inside = await page.evaluate((root) => root.contains(document.activeElement), handle!)
+    expect(inside, `focus is inside the scope after Tab ${i + 1}`).toBe(true)
+  }
+}
+
+/** Reading order: top to bottom, left to right, among the stops whose label is not exempt. */
+export function expectReadingOrder(stops: TabStop[], options: { exempt: string[] }): void {
+  const list = stops.filter((s) => !options.exempt.includes(s.label))
+  for (let i = 1; i < list.length; i++) {
+    const prev = list[i - 1]
+    const next = list[i]
+    const where = `${prev.label} (${prev.top}, ${prev.left}) then ${next.label} (${next.top}, ${next.left})`
+    expect(next.top, `not above the previous: ${where}`).toBeGreaterThanOrEqual(prev.top - 4)
+    if (Math.abs(next.top - prev.top) <= 4) expect(next.left, `to the right of the previous: ${where}`).toBeGreaterThan(prev.left)
+  }
+}
+
+/** Every stop of the `actions` set comes after every other stop in the Tab order. */
+export function expectFieldsBeforeActions(stops: TabStop[], actions: string[]): void {
+  const labels = stops.map((s) => s.label)
+  const firstAction = labels.findIndex((l) => actions.includes(l))
+  expect(firstAction, 'an action is among the stops').toBeGreaterThanOrEqual(0)
+  for (let i = firstAction; i < labels.length; i++) {
+    expect(actions, `${labels[i]} comes after the fields, so it is an action`).toContain(labels[i])
+  }
+}
+
+/** Every label is among the stops' labels, by exact name. */
+export function expectReached(stops: TabStop[], labels: string[]): void {
+  const have = stops.map((s) => s.label)
+  for (const label of labels) expect(have, `${label} is reached by Tab`).toContain(label)
+}
+
+/** Every stop carries the focus mark. */
+export function expectAllMarked(stops: TabStop[]): void {
+  for (const stop of stops) expect(stop.marked, `${stop.label} has a focus mark`).toBe(true)
+}

@@ -2,8 +2,8 @@
 
 Branch: `feat/m5-e2e-journeys`. Only `e2e/**` and this file change.
 
-- [ ] Support code: `tabThrough`, `expectTabStaysIn`, `expectReadingOrder`, `expectFieldsBeforeActions`, `expectReached` in `e2e/support/helpers.ts`.
-- [ ] Journey 9 (steps 1 to 5: services body, targets bodies, public switch, visitor names, A resumes and B stays stopped): `e2e/journeys/data-survives-restart.spec.ts`, test `M5 journey 9 ...`.
+- [x] Support code: `tabThrough`, `expectTabStaysIn`, `expectReadingOrder`, `expectFieldsBeforeActions`, `expectReached` in `e2e/support/helpers.ts`.
+- [x] Journey 9 (steps 1 to 5: services body, targets bodies, public switch, visitor names, A resumes and B stays stopped): `e2e/journeys/data-survives-restart.spec.ts`, test `M5 journey 9 ...`.
 - [ ] Journey 10 (sign-in form by keyboard, steps 1 to 4, first test `@smoke`): `e2e/journeys/keyboard.spec.ts`, tests `M5 journey 10 ...` (two).
 - [ ] Journey 11 (add and edit service forms by keyboard, steps 1 to 6, hint description, arrow swap, Enter saves): `e2e/journeys/keyboard.spec.ts`, test `M5 journey 11 ...`.
 - [ ] Journey 12 (target dialog by keyboard, steps 1 to 6): `e2e/journeys/keyboard.spec.ts`, test `M5 journey 12 ...`.
