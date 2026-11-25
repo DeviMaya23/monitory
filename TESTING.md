@@ -10,7 +10,7 @@ From `docs/requirements.md` section 8.
 
 - **Top failure modes:** (1) an outage the admin is not told about; (2) data loss after a restart or upgrade; (3) a break-in to the admin login.
 - **High-risk paths (get the deepest tests):** (1) the check-to-alert chain: add a service, first check, status change, alert delivered or the failure noticed (FR-67, FR-21, FR-24, FR-85, FR-86); (2) restart and upgrade keep services, alert lists, settings and state (NFR-1, FR-111); (3) first start and sign-in (FR-102, FR-1, FR-101).
-- **Milestones:** 1 basic monitoring; 2 alerting; 3 full check settings; 4 public view and health endpoint; 5 release hardening. Each ends with its end-to-end journeys passing.
+- **Milestones:** 1 basic monitoring; 2 alerting; 3 full check settings; 4 public view and health endpoint; 5 release hardening. Each ends with its end-to-end journeys passing; that closing work may be split across more than one task.
 
 ## Tiers
 
@@ -18,7 +18,7 @@ From `docs/requirements.md` section 8.
 |---|---|---|---|---|
 | Per task | every task | the builder | builder, verifier, CI | unit, repository and integration tests matched to the task's risk |
 | Contract conformance | every task that adds or changes an operation | the builder | builder, verifier, CI | responses and frontend mocks validated against `docs/openapi.yaml` |
-| End-to-end | the last task of each milestone | that task's builder | agents and CI: the Chromium smoke subset on pull requests. CI: the full suite in three browsers on `main`, nightly and on demand (`e2e-full.yml`) | the milestone's journeys through the real binary |
+| End-to-end | the closing task or tasks of each milestone | the builder of each such task | agents and CI: the Chromium smoke subset on pull requests. CI: the full suite in three browsers on `main`, nightly and on demand (`e2e-full.yml`) | the milestone's journeys through the real binary |
 | Manual | at each milestone and before release | the user | the user | `docs/manual-checks.md` |
 
 Feature tasks write no end-to-end tests. Every bug found by hand leaves a trap behind: a test that fails without the fix, in the existing test file for that code.

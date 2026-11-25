@@ -13,7 +13,7 @@ How the work divides between agent roles. Every agent also follows `AGENTS.md`, 
 | Foundation | Done at kickoff (skill step E), before any task chain, by the kickoff session with the user: project scaffold, migrations for the core entities, shared types, test support. Not a task role once the chain starts | Feature work |
 | Backend | `backend/**`, except migrations | `frontend/**`, the contract, existing migrations |
 | Frontend | `frontend/**` | `backend/**`, the contract, `docs/design/**` |
-| End-to-end | `e2e/**`, as the builder of a milestone's last task | `backend/**`, `frontend/**`, the contract |
+| End-to-end | `e2e/**`, as the builder of a milestone's closing end-to-end task (a milestone may have more than one) | `backend/**`, `frontend/**`, the contract |
 | Integrator | Any file, to merge work and fix the seams between pieces | Add features, or change requirements |
 | Verifier | Tests and a verification report | Source code |
 | Drafter | The task files it drafts (`docs/tasks/<slug>.md`) and `docs/tasks/backlog.md`, in an interactive session with the user (see `docs/tasks/AUTHORING.md`) | Everything else: code, tests, the contract, requirements, other docs |
