@@ -1,6 +1,7 @@
 package memstore_test
 
 import (
+	"math/rand/v2"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -216,4 +217,180 @@ func TestRateLimiter_ConcurrentRequestsOfManyKeysAreCountedPerKey(t *testing.T) 
 
 	assert.EqualValues(t, 20*5, allowed.Load())
 	assert.Equal(t, 20, l.Len())
+}
+
+func TestRateLimiter_StaggeredWindowsLeaveInOrder(t *testing.T) {
+	l, c := newLimiter()
+	l.Allow("a")
+	c.Advance(30 * time.Second)
+	l.Allow("b")
+	l.Allow("c")
+
+	c.Advance(30 * time.Second) // T + 60 s: a's window has ended
+	l.Allow("d")
+	assert.Equal(t, 3, l.Len(), "b, c, d")
+
+	c.Advance(30 * time.Second) // T + 90 s: b and c have ended
+	l.Allow("e")
+	assert.Equal(t, 2, l.Len(), "d, e")
+}
+
+func TestRateLimiter_ManyKeysStartedTogetherAllGoInOneCall(t *testing.T) {
+	l, c := newLimiter()
+	for i := range 1000 {
+		l.Allow("key-" + strconv.Itoa(i))
+	}
+	require.Equal(t, 1000, l.Len())
+
+	c.Advance(testWindow)
+	l.Allow("another")
+
+	assert.Equal(t, 1, l.Len())
+}
+
+func TestRateLimiter_ReturningKeyGetsAFreshWindowAndOneEntry(t *testing.T) {
+	l, c := newLimiter()
+	for range testLimit {
+		l.Allow("a")
+	}
+	c.Advance(testWindow)
+
+	allowed, _ := l.Allow("a")
+	require.True(t, allowed)
+	l.Allow("a")
+	assert.Equal(t, 1, l.Len())
+
+	// Counted from 1 again: the limit is reached after testLimit new requests, not fewer.
+	allowed, _ = l.Allow("a")
+	assert.True(t, allowed, "request %d of the new window", testLimit)
+	allowed, wait := l.Allow("a")
+	assert.False(t, allowed)
+	assert.Equal(t, testWindow, wait)
+	assert.Equal(t, 1, l.Len())
+}
+
+func TestRateLimiter_RefusedRequestAddsNoEntryAndKeepsTheWindowEnd(t *testing.T) {
+	l, c := newLimiter()
+	for range testLimit {
+		l.Allow("a")
+	}
+	for i := 1; i <= 5; i++ {
+		c.Advance(10 * time.Second)
+		allowed, wait := l.Allow("a")
+		require.False(t, allowed)
+		require.Equal(t, testWindow-time.Duration(i)*10*time.Second, wait)
+		require.Equal(t, 1, l.Len())
+	}
+
+	c.Advance(10 * time.Second) // 60 s after the window began
+	l.Allow("b")
+
+	assert.Equal(t, 1, l.Len(), "a's window ended at its original time")
+}
+
+// This test measures CPU work with the real clock, not waiting on a timer: a fake clock
+// cannot show the cost of a call. The user's approval of the task is what allows it
+// (TESTING.md says memstore tests use the fake clock). Both sizes run on the same
+// machine, so a slow runner scales both sides.
+func TestRateLimiter_CostDoesNotGrowWithLiveKeys(t *testing.T) {
+	const calls = 2000
+	filled := func(keys int) *memstore.RateLimiter {
+		l := memstore.NewRateLimiter(clock.NewFake(start), 1_000_000, testWindow)
+		for i := range keys {
+			l.Allow("key-" + strconv.Itoa(i))
+		}
+		return l
+	}
+	mean := func(l *memstore.RateLimiter) time.Duration {
+		best := time.Duration(1<<63 - 1)
+		for range 5 {
+			begin := time.Now()
+			for range calls {
+				l.Allow("key-0")
+			}
+			best = min(best, time.Since(begin)/calls)
+		}
+		return best
+	}
+	small, large := filled(50), filled(50_000)
+
+	meanSmall := mean(small)
+	meanLarge := mean(large)
+
+	t.Logf("mean per call: 50 keys %v, 50,000 keys %v", meanSmall, meanLarge)
+	assert.Less(t, meanLarge, 50*meanSmall+5*time.Microsecond)
+}
+
+func TestRateLimiter_KeyReturnsAtTheInstantAnotherKeyExpires(t *testing.T) {
+	l, c := newLimiter()
+	l.Allow("a")
+	l.Allow("b") // b's window ends at the same instant as a's
+	c.Advance(10 * time.Second)
+	l.Allow("c")
+
+	c.Advance(testWindow - 10*time.Second) // a and b end now; c is running
+	allowed, wait := l.Allow("a")
+	assert.True(t, allowed)
+	assert.Zero(t, wait)
+	assert.Equal(t, 2, l.Len(), "c and the new window of a")
+
+	c.Advance(10 * time.Second) // c ends; a's new window has 50 s left
+	l.Allow("d")
+	assert.Equal(t, 2, l.Len(), "a and d")
+	c.Advance(testWindow - 10*time.Second - time.Nanosecond)
+	l.Allow("e")
+	assert.Equal(t, 3, l.Len(), "a, d and e: a's new window ends one step later")
+	c.Advance(time.Nanosecond)
+	l.Allow("e")
+	assert.Equal(t, 2, l.Len(), "d and e: a has ended")
+}
+
+// naiveLimiter is the rule written the plain way, scanning every key.
+type naiveLimiter struct {
+	windows map[string]*struct {
+		end   time.Time
+		count int
+	}
+}
+
+func TestRateLimiter_MatchesAPlainModelOverRandomCalls(t *testing.T) {
+	const limit = 2
+	c := clock.NewFake(start)
+	l := memstore.NewRateLimiter(c, limit, testWindow)
+	model := naiveLimiter{windows: map[string]*struct {
+		end   time.Time
+		count int
+	}{}}
+	rng := rand.New(rand.NewPCG(1, 2))
+	// Many keys and short steps keep thousands of windows running and ending, so the
+	// queue's front is consumed past its compaction threshold.
+	for i := range 60_000 {
+		c.Advance(time.Duration(rng.IntN(3)) * time.Second)
+		now := c.Now()
+		key := "k" + strconv.Itoa(rng.IntN(4000))
+
+		for k, w := range model.windows {
+			if !now.Before(w.end) {
+				delete(model.windows, k)
+			}
+		}
+		w, ok := model.windows[key]
+		if !ok {
+			w = &struct {
+				end   time.Time
+				count int
+			}{end: now.Add(testWindow)}
+		}
+		wantAllowed, wantWait := false, w.end.Sub(now)
+		if w.count < limit {
+			w.count++
+			model.windows[key] = w
+			wantAllowed, wantWait = true, 0
+		}
+
+		allowed, wait := l.Allow(key)
+		require.Equal(t, wantAllowed, allowed, "call %d, key %s", i, key)
+		require.Equal(t, wantWait, wait, "call %d, key %s", i, key)
+		require.Equal(t, len(model.windows), l.Len(), "call %d", i)
+	}
 }

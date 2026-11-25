@@ -16,6 +16,16 @@ type RateLimiter struct {
 
 	mu      sync.Mutex
 	windows map[string]rateWindow
+	// started lists the running windows in the order they began. Every window has the
+	// same length, so they also end in that order: ended ones are taken from the
+	// front (started[head:]), and the removal stops at the first running one.
+	started []startedWindow
+	head    int
+}
+
+type startedWindow struct {
+	key string
+	end time.Time
 }
 
 type rateWindow struct {
@@ -38,15 +48,12 @@ func (l *RateLimiter) Allow(key string) (allowed bool, wait time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.clock.Now()
-	for k, w := range l.windows {
-		if !now.Before(w.end) {
-			delete(l.windows, k)
-		}
-	}
+	l.expire(now)
 
 	w, ok := l.windows[key]
 	if !ok {
 		w = rateWindow{end: now.Add(l.window)}
+		l.started = append(l.started, startedWindow{key: key, end: w.end})
 	}
 	if w.count >= l.limit {
 		return false, w.end.Sub(now)
@@ -61,4 +68,23 @@ func (l *RateLimiter) Len() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return len(l.windows)
+}
+
+// expire removes the windows that have ended, oldest first, and stops at the first
+// running one. The caller holds the lock.
+func (l *RateLimiter) expire(now time.Time) {
+	for l.head < len(l.started) && !now.Before(l.started[l.head].end) {
+		delete(l.windows, l.started[l.head].key)
+		l.started[l.head] = startedWindow{} // let the key's string be collected
+		l.head++
+	}
+	switch {
+	case l.head == len(l.started):
+		l.started, l.head = l.started[:0], 0
+	case l.head >= 1024 && l.head*2 >= len(l.started):
+		// Move the live tail down so the consumed front does not grow without bound.
+		n := copy(l.started, l.started[l.head:])
+		clear(l.started[n:])
+		l.started, l.head = l.started[:n], 0
+	}
 }
