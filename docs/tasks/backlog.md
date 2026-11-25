@@ -31,10 +31,6 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 | Requirement | Operation | Screen | Notes |
 |---|---|---|---|
-| FR-2 | none | none | Left out of `sign-in-lockout-api` and `sign-in-locked-screen`: the end-to-end journey (5 wrong attempts, then the right password is refused; the locked state is on screen; a restart clears it) |
-| FR-99 | `signIn`, `getPublicDashboard` | none | `TRUST_PROXY`, `CLIENT_IP_HEADER`: the policy router resolves the scheme and the client address. Left: the journey with trust on |
-| NFR-1 | none | none | Restart and upgrade with data, against the Docker image and a volume |
-| NFR-4 | none | All forms, delete dialog | Keyboard journeys in the end-to-end suite |
 | NFR-2, NFR-3 | none | All screens | By hand: `docs/manual-checks.md` |
 
 ## Cross-cutting and later
@@ -49,23 +45,11 @@ Derived from the contract and the requirements at scaffold time: a coverage map 
 
 - `sign-in-screen`: the three focus effects and four refs sit in `SignInForm` rather than a hook, against the hook-per-concern rule in `CONVENTIONS.md` ("Component and hook granularity"). Matters when: a second screen needs the same focus-follows-outcome logic, or the convention is read as strict.
 
-- `add-service-screen`: if the admin leaves by the back link while a save is in flight, the dashboard stays stale until the next automatic refresh (FR-95), because `removeQueries` does not refetch a query that is already mounted. Adding `invalidateQueries` would cover it, but changes what the task specified. Matters when: a slow or overloaded server makes a save take longer than the admin waits. Needs: the user, to approve the change.
-- `portal-into-app`: the toast viewport is `position: fixed` inside `.app`, which has `container-type: inline-size` and so contains fixed descendants; it is positioned against `#root`'s box, not the viewport. Not checked in a browser. Matters when: a toast shows on a page taller than the window (the dashboard with many services) and sits at the bottom of the page instead of the window, or the milestone check of the toasts is run.
-
-- `portal-into-app`: the dialog host has `z-index: 40`, above the toast viewport (30), so a toast fired while a dialog or alert dialog is open sits under the backdrop and cannot be read. Today's order before the task had the toast above. A host value below 30 (for example 25) keeps the old order. Matters when: a toast fires while a dialog is open (a failed removal in the alert list, a save result while a dialog is still closing).
-
 - `alert-dispatch`: authentication over `starttls` is never exercised: go-mail v0.8.1 authenticates only on an encrypted connection, so `SMTP_TLS=none` with `SMTP_USERNAME` set can never send, and the `starttls` success path is untested (the `tls` path, authentication included, is covered by `mailer-implicit-tls`). Matters when: the SMTP provider is chosen and `SMTP_USERNAME` is set; run the Milestone 2 manual check (`docs/manual-checks.md`) with the real `starttls` or `tls` settings.
 
-- `target-form-dialog`: a `422` summary keeps the entries of the inactive type. After a `url` error, switching to Email leaves `Webhook URL: …` in the summary with a link that moves focus nowhere, while its message is hidden with the field. Matters when: an admin gets a `url` or `headers` error and then switches type. Needs: the user, to decide whether a type switch drops the other type's entries.
-
-- `leave-prompt-data-router`: in the Back and Forward test, `Discard changes` is only exercised for Back; Forward is asked and kept but never discarded. Matters when: someone changes how a pending `POP` forward is proceeded (for example by moving the `leaveWithoutAsking` rule).
-- `service-form-type-tcp`: the Type hint (`Changing type swaps the fields below.`) is not linked to the radio group by `aria-describedby`, because the `RadioGroup` wrapper takes no such prop. Matters when: the milestone 5 keyboard and screen-reader check (NFR-4) is run, or the wrapper is next changed.
-- `backend-test-hardening`: two probe tests keep a real 150 ms deadline that a healthy path must meet (`TestCheckHTTP_JSONBodyReadInsideTimeout`, `TestTestHTTP_StalledBodyWithoutRules`); raising it changes the scenario. Matters when: CI runs on a runner much slower than an 8-core laptop under 8 busy loops. Needs: the user, to decide.
-- `backend-test-hardening`: `tcp_test.go` asserts `WithinDuration(..., 40ms)` against `time.Now()` (around line 219). Matters when: a loaded CI runner delays the stub's recorded deadline by more than 40 ms.
-
-- `public-dashboard-api`: the rate limiter prunes by scanning the whole map on every call, under the one lock, so the cost grows with the number of distinct addresses seen in the last minute. Matters when: tens of thousands of distinct addresses hit the public path in one minute.
 - `m3-e2e-journeys`: journey 8's first test cannot detect a pause that does not stop the scheduler (60-second interval, 10-second wait); only `a paused service keeps its state` protects the pause, and it has no alert target, so FR-76 is covered only through "no check ran". Matters when: that second test is changed or removed, or something other than the check path starts sending alerts. Fix to decide: add an email target to the second test, or pause with a short interval and resume with a long one.
 - `m3-e2e-journeys`: M1's `delete-service.spec.ts` uses `waitForTimeout` and writes over HTTP, against the task rules for end-to-end tests. Matters when: `delete-service.spec.ts` is next edited.
+- `backend-test-hardening`: `TestTestHTTP_StalledBodyWithoutRules` keeps a real 150 ms deadline that its healthy verdict must meet (the test waits out its timeout by design, and `TESTING.md` caps an exercised timeout at 200 ms). Matters when: CI runs on a runner much slower than an 8-core laptop under 8 busy loops. Needs: the user, to decide (raising the deadline needs a `TESTING.md` change).
 
 ## Decisions waiting on the user
 
