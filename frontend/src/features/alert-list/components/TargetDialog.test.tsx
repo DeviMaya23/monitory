@@ -578,6 +578,18 @@ describe('failures', () => {
       expect(nameInput()).toHaveAccessibleDescription('Name is too long.')
     })
 
+    it('choosing the type that is already chosen changes nothing', async () => {
+      rejectWith(fieldError('name', 'Name is too long.'), fieldError('address', 'Not an address.'))
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await fillEmail('bad')
+      await submit()
+      const summary = await inDialog().findByRole('alert')
+      await user.click(emailRadio())
+      expect(summary).toHaveTextContent('2 fields need fixing before this can be saved.')
+      expect(addressInput()).toHaveAccessibleDescription('Not an address.')
+    })
+
     it('Webhook drops the address entry and keeps Name', async () => {
       rejectWith(fieldError('name', 'Name is too long.'), fieldError('address', 'Not an address.'))
       await shown(makeTargetList(mail))

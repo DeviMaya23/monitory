@@ -76,6 +76,21 @@ describe('useSaveService', () => {
       expect(onSaved).toHaveBeenCalledTimes(1)
     })
 
+    it('does not wait for the refetch: onSaved and saved come while it is still pending, after it started', async () => {
+      let release: (list: Service[]) => void = () => {}
+      const list = vi.fn(() => new Promise<Service[]>((resolve) => (release = resolve)))
+      const { onSaved, saver } = withObserver(async () => makeService(), list)
+      const startedWhenSaved: number[] = []
+      onSaved.mockImplementation(() => startedWhenSaved.push(list.mock.calls.length))
+      await act(async () => {
+        await saver.result.current.submit(ADD_DEFAULT_VALUES)
+      })
+      expect(onSaved).toHaveBeenCalledTimes(1)
+      expect(startedWhenSaved).toEqual([1])
+      expect(saver.result.current.saved).toBe(true)
+      await act(async () => release([]))
+    })
+
     it('a failed refetch changes nothing about the save: saved, no failure, onSaved ran', async () => {
       const list = vi.fn(async () => {
         throw new Error('down')
