@@ -38,8 +38,8 @@ export function toFailure(error: unknown, mode: SaveMode): SaveFailure | null {
 
 /**
  * The save state machine over a `send` function: the in-flight guard, the on-screen check, the
- * classification of a failure and the removal of the cached service list (the dashboard then
- * loads fresh). `onSaved` runs on a 200 only if the form is still on screen.
+ * classification of a failure and the refresh of the cached service list (refetched when the dashboard
+ * is mounted, removed otherwise). `onSaved` runs on a 200 only if the form is still on screen.
  */
 export function useSaveService(
   mode: SaveMode,
@@ -61,7 +61,16 @@ export function useSaveService(
     }
   }, [])
 
-  const dropList = () => queryClient.removeQueries({ queryKey: servicesQueryKey, exact: true })
+  // A mounted dashboard keeps its list and refetches it; otherwise the list is dropped and loads
+  // fresh on mount. The refetch is not awaited: its failure is the dashboard's own state (FR-95).
+  const refreshList = () => {
+    const query = queryClient.getQueryCache().find({ queryKey: servicesQueryKey, exact: true })
+    if (query?.isActive()) {
+      void queryClient.refetchQueries({ queryKey: servicesQueryKey, exact: true }).catch(() => {})
+    } else {
+      queryClient.removeQueries({ queryKey: servicesQueryKey, exact: true })
+    }
+  }
 
   const submit = async (values: ServiceFormValues) => {
     if (inFlight.current) return
@@ -70,7 +79,7 @@ export function useSaveService(
     setSaving(true)
     try {
       const service = await send(values)
-      dropList()
+      refreshList()
       if (onScreen.current) {
         setSaved(true)
         onSaved(service)
@@ -78,7 +87,7 @@ export function useSaveService(
     } catch (error) {
       const next = toFailure(error, mode)
       // The service is gone: the dashboard must load again.
-      if (next?.kind === 'not-found') dropList()
+      if (next?.kind === 'not-found') refreshList()
       setFailure(next)
     } finally {
       inFlight.current = false

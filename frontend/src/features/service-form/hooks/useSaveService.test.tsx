@@ -1,5 +1,5 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, renderHook } from '@testing-library/react'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { servicesQueryKey, type Service } from '../../../lib/api/services'
@@ -44,6 +44,79 @@ describe('useSaveService', () => {
     await act(async () => resolve(makeService()))
     expect(result.current.saving).toBe(false)
     expect(result.current.saved).toBe(true)
+  })
+
+  describe('the cached list after a save', () => {
+    function withObserver(send: () => Promise<Service>, listFn: (() => Promise<Service[]>) | null) {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      client.setQueryData(servicesQueryKey, [makeService()])
+      const onSaved = vi.fn()
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      )
+      const observer = listFn
+        ? renderHook(
+            () => useQuery({ queryKey: servicesQueryKey, queryFn: () => listFn() as Promise<Service[]>, staleTime: Infinity }),
+            { wrapper },
+          )
+        : null
+      const saver = renderHook(() => useSaveService('update', send, onSaved), { wrapper })
+      return { client, onSaved, observer, saver }
+    }
+
+    it('refetches it, and keeps it cached, when a list is mounted; onSaved runs once', async () => {
+      const list = vi.fn(async () => [makeService({ name: 'Fresh' })])
+      const { client, onSaved, saver } = withObserver(async () => makeService(), list)
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(0))
+      await act(async () => {
+        await saver.result.current.submit(ADD_DEFAULT_VALUES)
+      })
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(client.getQueryData<Service[]>(servicesQueryKey)?.[0].name).toBe('Fresh'))
+      expect(onSaved).toHaveBeenCalledTimes(1)
+    })
+
+    it('a failed refetch changes nothing about the save: saved, no failure, onSaved ran', async () => {
+      const list = vi.fn(async () => {
+        throw new Error('down')
+      })
+      const { onSaved, saver } = withObserver(async () => makeService(), list)
+      await act(async () => {
+        await saver.result.current.submit(ADD_DEFAULT_VALUES)
+      })
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(1))
+      expect(saver.result.current.saved).toBe(true)
+      expect(saver.result.current.failure).toBeNull()
+      expect(onSaved).toHaveBeenCalledTimes(1)
+    })
+
+    it('removes it when no list is mounted', async () => {
+      const { client, onSaved, saver } = withObserver(async () => makeService(), null)
+      await act(async () => {
+        await saver.result.current.submit(ADD_DEFAULT_VALUES)
+      })
+      expect(client.getQueryData(servicesQueryKey)).toBeUndefined()
+      expect(onSaved).toHaveBeenCalledTimes(1)
+    })
+
+    it('not-found: refetched when a list is mounted', async () => {
+      const list = vi.fn(async () => [])
+      const { client, saver } = withObserver(() => Promise.reject(problem(404, 'not_found')), list)
+      await act(async () => {
+        await saver.result.current.submit(ADD_DEFAULT_VALUES)
+      })
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(1))
+      expect(client.getQueryData(servicesQueryKey)).toEqual([])
+      expect(saver.result.current.failure).toEqual({ kind: 'not-found' })
+    })
+
+    it('not-found: removed when no list is mounted', async () => {
+      const { client, saver } = withObserver(() => Promise.reject(problem(404, 'not_found')), null)
+      await act(async () => {
+        await saver.result.current.submit(ADD_DEFAULT_VALUES)
+      })
+      expect(client.getQueryData(servicesQueryKey)).toBeUndefined()
+    })
   })
 
   it('drops the list on success even when the form has left, and then does not call onSaved', async () => {
