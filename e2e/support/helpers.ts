@@ -633,6 +633,20 @@ export interface TabStop {
   marked: boolean
 }
 
+/**
+ * Waits until focus is not on a focus guard. A dialog's trap wraps focus through two inert, hidden
+ * sentinels placed beside the popup; focus rests on one for an instant and the library then moves it back
+ * inside. The wait is bounded, and a trap that lets focus go elsewhere still fails: focus ends outside.
+ */
+async function waitForRealFocus(page: Page): Promise<void> {
+  await expect
+    .poll(() => page.evaluate(() => document.activeElement?.hasAttribute('data-base-ui-focus-guard') ?? false), {
+      message: 'focus rests on a control, not on a focus guard',
+      timeout: 2_000,
+    })
+    .toBe(false)
+}
+
 /** Reads the control that has focus: its name, its page position and whether it carries a focus outline. */
 async function activeStop(page: Page): Promise<TabStop> {
   return page.evaluate(() => {
@@ -674,6 +688,7 @@ export async function tabThrough(page: Page, options: { max: number; scope?: Loc
   const handle = options.scope ? await options.scope.elementHandle() : null
   for (let i = 0; i < options.max; i++) {
     await page.keyboard.press('Tab')
+    await waitForRealFocus(page)
     const stop = await activeStop(page)
     if (handle) {
       const inside = await page.evaluate((root) => root.contains(document.activeElement), handle)
@@ -691,6 +706,7 @@ export async function expectTabStaysIn(page: Page, scope: Locator, count: number
   expect(handle, 'the scope is on the page').not.toBeNull()
   for (let i = 0; i < count; i++) {
     await page.keyboard.press('Tab')
+    await waitForRealFocus(page)
     const inside = await page.evaluate((root) => root.contains(document.activeElement), handle!)
     expect(inside, `focus is inside the scope after Tab ${i + 1}`).toBe(true)
   }
