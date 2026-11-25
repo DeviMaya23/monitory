@@ -9,7 +9,15 @@ const OPTIONS = [
   { value: 'webhook', text: 'Webhook', icon: <svg data-testid="hook-icon" /> },
 ] as const
 
-function Harness({ onValueChange = vi.fn(), disabled = false }: { onValueChange?: (v: string) => void; disabled?: boolean }) {
+function Harness({
+  onValueChange = vi.fn(),
+  disabled = false,
+  describedBy,
+}: {
+  onValueChange?: (v: string) => void
+  disabled?: boolean
+  describedBy?: string
+}) {
   const [value, setValue] = useState<'email' | 'webhook'>('email')
   return (
     <>
@@ -23,6 +31,7 @@ function Harness({ onValueChange = vi.fn(), disabled = false }: { onValueChange?
         }}
         options={OPTIONS}
         disabled={disabled}
+        describedBy={describedBy}
       />
       <button>after</button>
     </>
@@ -63,6 +72,24 @@ describe('RadioGroup', () => {
     expect(screen.getByRole('radio', { name: 'Email' })).toHaveFocus()
     await user.tab()
     expect(screen.getByRole('button', { name: 'after' })).toHaveFocus()
+  })
+
+  it('is described by the given element, on the group and not on a radio', () => {
+    render(
+      <>
+        <p id="hint">About the choice.</p>
+        <Harness describedBy="hint" />
+      </>,
+    )
+    const group = screen.getByRole('radiogroup', { name: 'Type' })
+    expect(group).toHaveAttribute('aria-describedby', 'hint')
+    expect(group).toHaveAccessibleDescription('About the choice.')
+    expect(screen.getByRole('radio', { name: 'Email' })).not.toHaveAttribute('aria-describedby')
+  })
+
+  it('has no aria-describedby without the prop', () => {
+    render(<Harness />)
+    expect(screen.getByRole('radiogroup', { name: 'Type' })).not.toHaveAttribute('aria-describedby')
   })
 
   it('blocks a click and an arrow key when disabled', async () => {
