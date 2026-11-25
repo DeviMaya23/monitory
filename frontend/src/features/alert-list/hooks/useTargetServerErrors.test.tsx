@@ -74,4 +74,50 @@ describe('useTargetServerErrors', () => {
     expect(result.current.count).toBe(2)
     expect(result.current.errorFor('address')).toBe('Still wrong.')
   })
+
+  describe('clearType', () => {
+    const WEBHOOK_ERRORS = [
+      fieldError('name', 'Too long.'),
+      fieldError('url', 'Not a URL.'),
+      fieldError('headers', 'Too many rows.', 'too_many'),
+      fieldError('headers[3].name', 'Empty.'),
+      fieldError('headers[0].value', 'Too long.'),
+    ]
+
+    it('email drops url, headers and every headers[…] entry, and keeps name and unknown paths', () => {
+      const { result } = setup([...WEBHOOK_ERRORS, fieldError('type', 'Bad type.')])
+      act(() => result.current.clearType('email'))
+      expect(result.current.entries.map((entry) => entry.field)).toEqual(['name', 'type'])
+      expect(result.current.errorFor('url')).toBeNull()
+      expect(result.current.errorFor('name')).toBe('Too long.')
+    })
+
+    it('email drops a lone bare headers error', () => {
+      const { result } = setup([fieldError('headers', 'Too many rows.', 'too_many')])
+      act(() => result.current.clearType('email'))
+      expect(result.current.count).toBe(0)
+    })
+
+    it('webhook drops address and keeps name', () => {
+      const { result } = setup([fieldError('name', 'Too long.'), fieldError('address', 'Not an address.')])
+      act(() => result.current.clearType('webhook'))
+      expect(result.current.entries.map((entry) => entry.field)).toEqual(['name'])
+    })
+
+    it('does not bring entries back on a switch to the first type, and applies to this response only', () => {
+      const { result, rerender } = setup(WEBHOOK_ERRORS)
+      act(() => result.current.clearType('email'))
+      act(() => result.current.clearType('webhook'))
+      expect(result.current.entries.map((entry) => entry.field)).toEqual(['name'])
+      rerender({ errors: [...WEBHOOK_ERRORS] })
+      expect(result.current.count).toBe(5)
+    })
+
+    it('keeps earlier edits when the type switches', () => {
+      const { result } = setup([fieldError('name', 'Too long.'), fieldError('address', 'No.'), fieldError('url', 'No.')])
+      act(() => result.current.clearField('name'))
+      act(() => result.current.clearType('webhook'))
+      expect(result.current.entries.map((entry) => entry.field)).toEqual(['url'])
+    })
+  })
 })

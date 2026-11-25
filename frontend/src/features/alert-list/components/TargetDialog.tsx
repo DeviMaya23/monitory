@@ -284,6 +284,7 @@ export function TargetDialog({ serviceId, state, onFinish, finalFocus }: Props) 
                 onValueChange={(next) => {
                   field.onChange(next)
                   clearErrors(['address', 'url'])
+                  serverErrors.clearType(next)
                 }}
                 options={TYPE_OPTIONS}
                 disabled={saving}

@@ -206,6 +206,12 @@ describe('opening the add dialog', () => {
 })
 
 describe('the form', () => {
+  it('has a type radiogroup without a description', async () => {
+    await shown(makeTargetList(mail))
+    await openAddDialog()
+    expect(screen.getByRole('radiogroup', { name: 'Type' })).not.toHaveAttribute('aria-describedby')
+  })
+
   it('shows the webhook fields on Webhook, keeps what was typed per type, and sends only the active type’s fields', async () => {
     vi.mocked(createTarget).mockResolvedValue(makeWebhookTarget())
     await shown(makeTargetList(mail))
@@ -546,6 +552,59 @@ describe('failures', () => {
     expect(screen.queryByText('Header name is empty.')).not.toBeInTheDocument()
     expect(within(summary).queryByText(/Header 1 name/)).not.toBeInTheDocument()
     expect(summary).toHaveTextContent('2 fields need fixing')
+  })
+
+  describe('switching the type after a 422', () => {
+    const rejectWith = (...errors: ReturnType<typeof fieldError>[]) =>
+      vi.mocked(createTarget).mockRejectedValue(validationProblem(...errors))
+    const emailRadio = () => screen.getByRole('radio', { name: 'Email' })
+
+    it('Email drops the Webhook URL and header entries, keeps Name, retitles, and leaves focus on the radio', async () => {
+      rejectWith(fieldError('name', 'Name is too long.'), fieldError('url', 'Not a URL.'), fieldError('headers[0].value', 'Too long.'))
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await chooseWebhook()
+      await user.type(urlInput(), 'nope')
+      await user.click(screen.getByRole('button', { name: 'Add header' }))
+      await submit()
+      const summary = await inDialog().findByRole('alert')
+      expect(summary).toHaveTextContent('3 fields need fixing before this can be saved.')
+      await user.click(emailRadio())
+      expect(summary).toHaveTextContent('1 field needs fixing before this can be saved.')
+      expect(summary).toHaveTextContent('Name: Name is too long.')
+      expect(screen.queryByText(/Webhook URL/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Custom headers|Header 1 value/)).not.toBeInTheDocument()
+      expect(emailRadio()).toHaveFocus()
+      expect(nameInput()).toHaveAccessibleDescription('Name is too long.')
+    })
+
+    it('Webhook drops the address entry and keeps Name', async () => {
+      rejectWith(fieldError('name', 'Name is too long.'), fieldError('address', 'Not an address.'))
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await fillEmail('bad')
+      await submit()
+      const summary = await inDialog().findByRole('alert')
+      await chooseWebhook()
+      expect(summary).toHaveTextContent('1 field needs fixing')
+      expect(summary).toHaveTextContent('Name: Name is too long.')
+      expect(summary).not.toHaveTextContent('Email address')
+      expect(screen.getByRole('radio', { name: 'Webhook' })).toHaveFocus()
+    })
+
+    it('removes the whole summary when only the other type’s entries were left, and does not bring them back', async () => {
+      rejectWith(fieldError('address', 'Not an address.'))
+      await shown(makeTargetList(mail))
+      await openAddDialog()
+      await fillEmail('bad')
+      await submit()
+      await inDialog().findByRole('alert')
+      await chooseWebhook()
+      expect(inDialog().queryByRole('alert')).not.toBeInTheDocument()
+      await user.click(emailRadio())
+      expect(inDialog().queryByRole('alert')).not.toBeInTheDocument()
+      expect(addressInput()).not.toHaveAccessibleDescription('Not an address.')
+    })
   })
 
   it('a single error is titled in the singular', async () => {
