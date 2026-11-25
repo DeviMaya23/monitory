@@ -933,17 +933,14 @@ func TestCheckHTTP_JSONBodyReadInsideTimeout(t *testing.T) {
 	rules := []domain.JSONRule{{Field: "status", FailingValue: "down"}}
 	const timeout = 150 * time.Millisecond
 
-	// slow sends headers and the start of a body at once, the rest after the timeout.
+	// slow sends headers and the start of a body at once and never the rest: it waits
+	// until the request ends.
 	slow := func(status int) string {
 		return rawServer(t, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(status)
 			_, _ = w.Write([]byte(`{"status":`))
 			w.(http.Flusher).Flush()
-			select {
-			case <-time.After(3 * timeout):
-				_, _ = w.Write([]byte(`"down"}`))
-			case <-r.Context().Done():
-			}
+			<-r.Context().Done()
 		})
 	}
 	// cutOff declares a length (or chunks) and closes the connection mid-body.
@@ -965,7 +962,11 @@ func TestCheckHTTP_JSONBodyReadInsideTimeout(t *testing.T) {
 	t.Run("slow 2xx body times out with rules, healthy without", func(t *testing.T) {
 		url := slow(200)
 		requireFailed(t, run(t, 3, withRules(get(url, timeout), "", rules...)), domain.FailureTimedOut)
-		requireHealthy(t, run(t, 3, get(url, timeout)))
+		// A probe that read the body would wait out longTimeout (the body never ends)
+		// and still judge the 2xx healthy, so the verdict alone cannot show it.
+		begin := time.Now()
+		requireHealthy(t, run(t, 3, get(url, longTimeout)))
+		assert.Less(t, time.Since(begin), longTimeout, "a check without rules waited for the body")
 	})
 	t.Run("slow 500 body times out", func(t *testing.T) {
 		requireFailed(t, run(t, 3, withRules(get(slow(500), timeout), "", rules...)), domain.FailureTimedOut)

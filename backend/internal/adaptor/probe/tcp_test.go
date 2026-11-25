@@ -212,11 +212,15 @@ func TestCheckTCP_Timeout(t *testing.T) {
 
 	begin := time.Now()
 	res, err := p.CheckTCP(t.Context(), domain.TCPCheck{Host: "h.test", Port: 81, Timeout: 50 * time.Millisecond})
+	end := time.Now()
 
 	require.NoError(t, err)
 	requireFailure(t, res, domain.FailureTimedOut)
 	require.True(t, hasDeadline, "the dialer's context has no deadline")
-	assert.WithinDuration(t, begin.Add(50*time.Millisecond), deadline, 40*time.Millisecond)
+	// The deadline is made during the call, so it lies between these two bounds however
+	// late the test runs.
+	assert.False(t, deadline.Before(begin.Add(50*time.Millisecond)), "deadline %v is before begin + 50ms", deadline)
+	assert.False(t, deadline.After(end.Add(50*time.Millisecond)), "deadline %v is after end + 50ms", deadline)
 }
 
 func TestCheckTCP_NonPositiveTimeout(t *testing.T) {
